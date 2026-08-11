@@ -36,9 +36,12 @@ function statusLabel(resource: ResourceSummary): string {
     <header class="site-header">
       <div class="header-inner">
         <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
-        <span class="header-state">
-          {registry.index ? 'Local production index' : 'Registry unavailable'}
-        </span>
+        <div class="header-tools">
+          <span class="header-state">
+            {registry.index ? 'Local production index' : 'Registry unavailable'}
+          </span>
+          <a class="header-link" href="/settings/">Settings</a>
+        </div>
       </div>
     </header>
 

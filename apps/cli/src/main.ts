@@ -3,8 +3,6 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { defineCommand, runMain } from 'citty';
-import { resourceKey } from '@ai-directory/domain';
-import { installClaudeCodeResources } from '@ai-directory/installers';
 import {
   clearConfigFile,
   getConfigPath,
@@ -13,7 +11,10 @@ import {
   resolveRepository,
   writeConfigFile,
   type ConfigScope,
-} from './config.js';
+} from '@ai-directory/config';
+import { cancel, intro, isCancel, outro, select, spinner, text } from '@clack/prompts';
+import { resourceKey } from '@ai-directory/domain';
+import { installClaudeCodeResources } from '@ai-directory/installers';
 import {
   fetchRegistryIndex,
   readRegistryIndex,
@@ -457,6 +458,11 @@ const web = defineCommand({
       default: '4321',
       description: 'Port for the local website',
     },
+    'api-port': {
+      type: 'string',
+      default: '4317',
+      description: 'Port for the local configuration API',
+    },
     open: {
       type: 'boolean',
       description: 'Open the website in the default browser',
@@ -480,35 +486,260 @@ const web = defineCommand({
     }
 
     const indexPath = resolve(workspaceRoot, args.index ?? defaultIndexPath);
-    const command = [
-      'pnpm',
-      'dev',
-      '--host',
-      args.host ?? '127.0.0.1',
-      '--port',
-      args.port ?? '4321',
-      ...(args.open ? ['--open'] : []),
-    ];
-
-    console.log(`Starting the local AI Directory website at http://${args.host}:${args.port}`);
-    console.log(`Registry index: ${indexPath}`);
-
-    const child = Bun.spawn(command, {
-      cwd: webDirectory,
+    const apiPort = args['api-port'] ?? '4317';
+    const apiUrl = `http://127.0.0.1:${apiPort}`;
+    const api = Bun.spawn(['pnpm', '--filter', '@ai-directory/api', 'dev'], {
+      cwd: workspaceRoot,
       env: {
         ...process.env,
-        AI_DIRECTORY_REGISTRY_INDEX: indexPath,
+        AI_DIRECTORY_CONFIG_CWD: process.cwd(),
+        AI_DIRECTORY_PORT: apiPort,
       },
       stderr: 'inherit',
       stdout: 'inherit',
     });
 
-    const exitCode = await child.exited;
+    try {
+      await waitForLocalApi(`${apiUrl}/health`);
 
-    if (exitCode !== 0) {
-      console.error(`Local website exited with code ${exitCode}.`);
-      process.exitCode = exitCode;
+      const command = [
+        'pnpm',
+        'dev',
+        '--host',
+        args.host ?? '127.0.0.1',
+        '--port',
+        args.port ?? '4321',
+        ...(args.open ? ['--open'] : []),
+      ];
+
+      console.log(`Starting the local AI Directory website at http://${args.host}:${args.port}`);
+      console.log(`Local configuration API: ${apiUrl}`);
+      console.log(`Registry index: ${indexPath}`);
+
+      const child = Bun.spawn(command, {
+        cwd: webDirectory,
+        env: {
+          ...process.env,
+          AI_DIRECTORY_REGISTRY_INDEX: indexPath,
+          PUBLIC_AI_DIRECTORY_API_URL: apiUrl,
+        },
+        stderr: 'inherit',
+        stdout: 'inherit',
+      });
+
+      const exitCode = await child.exited;
+
+      if (exitCode !== 0) {
+        console.error(`Local website exited with code ${exitCode}.`);
+        process.exitCode = exitCode;
+      }
+    } finally {
+      api.kill();
+      await api.exited;
     }
+  },
+});
+
+async function waitForLocalApi(url: string): Promise<void> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {
+      // The API process may need a few moments to start.
+    }
+
+    await Bun.sleep(100);
+  }
+
+  throw new Error(`Local configuration API did not start at ${url}.`);
+}
+
+const setup = defineCommand({
+  meta: {
+    name: 'setup',
+    description: 'Connect AI Directory to a registry Git repository',
+  },
+  args: {
+    repository: {
+      type: 'string',
+      description: 'Registry Git URL; skips the repository prompt',
+    },
+    scope: {
+      type: 'enum',
+      options: ['user', 'project'],
+      description: 'Config scope; skips the scope prompt',
+    },
+    'non-interactive': {
+      type: 'boolean',
+      description: 'Require flags and do not show prompts',
+    },
+    'skip-check': {
+      type: 'boolean',
+      description: 'Save the repository without checking Git access',
+    },
+  },
+  async run({ args }) {
+    const nonInteractive = args['non-interactive'] ?? false;
+    const existing = getRepositorySetting();
+
+    try {
+      if (!nonInteractive) intro('AI Directory setup');
+
+      let repository = args.repository?.trim() || existing.value;
+
+      if (!args.repository && !nonInteractive) {
+        const answer = await text({
+          message: 'What is the registry Git URL?',
+          placeholder: 'git@github.com:company/ai-directory-registry.git',
+          ...(existing.value ? { initialValue: existing.value } : {}),
+          validate(value) {
+            if (!value.trim()) return 'A registry Git URL is required.';
+          },
+        });
+
+        if (isCancel(answer)) {
+          cancel('Setup cancelled.');
+          return;
+        }
+
+        repository = answer.trim();
+      }
+
+      if (!repository) {
+        throw new Error(
+          'No registry repository configured. Pass --repository or run setup interactively.',
+        );
+      }
+
+      let scope: ConfigScope;
+
+      if (args.scope) {
+        scope = args.scope as ConfigScope;
+      } else if (nonInteractive) {
+        scope = 'user';
+      } else {
+        const answer = await select({
+          message: 'Where should this configuration apply?',
+          options: [
+            { value: 'user', label: 'This user', hint: 'Use it across projects' },
+            { value: 'project', label: 'This project', hint: 'Save it in .ai-directory/config.json' },
+          ],
+        });
+
+        if (isCancel(answer)) {
+          cancel('Setup cancelled.');
+          return;
+        }
+
+        scope = answer as ConfigScope;
+      }
+
+      if (!args['skip-check']) {
+        const progress = spinner();
+        progress.start('Checking Git access and reading the production registry');
+
+        try {
+          const index = await readRemoteRegistryIndex({ repositoryUrl: repository });
+          progress.stop(`Connected. Found ${index.resources.length} resource(s).`);
+        } catch (error) {
+          progress.stop('Could not read the registry.');
+          throw error;
+        }
+      }
+
+      const path = getConfigPath(scope);
+      const current = readConfigFile(path);
+      await writeConfigFile(path, { ...current, repository });
+
+      if (!nonInteractive) {
+        outro(`Saved the registry repository in the ${scope} config.`);
+      } else {
+        console.log(`Saved the registry repository in the ${scope} config: ${path}`);
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  },
+});
+
+const doctor = defineCommand({
+  meta: {
+    name: 'doctor',
+    description: 'Check registry configuration and Git access',
+  },
+  args: {
+    repository: {
+      type: 'string',
+      description: 'Registry Git URL override',
+    },
+    base: {
+      type: 'string',
+      default: 'main',
+      description: 'Production branch to check',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Print machine-readable diagnostics',
+    },
+  },
+  async run({ args }) {
+    const setting = getRepositorySetting(args.repository);
+    const diagnostics: {
+      ok: boolean;
+      repository: string | null;
+      source: string;
+      branch: string;
+      resourceCount?: number;
+      activeCount?: number;
+      unreviewedCount?: number;
+      error?: string;
+    } = {
+      ok: false,
+      repository: setting.value ?? null,
+      source: setting.source,
+      branch: args.base ?? 'main',
+    };
+
+    if (!setting.value) {
+      diagnostics.error = 'No registry repository is configured. Run aid setup.';
+    } else {
+      try {
+        const index = await readRemoteRegistryIndex({
+          repositoryUrl: setting.value,
+          baseBranch: args.base,
+        });
+        diagnostics.ok = true;
+        diagnostics.resourceCount = index.resources.length;
+        diagnostics.activeCount = index.resources.filter(
+          (resource) => resource.lifecycleStatus === 'active',
+        ).length;
+        diagnostics.unreviewedCount = index.resources.filter(
+          (resource) => resource.reviewStatus === 'unreviewed',
+        ).length;
+      } catch (error) {
+        diagnostics.error = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    if (args.json) {
+      console.log(JSON.stringify(diagnostics, null, 2));
+    } else {
+      console.log(`Repository: ${diagnostics.repository ?? 'not configured'}`);
+      console.log(`Source: ${diagnostics.source}`);
+      console.log(`Branch: ${diagnostics.branch}`);
+
+      if (diagnostics.ok) {
+        console.log(`Registry: reachable (${diagnostics.resourceCount} resource(s))`);
+        console.log(`Active: ${diagnostics.activeCount}`);
+        console.log(`Unreviewed: ${diagnostics.unreviewedCount}`);
+      } else {
+        console.error(`Registry: unavailable. ${diagnostics.error}`);
+      }
+    }
+
+    if (!diagnostics.ok) process.exitCode = 1;
   },
 });
 
@@ -649,7 +880,7 @@ const main = defineCommand({
     version: '0.0.0',
     description: 'AI Directory resource registry',
   },
-  subCommands: { list, show, check, submit, install, web, config },
+  subCommands: { list, show, check, submit, install, web, setup, doctor, config },
 });
 
 runMain(main);

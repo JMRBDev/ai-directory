@@ -6,7 +6,7 @@ import {
   getRepositorySetting,
   readConfigFile,
   writeConfigFile,
-} from '../src/config.js';
+} from '../src/index.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -51,7 +51,9 @@ describe('AI Directory config', () => {
         value: 'git@github.com:company/env-registry.git',
         source: 'environment',
       });
-      expect(getRepositorySetting('git@github.com:company/argument-registry.git', directory)).toEqual({
+      expect(
+        getRepositorySetting('git@github.com:company/argument-registry.git', directory),
+      ).toEqual({
         value: 'git@github.com:company/argument-registry.git',
         source: 'argument',
       });

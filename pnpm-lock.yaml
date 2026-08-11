@@ -45,6 +45,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@ai-directory/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@ai-directory/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -66,9 +69,6 @@ importers:
       citty:
         specifier: ^0.2.2
         version: 0.2.2
-      env-paths:
-        specifier: ^4.0.0
-        version: 4.0.0
     devDependencies:
       bun-types:
         specifier: ^1.3.14
@@ -95,6 +95,22 @@ importers:
       astro:
         specifier: ^7.2.0
         version: 7.2.0(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.2.0)(tsx@4.23.12)(yaml@2.9.0)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.2.0)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/config:
+    dependencies:
+      env-paths:
+        specifier: ^4.0.0
+        version: 4.0.0
+    devDependencies:
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -180,6 +196,9 @@ importers:
 
   packages/server-core:
     dependencies:
+      '@ai-directory/config':
+        specifier: workspace:*
+        version: link:../config
       '@ai-directory/contracts':
         specifier: workspace:*
         version: link:../contracts

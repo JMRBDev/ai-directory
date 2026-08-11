@@ -89,6 +89,9 @@ export function getRepositorySetting(
   return { source: 'none' };
 }
 
-export function resolveRepository(explicitRepository?: string, cwd = process.cwd()): string | undefined {
+export function resolveRepository(
+  explicitRepository?: string,
+  cwd = process.cwd(),
+): string | undefined {
   return getRepositorySetting(explicitRepository, cwd).value;
 }

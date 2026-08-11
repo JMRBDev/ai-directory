@@ -1,5 +1,5 @@
 {
-  "name": "@ai-directory/server-core",
+  "name": "@ai-directory/config",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -17,13 +17,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@ai-directory/config": "workspace:*",
-    "@ai-directory/contracts": "workspace:*",
-    "@ai-directory/domain": "workspace:*",
-    "@ai-directory/registry": "workspace:*",
-    "hono": "^4.13.1"
+    "env-paths": "^4.0.0"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }
