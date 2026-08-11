@@ -6,6 +6,7 @@ import {
   fetchRegistryIndex,
   readRegistryIndex,
   readResourceVersion,
+  validateRegistry,
 } from '@ai-directory/registry';
 
 const defaultIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX ?? '.ai-directory/registry/index.json';
@@ -135,13 +136,47 @@ const show = defineCommand({
   },
 });
 
+const check = defineCommand({
+  meta: {
+    name: 'check',
+    description: 'Validate the local registry index and resource packages',
+  },
+  args: {
+    index: {
+      type: 'string',
+      alias: 'i',
+      default: defaultIndexPath,
+      description: 'Path to a registry index JSON file',
+    },
+  },
+  async run({ args }) {
+    try {
+      const result = await validateRegistry(args.index);
+
+      if (result.issues.length > 0) {
+        console.error(`Registry check failed with ${result.issues.length} issue(s):`);
+        for (const issue of result.issues) {
+          console.error(`- ${issue}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      console.log(`Registry is valid. Checked ${result.resourceCount} resource(s).`);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  },
+});
+
 const main = defineCommand({
   meta: {
     name: 'aid',
     version: '0.0.0',
     description: 'AI Directory resource registry',
   },
-  subCommands: { list, show },
+  subCommands: { list, show, check },
 });
 
 runMain(main);
