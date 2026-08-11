@@ -2,11 +2,12 @@
 
 import { defineCommand, runMain } from 'citty';
 import { resourceKey } from '@ai-directory/domain';
-import { installClaudeCodeResource } from '@ai-directory/installers';
+import { installClaudeCodeResources } from '@ai-directory/installers';
 import {
   fetchRegistryIndex,
   readRegistryIndex,
   readResourceVersion,
+  readTemplateResources,
   validateRegistry,
 } from '@ai-directory/registry';
 
@@ -216,28 +217,51 @@ const install = defineCommand({
   },
   async run({ args }) {
     try {
-      const result = await readResourceVersion(
-        args.index ?? defaultIndexPath,
-        args.resource,
-        args.version,
-      );
+      const indexPath = args.index ?? defaultIndexPath;
+      const result = await readResourceVersion(indexPath, args.resource, args.version);
 
       if (args.harness !== 'claude-code') {
         throw new Error(`Unsupported harness: ${args.harness}`);
       }
 
-      if (result.resource.reviewStatus === 'unreviewed') {
-        console.warn('Warning: This resource has not been reviewed.');
+      const resources =
+        result.resource.type === 'templates'
+          ? await readTemplateResources(indexPath, result)
+          : [result];
+
+      for (const resource of [result, ...resources]) {
+        if (resource.resource.reviewStatus === 'unreviewed') {
+          console.warn(
+            `Warning: ${resourceKey(resource.resource)}@${resource.version} has not been reviewed.`,
+          );
+        }
       }
 
-      const installation = await installClaudeCodeResource(result, {
+      const installations = await installClaudeCodeResources(resources, {
         scope: args.scope,
         force: args.force ?? false,
       });
 
-      console.log(`Installed ${resourceKey(result.resource)}@${result.version} for Claude Code.`);
-      console.log(`Location: ${installation.destination}`);
-      console.log(`Files: ${installation.files.join(', ')}`);
+      if (result.resource.type === 'templates') {
+        console.log(
+          `Installed ${resourceKey(result.resource)}@${result.version} with ${resources.length} resource(s) for Claude Code.`,
+        );
+      } else {
+        console.log(`Installed ${resourceKey(result.resource)}@${result.version} for Claude Code.`);
+      }
+
+      for (const [index, resource] of resources.entries()) {
+        const installation = installations[index];
+
+        if (!installation) {
+          throw new Error(`Installation result missing for ${resourceKey(resource.resource)}.`);
+        }
+
+        console.log(
+          `Location: ${installation.destination} (${resourceKey(resource.resource)}@${resource.version})`,
+        );
+        console.log(`Files: ${installation.files.join(', ')}`);
+      }
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;

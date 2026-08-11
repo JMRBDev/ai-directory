@@ -3,11 +3,14 @@ import { readdir, readFile, realpath } from 'node:fs/promises';
 import {
   registryIndexSchema,
   resourceVersionSchema,
+  templateManifestSchema,
   type ResourceType,
   type ResourceSummary,
   type RegistryIndex,
+  type TemplateManifest,
 } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/domain';
+import { parse as parseYaml } from 'yaml';
 
 export type ResourceFile = {
   path: string;
@@ -152,6 +155,71 @@ export async function readResourceVersion(
   }
 
   return { resource, version, files };
+}
+
+export function readTemplateManifest(resource: ResourceVersion): TemplateManifest {
+  if (resource.resource.type !== 'templates') {
+    throw new Error(`Resource is not a template: ${resourceKey(resource.resource)}`);
+  }
+
+  const templateFile = resource.files.find((file) => file.path === 'TEMPLATE.md');
+
+  if (!templateFile) {
+    throw new Error(`Template is missing TEMPLATE.md: ${resourceKey(resource.resource)}`);
+  }
+
+  const frontmatter = templateFile.content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+
+  if (!frontmatter) {
+    throw new Error(
+      `Template manifest is missing YAML frontmatter: ${resourceKey(resource.resource)}@${resource.version}`,
+    );
+  }
+
+  let data: unknown;
+  const yaml = frontmatter[1] ?? '';
+
+  try {
+    data = parseYaml(yaml);
+  } catch (error) {
+    throw new Error(
+      `Template manifest is not valid YAML: ${resourceKey(resource.resource)}@${resource.version}`,
+      { cause: error },
+    );
+  }
+
+  const result = templateManifestSchema.safeParse(data);
+
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `${issue.path.join('.') || 'manifest'}: ${issue.message}`)
+      .join('; ');
+
+    throw new Error(
+      `Template manifest is invalid (${resourceKey(resource.resource)}@${resource.version}): ${issues}`,
+    );
+  }
+
+  if (result.data.name !== resource.resource.name) {
+    throw new Error(
+      `Template manifest name does not match resource name: ${result.data.name} !== ${resource.resource.name}`,
+    );
+  }
+
+  return result.data;
+}
+
+export async function readTemplateResources(
+  indexPath: string,
+  template: ResourceVersion,
+): Promise<ResourceVersion[]> {
+  const manifest = readTemplateManifest(template);
+
+  return Promise.all(
+    manifest.resources.map((resource) =>
+      readResourceVersion(indexPath, resource.id, resource.version),
+    ),
+  );
 }
 
 export async function validateRegistry(indexPath: string): Promise<RegistryValidationResult> {

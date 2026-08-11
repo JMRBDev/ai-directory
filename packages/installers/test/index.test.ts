@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ResourceVersion } from '@ai-directory/registry';
-import { installClaudeCodeResource } from '../src/index.js';
+import {
+  installClaudeCodeResource,
+  installClaudeCodeResources,
+} from '../src/index.js';
 
 const resource = {
   resource: {
@@ -109,14 +112,13 @@ describe('installClaudeCodeResource', () => {
   it('installs agents and rules as Claude Code flat files', async () => {
     const projectDirectory = await createTemporaryDirectory();
 
-    const agentResult = await installClaudeCodeResource(agentResource, {
-      scope: 'project',
-      cwd: projectDirectory,
-    });
-    const ruleResult = await installClaudeCodeResource(ruleResource, {
-      scope: 'project',
-      cwd: projectDirectory,
-    });
+    const [agentResult, ruleResult] = await installClaudeCodeResources(
+      [agentResource, ruleResource],
+      {
+        scope: 'project',
+        cwd: projectDirectory,
+      },
+    );
 
     expect(agentResult.destination).toBe(
       join(projectDirectory, '.claude', 'agents', 'api-reviewer.md'),
@@ -154,6 +156,38 @@ describe('installClaudeCodeResource', () => {
         'utf8',
       ),
     ).resolves.toBe('- Prefer narrow types\n');
+  });
+
+  it('checks a batch before writing files', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+
+    await installClaudeCodeResource(resource, {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+
+    await expect(
+      installClaudeCodeResources([resource, agentResource], {
+        scope: 'project',
+        cwd: projectDirectory,
+      }),
+    ).rejects.toThrow('Use --force to overwrite.');
+
+    await expect(
+      readFile(join(projectDirectory, '.claude', 'agents', 'api-reviewer.md'), 'utf8'),
+    ).rejects.toThrow();
+  });
+
+  it('rejects overlapping batch destinations even with force', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+
+    await expect(
+      installClaudeCodeResources([resource, resource], {
+        scope: 'project',
+        cwd: projectDirectory,
+        force: true,
+      }),
+    ).rejects.toThrow('Install resources overlap');
   });
 
   it('does not install templates as standalone Claude Code resources', async () => {
