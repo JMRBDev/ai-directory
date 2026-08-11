@@ -103,6 +103,12 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         return document.querySelector('input[name="scope"]:checked')?.value ?? 'user';
       }
 
+      function selectScope(scope) {
+        if (scope !== 'user' && scope !== 'project') return;
+        const input = document.querySelector(`input[name="scope"][value="${scope}"]`);
+        if (input) input.checked = true;
+      }
+
       function showStatus(message, isError = false) {
         if (!status) return;
         status.textContent = message;
@@ -116,6 +122,7 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
           if (!response.ok) throw new Error(result.error ?? 'Could not load settings.');
 
           if (repository && result.repository) repository.value = result.repository;
+          selectScope(result.source);
           if (source) source.textContent = result.source === 'none' ? 'Not configured' : result.source;
           showStatus(result.repository ? 'Ready to use.' : 'Enter a registry repository to get started.');
         } catch (error) {
@@ -144,7 +151,13 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
           if (!response.ok) throw new Error(result.error ?? 'Could not save settings.');
 
           if (source) source.textContent = result.source;
-          showStatus(`Saved in the ${result.savedScope} config.`);
+          if (result.source !== result.savedScope) {
+            showStatus(
+              `Saved in the ${result.savedScope} config. The ${result.source} setting is still active.`,
+            );
+          } else {
+            showStatus(`Saved in the ${result.savedScope} config.`);
+          }
         } catch (error) {
           showStatus(error instanceof Error ? error.message : 'Could not save settings.', true);
         }
@@ -162,7 +175,13 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
 
           if (repository) repository.value = result.repository ?? '';
           if (source) source.textContent = result.source === 'none' ? 'Not configured' : result.source;
-          showStatus(`Cleared the ${result.clearedScope} config.`);
+          if (result.source !== 'none' && result.source !== result.clearedScope) {
+            showStatus(
+              `Cleared the ${result.clearedScope} config. The ${result.source} setting is still active.`,
+            );
+          } else {
+            showStatus(`Cleared the ${result.clearedScope} config.`);
+          }
         } catch (error) {
           showStatus(error instanceof Error ? error.message : 'Could not clear settings.', true);
         }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -14,6 +14,7 @@ import {
   readTemplateResources,
   submitResource,
   validateRegistry,
+  validateRemoteRegistry,
 } from '../src/index.js';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/index.json', import.meta.url));
@@ -91,6 +92,40 @@ describe('readRegistryIndex', () => {
         async () => new Response(null, { status: 503, statusText: 'Unavailable' }),
       ),
     ).rejects.toThrow('Registry index request failed (503 Unavailable)');
+  });
+
+  it('validates resource packages from a temporary remote checkout', async () => {
+    const commands: string[] = [];
+    const temporaryRepositories: string[] = [];
+    const fixtureDirectory = fileURLToPath(new URL('./fixtures', import.meta.url));
+
+    const result = await validateRemoteRegistry({
+      repositoryUrl: 'git@example.com:company/registry.git',
+      commandRunner: async (command, args) => {
+        commands.push(`${command} ${args.join(' ')}`);
+
+        if (command === 'git' && args[0] === 'clone') {
+          const destination = args.at(-1);
+
+          if (!destination) throw new Error('Missing clone destination.');
+
+          temporaryRepositories.push(destination);
+          await cp(fixtureDirectory, destination, { recursive: true });
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    expect(result).toEqual({ resourceCount: 3, issues: [] });
+    expect(commands).toContain(
+      'git sparse-checkout set index.json resources/jane-doe/agents/api-reviewer/0.3.0',
+    );
+    await Promise.all(
+      temporaryRepositories.map((directory) =>
+        expect(readFile(join(directory, 'index.json'), 'utf8')).rejects.toThrow(),
+      ),
+    );
   });
 
   it('loads a resource version and nested supporting files', async () => {

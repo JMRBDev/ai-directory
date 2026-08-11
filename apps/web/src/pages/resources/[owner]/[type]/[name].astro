@@ -1,11 +1,17 @@
 ---
 import type { ResourceSummary } from '@ai-directory/contracts';
-import { loadLocalRegistry, loadLocalResource, resourceId } from '../../../../lib/registry';
+import {
+  loadLocalRegistry,
+  loadLocalResource,
+  resourceId,
+  type LocalRegistry,
+} from '../../../../lib/registry';
 import '../../../../styles/catalog.css';
 
 type Props = {
   resource: ResourceSummary;
   version: Awaited<ReturnType<typeof loadLocalResource>>['version'];
+  source: LocalRegistry['source'];
   fileError?: string;
 };
 
@@ -18,7 +24,7 @@ export async function getStaticPaths() {
     registry.index.resources
       .filter((resource) => resource.lifecycleStatus === 'active')
       .map(async (resource) => {
-        const result = await loadLocalResource(registry.indexPath, resource);
+        const result = await loadLocalResource(registry.indexPath, resource, registry.repository);
 
         return {
           params: {
@@ -29,6 +35,7 @@ export async function getStaticPaths() {
           props: {
             resource,
             version: result.version,
+            source: registry.source,
             ...(result.error ? { fileError: result.error } : {}),
           },
         };
@@ -36,7 +43,7 @@ export async function getStaticPaths() {
   );
 }
 
-const { resource, version, fileError } = Astro.props as Props;
+const { resource, version, source, fileError } = Astro.props as Props;
 const title = `${resource.name} | AI Directory`;
 const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
 ---
@@ -53,7 +60,9 @@ const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
     <header class="site-header">
       <div class="header-inner">
         <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
-        <span class="header-state">Local production index</span>
+        <span class="header-state">
+          {source === 'remote' ? 'Remote' : 'Local'} production index
+        </span>
       </div>
     </header>
 

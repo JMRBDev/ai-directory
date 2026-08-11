@@ -82,6 +82,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@ai-directory/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@ai-directory/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

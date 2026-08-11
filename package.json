@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=@ai-directory/api --filter=@ai-directory/web",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean"
