@@ -8,7 +8,7 @@ The repository is a Turborepo monorepo. It contains the local website, the Hono 
 
 - Turborepo and pnpm workspaces
 - TypeScript
-- Hono for the local and hosted HTTP application boundary
+- Hono for the local HTTP application boundary
 - Astro for the website
 - Bun for the CLI runtime and release binaries
 - Citty for CLI commands and flags
@@ -18,7 +18,7 @@ The repository is a Turborepo monorepo. It contains the local website, the Hono 
 
 ```text
 apps/
-  api/              Hosted Hono entrypoint
+  api/              Local Hono entrypoint
   cli/              Bun CLI entrypoint
   web/              Astro website
 
@@ -40,22 +40,28 @@ pnpm dev
 
 The root `dev` command starts the long-running API and website. The CLI is command-driven and is not part of that process; run it directly with `apps/cli/dist/aid ...` after `pnpm build`. The workspace contains the first discovery slices. Product behavior will continue to be added in small vertical slices.
 
-## Resource discovery
-
-The first feature reads a validated registry index and lists active resources:
+Run the development CLI without building its compiled binary:
 
 ```sh
-pnpm build
+pnpm --filter @ai-directory/cli dev -- list
+pnpm --filter @ai-directory/cli dev -- --help
+```
+
+## Resource discovery
+
+After setup, normal commands read the production branch of the configured Git registry:
+
+```sh
+apps/cli/dist/aid list
+```
+
+For development or offline work, pass an explicit local index:
+
+```sh
 apps/cli/dist/aid list --index /path/to/registry/index.json
 ```
 
-To read the index directly from the Git server without cloning the repository:
-
-```sh
-apps/cli/dist/aid list --remote https://git.company.internal/raw/main/index.json
-```
-
-The default index path is `.ai-directory/registry/index.json`. Set `AI_DIRECTORY_REGISTRY_INDEX` or `AI_DIRECTORY_REGISTRY_INDEX_URL` to change the local or remote source. Use `--type`, `--include-retired`, or `--json` to filter the result.
+The CLI uses a temporary sparse checkout for Git reads. It does not keep a registry clone. `--index` and `AI_DIRECTORY_REGISTRY_INDEX` are explicit local overrides. Use `--type`, `--include-retired`, or `--json` to filter the result.
 
 Set the company registry once for the current user:
 
@@ -65,6 +71,14 @@ apps/cli/dist/aid config set repository \
 ```
 
 After this, `list`, `show`, `install`, and `submit` use the configured Git repository by default. Use `--scope project` to store an override in `.ai-directory/config.json`, or use `AI_DIRECTORY_REGISTRY_REPOSITORY` for an environment-level override. Inspect the effective value with `aid config get repository`.
+
+List the available configuration options:
+
+```sh
+apps/cli/dist/aid config list
+```
+
+`--index` and `AI_DIRECTORY_REGISTRY_INDEX` are runtime local-index overrides. They are not stored configuration values.
 
 Set up the CLI interactively:
 
@@ -101,7 +115,7 @@ apps/cli/dist/aid web --open
 
 Open `/settings/` to configure the registry repository from the browser. The page writes through the local API, so the CLI and website share the same user/project configuration. Use `--index`, `--host`, `--port`, or `--api-port` to change the local setup. The command starts Astro and the local API from the workspace.
 
-Inspect a version from the linked local registry:
+Inspect a version from the configured registry:
 
 ```sh
 apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review
@@ -109,14 +123,14 @@ apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review
 
 Use `--version` to inspect a specific version or `--json` for machine-readable output.
 
-Read a version directly from the registry Git repository without keeping a local checkout:
+Pass a repository for a one-command override:
 
 ```sh
 apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review \
   --repository git@github.com:company/ai-directory-registry.git
 ```
 
-The command uses a temporary sparse checkout for `index.json` and the requested resource. It removes that checkout after reading.
+The command uses a temporary sparse checkout for `index.json` and the requested resource. It removes that checkout after reading. An explicit `--index` takes precedence over the repository option.
 
 Validate the configured remote registry before using it:
 
@@ -124,7 +138,7 @@ Validate the configured remote registry before using it:
 apps/cli/dist/aid check
 ```
 
-To validate an explicit local checkout instead, pass `--index`:
+To validate an explicit local index instead, pass `--index`:
 
 ```sh
 apps/cli/dist/aid check --index /path/to/registry/index.json
@@ -138,17 +152,15 @@ Prepare a resource directory with its required entry file (`SKILL.md`, `AGENT.md
 apps/cli/dist/aid submit ./my-resource \
   --id jose-rosendo/skills/my-resource \
   --version 1.0.0 \
-  --description "Short resource description" \
-  --repository git@github.com:company/ai-directory-registry.git
+  --description "Short resource description"
 ```
 
-With `--repository`, the command uses a temporary partial checkout. It does not keep a full registry copy on the employee's computer. The command creates a branch, copies the package, updates `index.json`, commits and pushes the branch, and opens a pull request through the authenticated GitHub CLI. The production branch remains unchanged until reviewers merge the pull request.
+The command uses a temporary partial checkout. It does not keep a full registry copy on the employee's computer. The command creates a branch, copies the package, updates `index.json`, commits and pushes the branch, and opens a pull request through the authenticated GitHub CLI. The production branch remains unchanged until reviewers merge the pull request.
 
 The same remote checkout mode is available during installation:
 
 ```sh
 apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
-  --repository git@github.com:company/ai-directory-registry.git \
   --scope project
 ```
 

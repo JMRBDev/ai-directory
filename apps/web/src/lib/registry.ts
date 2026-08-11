@@ -1,34 +1,20 @@
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { getRepositorySetting } from '@ai-directory/config';
+import { resolve } from 'node:path';
+import { findWorkspaceRoot, getRepositorySetting } from '@ai-directory/config';
 import {
-  readRegistryIndex,
-  readResourceVersion,
-  readRemoteRegistryIndex,
-  readRemoteResource,
+  readRegistrySourceIndex,
+  readRegistrySourceResource,
+  resolveRegistrySource,
   type ResourceVersion,
 } from '@ai-directory/registry';
 import type { RegistryIndex, ResourceSummary } from '@ai-directory/contracts';
 
-export type LocalRegistry = {
+export type RegistryView = {
   index: RegistryIndex | null;
-  indexPath: string;
+  indexPath?: string;
   source: 'local' | 'remote';
   repository?: string;
   error?: string;
 };
-
-function findWorkspaceRoot(startDirectory: string): string | null {
-  let directory = resolve(startDirectory);
-
-  while (true) {
-    if (existsSync(join(directory, 'pnpm-workspace.yaml'))) return directory;
-
-    const parent = dirname(directory);
-    if (parent === directory) return null;
-    directory = parent;
-  }
-}
 
 function getConfigCwd(): string {
   return (
@@ -38,64 +24,54 @@ function getConfigCwd(): string {
   );
 }
 
-export function getRegistryIndexPath(): string {
-  return resolve(
-    process.env.AI_DIRECTORY_REGISTRY_INDEX ??
-      resolve(process.cwd(), '../../.ai-directory/registry/index.json'),
-  );
+export function getRegistryIndexPath(): string | undefined {
+  const path = process.env.AI_DIRECTORY_REGISTRY_INDEX?.trim();
+  return path
+    ? resolve(process.env.AI_DIRECTORY_CONFIG_CWD ?? process.cwd(), path)
+    : undefined;
 }
 
 export function resourceId(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>): string {
   return `${resource.owner}/${resource.type}/${resource.name}`;
 }
 
-export async function loadLocalRegistry(): Promise<LocalRegistry> {
+export async function loadRegistry(): Promise<RegistryView> {
   const indexPath = getRegistryIndexPath();
+  const repository = getRepositorySetting(undefined, getConfigCwd()).value;
 
   try {
-    return { index: await readRegistryIndex(indexPath), indexPath, source: 'local' };
+    const source = resolveRegistrySource({ indexPath, repositoryUrl: repository });
+
+    return {
+      index: await readRegistrySourceIndex(source),
+      ...(source.type === 'local'
+        ? { indexPath: source.indexPath }
+        : { repository: source.repositoryUrl }),
+      source: source.type,
+    };
   } catch (error) {
-    const localError = error instanceof Error ? error.message : String(error);
-    const repository = getRepositorySetting(undefined, getConfigCwd()).value;
-
-    if (!repository) {
-      return { index: null, indexPath, source: 'local', error: localError };
-    }
-
-    try {
-      return {
-        index: await readRemoteRegistryIndex({ repositoryUrl: repository }),
-        indexPath,
-        source: 'remote',
-        repository,
-      };
-    } catch (remoteError) {
-      const message = remoteError instanceof Error ? remoteError.message : String(remoteError);
-      return {
-        index: null,
-        indexPath,
-        source: 'remote',
-        repository,
-        error: `Local registry unavailable: ${localError}\nRemote registry unavailable: ${message}`,
-      };
-    }
+    return {
+      index: null,
+      ...(indexPath ? { indexPath } : {}),
+      ...(repository ? { repository } : {}),
+      source: indexPath ? 'local' : 'remote',
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
-export async function loadLocalResource(
-  indexPath: string,
+export async function loadResource(
+  indexPath: string | undefined,
   resource: ResourceSummary,
   repository?: string,
 ): Promise<{ version: ResourceVersion | null; error?: string }> {
   try {
+    const source = resolveRegistrySource({ indexPath, repositoryUrl: repository });
+
     return {
-      version: repository
-        ? (await readRemoteResource({
-            repositoryUrl: repository,
-            resourceId: resourceId(resource),
-            version: resource.latestVersion,
-          })).resource
-        : await readResourceVersion(indexPath, resourceId(resource), resource.latestVersion),
+      version: (
+        await readRegistrySourceResource(source, resourceId(resource), resource.latestVersion)
+      ).resource,
     };
   } catch (error) {
     return {

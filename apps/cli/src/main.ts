@@ -1,46 +1,42 @@
 #!/usr/bin/env bun
 
 import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { defineCommand, runMain } from 'citty';
+import { join, resolve } from 'node:path';
+import { defineCommand, runMain, showUsage } from 'citty';
 import {
+  CONFIG_OPTIONS,
   clearConfigFile,
+  findWorkspaceRoot,
   getConfigPath,
   getRepositorySetting,
   readConfigFile,
   resolveRepository,
   writeConfigFile,
+  type ConfigKey,
   type ConfigScope,
 } from '@ai-directory/config';
 import { cancel, intro, isCancel, outro, select, spinner, text } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
-import { installClaudeCodeResources } from '@ai-directory/installers';
+import { claudeCodeInstaller } from '@ai-directory/installers';
 import {
-  fetchRegistryIndex,
-  readRegistryIndex,
   readRemoteRegistryIndex,
-  readRemoteResource,
-  readResourceVersion,
-  readTemplateResources,
+  readRegistrySourceIndex,
+  readRegistrySourceResource,
+  resolveRegistrySource,
   submitResource,
-  validateRegistry,
-  validateRemoteRegistry,
+  validateRegistrySource,
 } from '@ai-directory/registry';
 
-const defaultIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX ?? '.ai-directory/registry/index.json';
-const defaultIndexUrl = process.env.AI_DIRECTORY_REGISTRY_INDEX_URL;
-const defaultRepositoryUrl = process.env.AI_DIRECTORY_REGISTRY_REPOSITORY;
+const localIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX;
 
-function findWorkspaceRoot(startDirectory: string): string | null {
-  let directory = resolve(startDirectory);
+function getRegistrySource(indexPath?: string, repository?: string, baseBranch?: string) {
+  const repositoryUrl = resolveRepository(repository);
 
-  while (true) {
-    if (existsSync(join(directory, 'pnpm-workspace.yaml'))) return directory;
-
-    const parent = dirname(directory);
-    if (parent === directory) return null;
-    directory = parent;
-  }
+  return resolveRegistrySource({
+    indexPath: indexPath ?? (repository?.trim() ? undefined : localIndexPath),
+    repositoryUrl,
+    baseBranch,
+  });
 }
 
 const list = defineCommand({
@@ -52,18 +48,10 @@ const list = defineCommand({
     index: {
       type: 'string',
       alias: 'i',
-      default: defaultIndexPath,
-      description: 'Path to a registry index JSON file',
-    },
-    remote: {
-      type: 'string',
-      alias: 'r',
-      ...(defaultIndexUrl ? { default: defaultIndexUrl } : {}),
-      description: 'URL of a registry index JSON file',
+      description: 'Local registry index path; overrides the configured Git repository',
     },
     repository: {
       type: 'string',
-      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
       description: 'Git repository URL; uses a temporary sparse checkout',
     },
     type: {
@@ -83,12 +71,8 @@ const list = defineCommand({
   },
   async run({ args }) {
     try {
-      const repository = resolveRepository(args.repository);
-      const index = args.remote
-        ? await fetchRegistryIndex(args.remote)
-        : repository && args.index === defaultIndexPath
-          ? await readRemoteRegistryIndex({ repositoryUrl: repository })
-          : await readRegistryIndex(args.index ?? defaultIndexPath);
+      const source = getRegistrySource(args.index, args.repository);
+      const index = await readRegistrySourceIndex(source);
       const resources = index.resources
         .filter((resource) => !args.type || resource.type === args.type)
         .filter((resource) => args['include-retired'] || resource.lifecycleStatus === 'active')
@@ -131,8 +115,7 @@ const show = defineCommand({
     index: {
       type: 'string',
       alias: 'i',
-      default: defaultIndexPath,
-      description: 'Path to a registry index JSON file',
+      description: 'Local registry index path; overrides the configured Git repository',
     },
     version: {
       type: 'string',
@@ -141,7 +124,6 @@ const show = defineCommand({
     },
     repository: {
       type: 'string',
-      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
       description: 'Git repository URL; uses a temporary sparse checkout',
     },
     base: {
@@ -156,18 +138,10 @@ const show = defineCommand({
   },
   async run({ args }) {
     try {
-      const repository = resolveRepository(args.repository);
-      const remote = repository
-        ? await readRemoteResource({
-            repositoryUrl: repository,
-            resourceId: args.resource,
-            version: args.version,
-            baseBranch: args.base,
-          })
-        : undefined;
-      const result =
-        remote?.resource ??
-        (await readResourceVersion(args.index ?? defaultIndexPath, args.resource, args.version));
+      const source = getRegistrySource(args.index, args.repository, args.base);
+      const result = (
+        await readRegistrySourceResource(source, args.resource, args.version)
+      ).resource;
 
       if (args.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -199,17 +173,16 @@ const show = defineCommand({
 const check = defineCommand({
   meta: {
     name: 'check',
-    description: 'Validate the configured remote registry or a local index',
+    description: 'Validate the selected registry source',
   },
   args: {
     index: {
       type: 'string',
       alias: 'i',
-      description: 'Path to a local registry index JSON file; overrides remote checking',
+      description: 'Local registry index path; overrides the configured Git repository',
     },
     repository: {
       type: 'string',
-      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
       description: 'Registry Git URL; uses a temporary sparse checkout',
     },
     base: {
@@ -220,17 +193,8 @@ const check = defineCommand({
   },
   async run({ args }) {
     try {
-      const indexPath = args.index ?? defaultIndexPath;
-      const repository = resolveRepository(args.repository);
-      const remote = Boolean(
-        repository && !args.index && !process.env.AI_DIRECTORY_REGISTRY_INDEX,
-      );
-      const result = remote
-        ? await validateRemoteRegistry({
-            repositoryUrl: repository,
-            baseBranch: args.base,
-          })
-        : await validateRegistry(indexPath);
+      const source = getRegistrySource(args.index, args.repository, args.base);
+      const result = await validateRegistrySource(source);
 
       if (result.issues.length > 0) {
         console.error(`Registry check failed with ${result.issues.length} issue(s):`);
@@ -242,7 +206,9 @@ const check = defineCommand({
       }
 
       console.log(
-        `Registry is valid. Checked ${result.resourceCount} resource(s)${remote ? ' from the configured remote repository' : ` at ${indexPath}`}.`,
+        `Registry is valid. Checked ${result.resourceCount} resource(s) ${
+          source.type === 'remote' ? 'from the configured remote repository' : `at ${source.indexPath}`
+        }.`,
       );
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
@@ -281,12 +247,10 @@ const submit = defineCommand({
     index: {
       type: 'string',
       alias: 'i',
-      default: defaultIndexPath,
-      description: 'Path to a registry index JSON file',
+      description: 'Local registry index path; overrides the configured Git repository',
     },
     repository: {
       type: 'string',
-      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
       description: 'Git repository URL; uses a temporary partial checkout',
     },
     base: {
@@ -314,16 +278,16 @@ const submit = defineCommand({
   },
   async run({ args }) {
     try {
-      const repository = resolveRepository(args.repository);
+      const source = getRegistrySource(args.index, args.repository, args.base);
       const result = await submitResource({
-        indexPath: args.index ?? defaultIndexPath,
+        ...(source.type === 'local' ? { indexPath: source.indexPath } : {}),
         sourceDirectory: args.source,
         resourceId: args.id,
         version: args.version,
         description: args.description,
         baseBranch: args.base,
         remote: args.remote,
-        ...(repository ? { repositoryUrl: repository } : {}),
+        ...(source.type === 'remote' ? { repositoryUrl: source.repositoryUrl } : {}),
         ...(args.branch !== undefined ? { branch: args.branch } : {}),
         ...(args.title !== undefined ? { title: args.title } : {}),
         ...(args.body !== undefined ? { body: args.body } : {}),
@@ -369,8 +333,7 @@ const install = defineCommand({
     index: {
       type: 'string',
       alias: 'i',
-      default: defaultIndexPath,
-      description: 'Path to a registry index JSON file',
+      description: 'Local registry index path; overrides the configured Git repository',
     },
     version: {
       type: 'string',
@@ -379,7 +342,6 @@ const install = defineCommand({
     },
     repository: {
       type: 'string',
-      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
       description: 'Git repository URL; uses a temporary sparse checkout',
     },
     base: {
@@ -394,29 +356,15 @@ const install = defineCommand({
   },
   async run({ args }) {
     try {
-      const indexPath = args.index ?? defaultIndexPath;
-      const repository = resolveRepository(args.repository);
-      const remote = repository
-        ? await readRemoteResource({
-            repositoryUrl: repository,
-            resourceId: args.resource,
-            version: args.version,
-            baseBranch: args.base,
-          })
-        : undefined;
-      const result =
-        remote?.resource ??
-        (await readResourceVersion(indexPath, args.resource, args.version));
+      const source = getRegistrySource(args.index, args.repository, args.base);
+      const loaded = await readRegistrySourceResource(source, args.resource, args.version);
+      const result = loaded.resource;
 
       if (args.harness !== 'claude-code') {
         throw new Error(`Unsupported harness: ${args.harness}`);
       }
 
-      const resources = remote
-        ? remote.resources
-        : result.resource.type === 'templates'
-          ? await readTemplateResources(indexPath, result)
-          : [result];
+      const resources = loaded.resources;
 
       for (const resource of [result, ...resources]) {
         if (resource.resource.reviewStatus === 'unreviewed') {
@@ -426,7 +374,7 @@ const install = defineCommand({
         }
       }
 
-      const installations = await installClaudeCodeResources(resources, {
+      const installations = await claudeCodeInstaller.install(resources, {
         scope: args.scope,
         force: args.force ?? false,
       });
@@ -467,8 +415,7 @@ const web = defineCommand({
     index: {
       type: 'string',
       alias: 'i',
-      default: defaultIndexPath,
-      description: 'Path to a local registry index JSON file',
+      description: 'Local registry index path; overrides the configured Git repository',
     },
     host: {
       type: 'string',
@@ -507,7 +454,7 @@ const web = defineCommand({
       return;
     }
 
-    const indexPath = resolve(workspaceRoot, args.index ?? defaultIndexPath);
+    const indexPath = args.index ? resolve(workspaceRoot, args.index) : undefined;
     const apiPort = args['api-port'] ?? '4317';
     const apiUrl = `http://127.0.0.1:${apiPort}`;
     const api = Bun.spawn(['pnpm', '--filter', '@ai-directory/api', 'dev'], {
@@ -536,15 +483,15 @@ const web = defineCommand({
 
       console.log(`Starting the local AI Directory website at http://${args.host}:${args.port}`);
       console.log(`Local configuration API: ${apiUrl}`);
-      console.log(`Registry index: ${indexPath}`);
+      console.log(`Registry source: ${indexPath ?? 'configured Git repository'}`);
 
       const child = Bun.spawn(command, {
         cwd: webDirectory,
         env: {
           ...process.env,
-          AI_DIRECTORY_REGISTRY_INDEX: indexPath,
           AI_DIRECTORY_CONFIG_CWD: process.cwd(),
           PUBLIC_AI_DIRECTORY_API_URL: apiUrl,
+          ...(indexPath ? { AI_DIRECTORY_REGISTRY_INDEX: indexPath } : {}),
         },
         stderr: 'inherit',
         stdout: 'inherit',
@@ -766,11 +713,30 @@ const doctor = defineCommand({
   },
 });
 
-function assertConfigKey(key: string): asserts key is 'repository' {
-  if (key !== 'repository') {
-    throw new Error(`Unknown config key: ${key}. Supported key: repository.`);
+function assertConfigKey(key: string): asserts key is ConfigKey {
+  if (!CONFIG_OPTIONS.some((option) => option.key === key)) {
+    throw new Error(
+      `Unknown config key: ${key}. Supported keys: ${CONFIG_OPTIONS.map((option) => option.key).join(', ')}.`,
+    );
   }
 }
+
+const configList = defineCommand({
+  meta: {
+    name: 'list',
+    description: 'List available configuration options',
+  },
+  run() {
+    console.log('Available configuration options:');
+
+    for (const option of CONFIG_OPTIONS) {
+      console.log(`\n${option.key}`);
+      console.log(`  ${option.description}`);
+    }
+
+    console.log('\nUse `aid config get <key>` to inspect the effective value.');
+  },
+});
 
 const configGet = defineCommand({
   meta: {
@@ -892,9 +858,18 @@ const configPath = defineCommand({
 const config = defineCommand({
   meta: {
     name: 'config',
-    description: 'Configure the default registry repository',
+    description: 'Manage AI Directory configuration',
   },
-  subCommands: { get: configGet, set: configSet, clear: configClear, path: configPath },
+  run({ rawArgs }) {
+    if (rawArgs.length === 0) return showUsage(config, main);
+  },
+  subCommands: {
+    list: configList,
+    get: configGet,
+    set: configSet,
+    clear: configClear,
+    path: configPath,
+  },
 });
 
 const main = defineCommand({

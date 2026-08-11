@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  findWorkspaceRoot,
   getRepositorySetting,
   readConfigFile,
   writeConfigFile,
@@ -79,6 +80,17 @@ describe('AI Directory config', () => {
     await writeFile(path, JSON.stringify({ repository: 42 }), 'utf8');
 
     expect(() => readConfigFile(path)).toThrow('repository must be a non-empty string');
+  });
+
+  it('finds the nearest workspace root', async () => {
+    const directory = await createTemporaryDirectory();
+    const nested = join(directory, 'apps', 'web');
+
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(directory, 'pnpm-workspace.yaml'), 'packages:\n  - apps/*\n', 'utf8');
+
+    expect(findWorkspaceRoot(nested)).toBe(directory);
+    expect(findWorkspaceRoot(nested.replace(directory, `${directory}-missing`))).toBeNull();
   });
 });
 

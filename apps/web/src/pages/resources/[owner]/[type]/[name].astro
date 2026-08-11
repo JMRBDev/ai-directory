@@ -1,22 +1,22 @@
 ---
 import type { ResourceSummary } from '@ai-directory/contracts';
 import {
-  loadLocalRegistry,
-  loadLocalResource,
+  loadRegistry,
+  loadResource,
   resourceId,
-  type LocalRegistry,
+  type RegistryView,
 } from '../../../../lib/registry';
 import '../../../../styles/catalog.css';
 
 type Props = {
   resource: ResourceSummary;
-  version: Awaited<ReturnType<typeof loadLocalResource>>['version'];
-  source: LocalRegistry['source'];
+  version: Awaited<ReturnType<typeof loadResource>>['version'];
+  source: RegistryView['source'];
   fileError?: string;
 };
 
 export async function getStaticPaths() {
-  const registry = await loadLocalRegistry();
+  const registry = await loadRegistry();
 
   if (!registry.index) return [];
 
@@ -24,7 +24,7 @@ export async function getStaticPaths() {
     registry.index.resources
       .filter((resource) => resource.lifecycleStatus === 'active')
       .map(async (resource) => {
-        const result = await loadLocalResource(registry.indexPath, resource, registry.repository);
+        const result = await loadResource(registry.indexPath, resource, registry.repository);
 
         return {
           params: {
@@ -61,7 +61,7 @@ const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
       <div class="header-inner">
         <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
         <span class="header-state">
-          {source === 'remote' ? 'Remote' : 'Local'} production index
+          {source === 'remote' ? 'Configured Git registry' : 'Explicit local index'}
         </span>
       </div>
     </header>
