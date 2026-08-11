@@ -75,6 +75,15 @@ apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review
 
 Use `--version` to inspect a specific version or `--json` for machine-readable output.
 
+Read a version directly from the registry Git repository without keeping a local checkout:
+
+```sh
+apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review \
+  --repository git@github.com:company/ai-directory-registry.git
+```
+
+The command uses a temporary sparse checkout for `index.json` and the requested resource. It removes that checkout after reading.
+
 Validate the linked registry before using it:
 
 ```sh
@@ -94,6 +103,14 @@ apps/cli/dist/aid submit ./my-resource \
 ```
 
 With `--repository`, the command uses a temporary partial checkout. It does not keep a full registry copy on the employee's computer. The command creates a branch, copies the package, updates `index.json`, commits and pushes the branch, and opens a pull request through the authenticated GitHub CLI. The production branch remains unchanged until reviewers merge the pull request.
+
+The same remote checkout mode is available during installation:
+
+```sh
+apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
+  --repository git@github.com:company/ai-directory-registry.git \
+  --scope project
+```
 
 ## Checks
 

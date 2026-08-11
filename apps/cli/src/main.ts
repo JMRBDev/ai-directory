@@ -8,6 +8,7 @@ import { installClaudeCodeResources } from '@ai-directory/installers';
 import {
   fetchRegistryIndex,
   readRegistryIndex,
+  readRemoteResource,
   readResourceVersion,
   readTemplateResources,
   submitResource,
@@ -118,6 +119,16 @@ const show = defineCommand({
       alias: 'v',
       description: 'Version to show; defaults to the latest version',
     },
+    repository: {
+      type: 'string',
+      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
+      description: 'Git repository URL; uses a temporary sparse checkout',
+    },
+    base: {
+      type: 'string',
+      default: 'main',
+      description: 'Production branch to read from',
+    },
     json: {
       type: 'boolean',
       description: 'Print JSON instead of formatted Markdown',
@@ -125,11 +136,17 @@ const show = defineCommand({
   },
   async run({ args }) {
     try {
-      const result = await readResourceVersion(
-        args.index ?? defaultIndexPath,
-        args.resource,
-        args.version,
-      );
+      const remote = args.repository
+        ? await readRemoteResource({
+            repositoryUrl: args.repository,
+            resourceId: args.resource,
+            version: args.version,
+            baseBranch: args.base,
+          })
+        : undefined;
+      const result =
+        remote?.resource ??
+        (await readResourceVersion(args.index ?? defaultIndexPath, args.resource, args.version));
 
       if (args.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -317,6 +334,16 @@ const install = defineCommand({
       alias: 'v',
       description: 'Version to install; defaults to the latest version',
     },
+    repository: {
+      type: 'string',
+      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
+      description: 'Git repository URL; uses a temporary sparse checkout',
+    },
+    base: {
+      type: 'string',
+      default: 'main',
+      description: 'Production branch to read from',
+    },
     force: {
       type: 'boolean',
       description: 'Overwrite files already installed at the destination',
@@ -325,14 +352,25 @@ const install = defineCommand({
   async run({ args }) {
     try {
       const indexPath = args.index ?? defaultIndexPath;
-      const result = await readResourceVersion(indexPath, args.resource, args.version);
+      const remote = args.repository
+        ? await readRemoteResource({
+            repositoryUrl: args.repository,
+            resourceId: args.resource,
+            version: args.version,
+            baseBranch: args.base,
+          })
+        : undefined;
+      const result =
+        remote?.resource ??
+        (await readResourceVersion(indexPath, args.resource, args.version));
 
       if (args.harness !== 'claude-code') {
         throw new Error(`Unsupported harness: ${args.harness}`);
       }
 
-      const resources =
-        result.resource.type === 'templates'
+      const resources = remote
+        ? remote.resources
+        : result.resource.type === 'templates'
           ? await readTemplateResources(indexPath, result)
           : [result];
 
