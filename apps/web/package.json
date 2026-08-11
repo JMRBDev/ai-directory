@@ -1,0 +1,19 @@
+{
+  "name": "@ai-directory/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "clean": "rm -rf dist .astro",
+    "dev": "astro dev",
+    "preview": "astro preview",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "astro check"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "astro": "^7.2.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
