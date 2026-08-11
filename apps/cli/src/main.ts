@@ -6,8 +6,18 @@ import { defineCommand, runMain } from 'citty';
 import { resourceKey } from '@ai-directory/domain';
 import { installClaudeCodeResources } from '@ai-directory/installers';
 import {
+  clearConfigFile,
+  getConfigPath,
+  getRepositorySetting,
+  readConfigFile,
+  resolveRepository,
+  writeConfigFile,
+  type ConfigScope,
+} from './config.js';
+import {
   fetchRegistryIndex,
   readRegistryIndex,
+  readRemoteRegistryIndex,
   readRemoteResource,
   readResourceVersion,
   readTemplateResources,
@@ -49,6 +59,11 @@ const list = defineCommand({
       ...(defaultIndexUrl ? { default: defaultIndexUrl } : {}),
       description: 'URL of a registry index JSON file',
     },
+    repository: {
+      type: 'string',
+      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
+      description: 'Git repository URL; uses a temporary sparse checkout',
+    },
     type: {
       type: 'enum',
       options: ['skills', 'agents', 'rules', 'templates'],
@@ -66,9 +81,12 @@ const list = defineCommand({
   },
   async run({ args }) {
     try {
+      const repository = resolveRepository(args.repository);
       const index = args.remote
         ? await fetchRegistryIndex(args.remote)
-        : await readRegistryIndex(args.index ?? defaultIndexPath);
+        : repository && args.index === defaultIndexPath
+          ? await readRemoteRegistryIndex({ repositoryUrl: repository })
+          : await readRegistryIndex(args.index ?? defaultIndexPath);
       const resources = index.resources
         .filter((resource) => !args.type || resource.type === args.type)
         .filter((resource) => args['include-retired'] || resource.lifecycleStatus === 'active')
@@ -136,9 +154,10 @@ const show = defineCommand({
   },
   async run({ args }) {
     try {
-      const remote = args.repository
+      const repository = resolveRepository(args.repository);
+      const remote = repository
         ? await readRemoteResource({
-            repositoryUrl: args.repository,
+            repositoryUrl: repository,
             resourceId: args.resource,
             version: args.version,
             baseBranch: args.base,
@@ -272,6 +291,7 @@ const submit = defineCommand({
   },
   async run({ args }) {
     try {
+      const repository = resolveRepository(args.repository);
       const result = await submitResource({
         indexPath: args.index ?? defaultIndexPath,
         sourceDirectory: args.source,
@@ -280,7 +300,7 @@ const submit = defineCommand({
         description: args.description,
         baseBranch: args.base,
         remote: args.remote,
-        ...(args.repository !== undefined ? { repositoryUrl: args.repository } : {}),
+        ...(repository ? { repositoryUrl: repository } : {}),
         ...(args.branch !== undefined ? { branch: args.branch } : {}),
         ...(args.title !== undefined ? { title: args.title } : {}),
         ...(args.body !== undefined ? { body: args.body } : {}),
@@ -352,9 +372,10 @@ const install = defineCommand({
   async run({ args }) {
     try {
       const indexPath = args.index ?? defaultIndexPath;
-      const remote = args.repository
+      const repository = resolveRepository(args.repository);
+      const remote = repository
         ? await readRemoteResource({
-            repositoryUrl: args.repository,
+            repositoryUrl: repository,
             resourceId: args.resource,
             version: args.version,
             baseBranch: args.base,
@@ -491,13 +512,144 @@ const web = defineCommand({
   },
 });
 
+function assertConfigKey(key: string): asserts key is 'repository' {
+  if (key !== 'repository') {
+    throw new Error(`Unknown config key: ${key}. Supported key: repository.`);
+  }
+}
+
+const configGet = defineCommand({
+  meta: {
+    name: 'get',
+    description: 'Show the configured registry repository',
+  },
+  args: {
+    key: {
+      type: 'positional',
+      required: true,
+      description: 'Configuration key: repository',
+    },
+    scope: {
+      type: 'enum',
+      options: ['user', 'project'],
+      description: 'Read a stored value from one config scope',
+    },
+  },
+  run({ args }) {
+    assertConfigKey(args.key);
+
+    if (args.scope) {
+      const scope = args.scope as ConfigScope;
+      const value = readConfigFile(getConfigPath(scope)).repository;
+      console.log(value ?? `Repository is not configured in the ${scope} config.`);
+      return;
+    }
+
+    const setting = getRepositorySetting();
+    console.log(`Repository: ${setting.value ?? 'not configured'}`);
+    console.log(`Source: ${setting.source}`);
+  },
+});
+
+const configSet = defineCommand({
+  meta: {
+    name: 'set',
+    description: 'Set the default registry repository',
+  },
+  args: {
+    key: {
+      type: 'positional',
+      required: true,
+      description: 'Configuration key: repository',
+    },
+    value: {
+      type: 'positional',
+      required: true,
+      description: 'Repository Git URL',
+    },
+    scope: {
+      type: 'enum',
+      options: ['user', 'project'],
+      default: 'user',
+      description: 'Config scope to update',
+    },
+  },
+  async run({ args }) {
+    assertConfigKey(args.key);
+    const value = args.value.trim();
+
+    if (!value) throw new Error('Repository URL cannot be empty.');
+
+    const scope = args.scope as ConfigScope;
+    const path = getConfigPath(scope);
+    const current = readConfigFile(path);
+
+    await writeConfigFile(path, { ...current, repository: value });
+    console.log(`Saved repository in the ${scope} config: ${path}`);
+  },
+});
+
+const configClear = defineCommand({
+  meta: {
+    name: 'clear',
+    description: 'Remove the configured registry repository',
+  },
+  args: {
+    key: {
+      type: 'positional',
+      required: true,
+      description: 'Configuration key: repository',
+    },
+    scope: {
+      type: 'enum',
+      options: ['user', 'project'],
+      default: 'user',
+      description: 'Config scope to update',
+    },
+  },
+  async run({ args }) {
+    assertConfigKey(args.key);
+
+    const scope = args.scope as ConfigScope;
+    const path = getConfigPath(scope);
+    await clearConfigFile(path);
+    console.log(`Cleared repository from the ${scope} config: ${path}`);
+  },
+});
+
+const configPath = defineCommand({
+  meta: {
+    name: 'path',
+    description: 'Show the config file path',
+  },
+  args: {
+    scope: {
+      type: 'enum',
+      options: ['user', 'project'],
+      default: 'user',
+      description: 'Config scope',
+    },
+  },
+  run({ args }) {
+    console.log(getConfigPath(args.scope as ConfigScope));
+  },
+});
+
+const config = defineCommand({
+  meta: {
+    name: 'config',
+    description: 'Configure the default registry repository',
+  },
+  subCommands: { get: configGet, set: configSet, clear: configClear, path: configPath },
+});
+
 const main = defineCommand({
   meta: {
     name: 'aid',
     version: '0.0.0',
     description: 'AI Directory resource registry',
   },
-  subCommands: { list, show, check, submit, install, web },
+  subCommands: { list, show, check, submit, install, web, config },
 });
 
 runMain(main);
