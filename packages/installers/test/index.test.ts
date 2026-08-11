@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -6,6 +6,10 @@ import type { ResourceVersion } from '@ai-directory/registry';
 import {
   installClaudeCodeResource,
   installClaudeCodeResources,
+  readInstallationManifest,
+  removeStaleInstallationFiles,
+  updateInstallationManifest,
+  type InstallationRecord,
 } from '../src/index.js';
 
 const resource = {
@@ -223,6 +227,52 @@ describe('installClaudeCodeResource', () => {
         cwd: projectDirectory,
       }),
     ).rejects.toThrow('Unsafe resource file path');
+  });
+});
+
+describe('installation manifest', () => {
+  it('reads missing manifests and replaces records by resource', async () => {
+    const directory = await createTemporaryDirectory();
+    const path = join(directory, 'installed.json');
+    const record = {
+      resource: 'jose-rosendo/skills/typescript-api-review',
+      version: '1.0.0',
+      harness: 'claude-code',
+      scope: 'project',
+      destination: join(directory, '.claude', 'skills', 'typescript-api-review'),
+      files: [join(directory, '.claude', 'skills', 'typescript-api-review', 'SKILL.md')],
+      installedAt: '2026-08-11T10:00:00.000Z',
+    } satisfies InstallationRecord;
+
+    await expect(readInstallationManifest(path)).resolves.toEqual({
+      schemaVersion: 1,
+      installations: [],
+    });
+    await updateInstallationManifest(path, [record]);
+    await updateInstallationManifest(path, [{ ...record, version: '1.1.0' }]);
+
+    await expect(readInstallationManifest(path)).resolves.toMatchObject({
+      installations: [expect.objectContaining({ version: '1.1.0' })],
+    });
+  });
+
+  it('removes files left by an older installation', async () => {
+    const directory = await createTemporaryDirectory();
+    const oldFile = join(directory, 'old.md');
+    await writeFile(oldFile, 'old\n', 'utf8');
+
+    const record = {
+      resource: 'jose-rosendo/skills/typescript-api-review',
+      version: '1.0.0',
+      harness: 'claude-code',
+      scope: 'project',
+      destination: directory,
+      files: [oldFile],
+      installedAt: '2026-08-11T10:00:00.000Z',
+    } satisfies InstallationRecord;
+
+    await removeStaleInstallationFiles([record], []);
+    await expect(readFile(oldFile, 'utf8')).rejects.toThrow();
   });
 });
 

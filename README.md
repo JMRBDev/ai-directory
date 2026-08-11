@@ -164,6 +164,16 @@ apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
   --scope project
 ```
 
+Project installations are recorded in `.ai-directory/installed.json`. Global installations are recorded in the user's AI Directory data directory. List tracked installations and update one resource from the latest production version:
+
+```sh
+apps/cli/dist/aid installed
+apps/cli/dist/aid update jose-rosendo/skills/typescript-api-review \
+  --scope project
+```
+
+Template installations are expanded into their component resources. Use `installed` to see those components and update them individually.
+
 ## Checks
 
 ```sh

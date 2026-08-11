@@ -1,4 +1,4 @@
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { resourceKey } from '@ai-directory/domain';
@@ -20,6 +20,22 @@ export type ClaudeCodeInstallOptions = InstallOptions;
 export type InstallResult = {
   destination: string;
   files: string[];
+  paths: string[];
+};
+
+export type InstallationRecord = {
+  resource: string;
+  version: string;
+  harness: Harness;
+  scope: InstallScope;
+  destination: string;
+  files: string[];
+  installedAt: string;
+};
+
+export type InstallationManifest = {
+  schemaVersion: 1;
+  installations: InstallationRecord[];
 };
 
 export type HarnessInstaller = {
@@ -94,6 +110,7 @@ export async function installClaudeCodeResources(
   return plans.map((plan) => ({
     destination: plan.destination,
     files: plan.resource.files.map((file) => file.path),
+    paths: plan.files.map((file) => file.destination),
   }));
 }
 
@@ -101,6 +118,106 @@ export const claudeCodeInstaller: HarnessInstaller = {
   harness: 'claude-code',
   install: installClaudeCodeResources,
 };
+
+export async function readInstallationManifest(path: string): Promise<InstallationManifest> {
+  let data: unknown;
+
+  try {
+    data = JSON.parse(await readFile(path, 'utf8'));
+  } catch (error) {
+    if (isMissingPathError(error)) return { schemaVersion: 1, installations: [] };
+    throw new Error(`Installation manifest is not valid JSON: ${path}`, { cause: error });
+  }
+
+  if (!isInstallationManifest(data)) {
+    throw new Error(`Installation manifest is invalid: ${path}`);
+  }
+
+  return data;
+}
+
+export async function updateInstallationManifest(
+  path: string,
+  records: InstallationRecord[],
+): Promise<InstallationManifest> {
+  const current = await readInstallationManifest(path);
+  const keys = new Set(records.map(installationKey));
+  const manifest = {
+    schemaVersion: 1 as const,
+    installations: [
+      ...current.installations.filter((record) => !keys.has(installationKey(record))),
+      ...records,
+    ],
+  };
+
+  await mkdir(dirname(path), { recursive: true });
+  const temporaryPath = `${path}.tmp-${process.pid}`;
+
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+
+  return manifest;
+}
+
+export async function removeStaleInstallationFiles(
+  previous: InstallationRecord[],
+  currentFiles: string[],
+): Promise<void> {
+  const keep = new Set(currentFiles);
+  const stale = new Set(previous.flatMap((record) => record.files).filter((path) => !keep.has(path)));
+  await Promise.all([...stale].map((path) => rm(path, { force: true })));
+}
+
+function installationKey(record: InstallationRecord): string {
+  return `${record.scope}:${record.harness}:${record.resource}`;
+}
+
+function isInstallationManifest(value: unknown): value is InstallationManifest {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    'schemaVersion' in value &&
+    value.schemaVersion === 1 &&
+    'installations' in value &&
+    Array.isArray(value.installations) &&
+    value.installations.every(isInstallationRecord)
+  );
+}
+
+function isInstallationRecord(value: unknown): value is InstallationRecord {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'resource' in value &&
+    typeof value.resource === 'string' &&
+    'version' in value &&
+    typeof value.version === 'string' &&
+    'harness' in value &&
+    isHarness(value.harness) &&
+    'scope' in value &&
+    isInstallScope(value.scope) &&
+    'destination' in value &&
+    typeof value.destination === 'string' &&
+    'files' in value &&
+    Array.isArray(value.files) &&
+    value.files.every((file) => typeof file === 'string') &&
+    'installedAt' in value &&
+    typeof value.installedAt === 'string'
+  );
+}
+
+function isHarness(value: unknown): value is Harness {
+  return value === 'claude-code' || value === 'opencode' || value === 'codex';
+}
+
+function isInstallScope(value: unknown): value is InstallScope {
+  return value === 'project' || value === 'global';
+}
 
 type InstallPlan = {
   resource: ResourceVersion;

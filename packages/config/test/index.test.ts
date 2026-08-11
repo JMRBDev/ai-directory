@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   findWorkspaceRoot,
   getRepositorySetting,
+  getInstallManifestPath,
   readConfigFile,
   writeConfigFile,
 } from '../src/index.js';
@@ -91,6 +92,15 @@ describe('AI Directory config', () => {
 
     expect(findWorkspaceRoot(nested)).toBe(directory);
     expect(findWorkspaceRoot(nested.replace(directory, `${directory}-missing`))).toBeNull();
+  });
+
+  it('uses project and user locations for install manifests', async () => {
+    const directory = await createTemporaryDirectory();
+
+    expect(getInstallManifestPath('project', directory)).toBe(
+      join(directory, '.ai-directory', 'installed.json'),
+    );
+    expect(getInstallManifestPath('global')).toContain('installed.json');
   });
 });
 
