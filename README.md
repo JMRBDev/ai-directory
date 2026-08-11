@@ -23,6 +23,7 @@ apps/
   web/              Astro website
 
 packages/
+  config/          Shared user/project configuration
   contracts/        Shared API and registry contracts
   domain/           Resource and version rules
   installers/       Harness adapter boundary
@@ -65,16 +66,40 @@ apps/cli/dist/aid config set repository \
 
 After this, `list`, `show`, `install`, and `submit` use the configured Git repository by default. Use `--scope project` to store an override in `.ai-directory/config.json`, or use `AI_DIRECTORY_REGISTRY_REPOSITORY` for an environment-level override. Inspect the effective value with `aid config get repository`.
 
+Set up the CLI interactively:
+
+```sh
+apps/cli/dist/aid setup
+```
+
+The setup flow checks Git access, reads the production `main` branch, and saves the repository URL. Use `--scope project` to save it in `.ai-directory/config.json` for the current project. Use `--non-interactive` and `--skip-check` for scripted or offline setup:
+
+```sh
+apps/cli/dist/aid setup \
+  --repository git@github.com:company/ai-directory-registry.git \
+  --scope user \
+  --non-interactive
+```
+
+Check the configuration and registry connection at any time:
+
+```sh
+apps/cli/dist/aid doctor
+apps/cli/dist/aid doctor --json
+```
+
+The CLI uses the Git credentials already configured on the employee's machine. It does not store Git credentials in AI Directory configuration.
+
 ## Run the local catalog
 
-The website is local-first. It reads the same registry index as the CLI and does not require a hosted API:
+The website is local-first. It reads the same registry index as the CLI and starts a loopback Hono control API for local settings. It does not require a hosted service:
 
 ```sh
 pnpm build
 apps/cli/dist/aid web --open
 ```
 
-Use `--index`, `--host`, or `--port` to change the local setup. The command starts Astro from the workspace and passes the selected registry index to it.
+Open `/settings/` to configure the registry repository from the browser. The page writes through the local API, so the CLI and website share the same user/project configuration. Use `--index`, `--host`, `--port`, or `--api-port` to change the local setup. The command starts Astro and the local API from the workspace.
 
 Inspect a version from the linked local registry:
 

@@ -1,0 +1,174 @@
+---
+import '../styles/catalog.css';
+
+const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
+---
+
+<!doctype html>
+<html lang="en" data-api-url={apiUrl}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content="Configure the local AI Directory connection." />
+    <title>Settings | AI Directory</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
+        <div class="header-tools">
+          <span class="header-state">Local setup</span>
+          <a class="header-link" href="/">Catalog</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell settings-shell">
+      <a class="back-link" href="/">Back to catalog</a>
+
+      <section class="settings-heading" aria-labelledby="page-title">
+        <p class="eyebrow">Local setup</p>
+        <h1 id="page-title">Connect your registry.</h1>
+        <p class="intro-copy">
+          Choose the Git repository that contains the production resource index. The local CLI and
+          website use the same setting.
+        </p>
+      </section>
+
+      <section class="settings-panel" aria-labelledby="connection-title">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Connection</p>
+            <h2 id="connection-title">Registry repository</h2>
+          </div>
+          <span class="settings-source" data-source>Loading</span>
+        </div>
+
+        <form class="settings-form" data-settings-form>
+          <div class="filter-field">
+            <label class="filter-label" for="repository">Git URL</label>
+            <input
+              id="repository"
+              name="repository"
+              type="text"
+              placeholder="git@github.com:company/ai-directory-registry.git"
+              autocomplete="off"
+              required
+            />
+          </div>
+
+          <fieldset class="scope-options">
+            <legend class="filter-label">Save for</legend>
+            <label>
+              <input type="radio" name="scope" value="user" checked />
+              This user
+            </label>
+            <label>
+              <input type="radio" name="scope" value="project" />
+              This project
+            </label>
+          </fieldset>
+
+          <div class="settings-actions">
+            <button type="submit">Save settings</button>
+            <button class="secondary-button" type="button" data-clear>Clear selected scope</button>
+          </div>
+          <p class="form-status" data-status role="status"></p>
+        </form>
+      </section>
+
+      <div class="help-strip settings-note">
+        <div>
+          <p class="help-label">Credentials</p>
+          <p>AI Directory uses the Git credentials already configured on this computer.</p>
+        </div>
+        <code>aid doctor</code>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p>AI Directory is backed by the production branch of the resources repository.</p>
+      <a class="back-link" href="/">Return to catalog</a>
+    </footer>
+
+    <script>
+      const apiBase = document.documentElement.dataset.apiUrl ?? 'http://127.0.0.1:4317';
+      const form = document.querySelector('[data-settings-form]');
+      const repository = document.querySelector('#repository');
+      const source = document.querySelector('[data-source]');
+      const status = document.querySelector('[data-status]');
+      const clear = document.querySelector('[data-clear]');
+
+      function selectedScope() {
+        return document.querySelector('input[name="scope"]:checked')?.value ?? 'user';
+      }
+
+      function showStatus(message, isError = false) {
+        if (!status) return;
+        status.textContent = message;
+        status.dataset.error = isError ? 'true' : 'false';
+      }
+
+      async function loadSettings() {
+        try {
+          const response = await fetch(`${apiBase}/api/config`);
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error ?? 'Could not load settings.');
+
+          if (repository && result.repository) repository.value = result.repository;
+          if (source) source.textContent = result.source === 'none' ? 'Not configured' : result.source;
+          showStatus(result.repository ? 'Ready to use.' : 'Enter a registry repository to get started.');
+        } catch (error) {
+          showStatus(error instanceof Error ? error.message : 'Could not reach the local API.', true);
+        }
+      }
+
+      form?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const value = repository?.value.trim() ?? '';
+
+        if (!value) {
+          showStatus('A Git URL is required.', true);
+          return;
+        }
+
+        showStatus('Saving…');
+
+        try {
+          const response = await fetch(`${apiBase}/api/config`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ repository: value, scope: selectedScope() }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error ?? 'Could not save settings.');
+
+          if (source) source.textContent = result.source;
+          showStatus(`Saved in the ${result.savedScope} config.`);
+        } catch (error) {
+          showStatus(error instanceof Error ? error.message : 'Could not save settings.', true);
+        }
+      });
+
+      clear?.addEventListener('click', async () => {
+        showStatus('Clearing…');
+
+        try {
+          const response = await fetch(`${apiBase}/api/config?scope=${selectedScope()}`, {
+            method: 'DELETE',
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error ?? 'Could not clear settings.');
+
+          if (repository) repository.value = result.repository ?? '';
+          if (source) source.textContent = result.source === 'none' ? 'Not configured' : result.source;
+          showStatus(`Cleared the ${result.clearedScope} config.`);
+        } catch (error) {
+          showStatus(error instanceof Error ? error.message : 'Could not clear settings.', true);
+        }
+      });
+
+      loadSettings();
+    </script>
+  </body>
+</html>

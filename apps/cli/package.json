@@ -13,14 +13,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ai-directory/config": "workspace:*",
     "@ai-directory/contracts": "workspace:*",
     "@ai-directory/domain": "workspace:*",
     "@ai-directory/installers": "workspace:*",
     "@ai-directory/registry": "workspace:*",
     "@ai-directory/server-core": "workspace:*",
     "@clack/prompts": "^1.7.0",
-    "citty": "^0.2.2",
-    "env-paths": "^4.0.0"
+    "citty": "^0.2.2"
   },
   "devDependencies": {
     "bun-types": "^1.3.14",
