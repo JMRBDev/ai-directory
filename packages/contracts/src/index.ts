@@ -6,14 +6,16 @@ export const resourceLifecycleStatusSchema = z.enum(['active', 'retired']);
 export const resourceVisibilitySchema = z.enum(['private', 'targeted', 'public']);
 
 const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-const versionSchema = z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
+export const resourceVersionSchema = z
+  .string()
+  .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 
 export const resourceSummarySchema = z.object({
   owner: slugSchema,
   type: resourceTypeSchema,
   name: slugSchema,
   description: z.string().min(1),
-  latestVersion: versionSchema,
+  latestVersion: resourceVersionSchema,
   reviewStatus: resourceReviewStatusSchema,
   lifecycleStatus: resourceLifecycleStatusSchema,
   visibility: resourceVisibilitySchema,
