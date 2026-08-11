@@ -24,6 +24,32 @@ const resource = {
   ],
 } satisfies ResourceVersion;
 
+const agentResource = {
+  ...resource,
+  resource: {
+    ...resource.resource,
+    type: 'agents',
+    name: 'api-reviewer',
+  },
+  files: [
+    { path: 'AGENT.md', content: '# API reviewer\n' },
+    { path: 'references/checklist.md', content: '- Check errors\n' },
+  ],
+} satisfies ResourceVersion;
+
+const ruleResource = {
+  ...resource,
+  resource: {
+    ...resource.resource,
+    type: 'rules',
+    name: 'typescript-quality',
+  },
+  files: [
+    { path: 'RULE.md', content: '# TypeScript quality\n' },
+    { path: 'references/examples.md', content: '- Prefer narrow types\n' },
+  ],
+} satisfies ResourceVersion;
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -78,6 +104,76 @@ describe('installClaudeCodeResource', () => {
     ).resolves.toMatchObject({
       destination: join(homeDirectory, '.claude', 'skills', 'typescript-api-review'),
     });
+  });
+
+  it('installs agents and rules as Claude Code flat files', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+
+    const agentResult = await installClaudeCodeResource(agentResource, {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+    const ruleResult = await installClaudeCodeResource(ruleResource, {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+
+    expect(agentResult.destination).toBe(
+      join(projectDirectory, '.claude', 'agents', 'api-reviewer.md'),
+    );
+    expect(ruleResult.destination).toBe(
+      join(projectDirectory, '.claude', 'rules', 'typescript-quality.md'),
+    );
+    await expect(readFile(agentResult.destination, 'utf8')).resolves.toBe('# API reviewer\n');
+    await expect(readFile(ruleResult.destination, 'utf8')).resolves.toBe(
+      '# TypeScript quality\n',
+    );
+    await expect(
+      readFile(
+        join(
+          projectDirectory,
+          '.claude',
+          'agents',
+          'api-reviewer.files',
+          'references',
+          'checklist.md',
+        ),
+        'utf8',
+      ),
+    ).resolves.toBe('- Check errors\n');
+    await expect(
+      readFile(
+        join(
+          projectDirectory,
+          '.claude',
+          'rules',
+          'typescript-quality.files',
+          'references',
+          'examples.md',
+        ),
+        'utf8',
+      ),
+    ).resolves.toBe('- Prefer narrow types\n');
+  });
+
+  it('does not install templates as standalone Claude Code resources', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const templateResource = {
+      ...resource,
+      resource: {
+        ...resource.resource,
+        type: 'templates',
+        name: 'backend-review-pack',
+      },
+      files: [{ path: 'TEMPLATE.md', content: '# Backend review pack\n' }],
+    } satisfies ResourceVersion;
+
+    await expect(
+      installClaudeCodeResource(templateResource, {
+        scope: 'project',
+        cwd: projectDirectory,
+      }),
+    ).rejects.toThrow('Templates must be expanded first.');
   });
 
   it('rejects files that escape the resource directory', async () => {
