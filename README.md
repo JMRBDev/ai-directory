@@ -37,7 +37,7 @@ pnpm install
 pnpm dev
 ```
 
-The workspace currently contains only bootstraps and package boundaries. Product behavior will be added in vertical slices.
+The workspace contains the first discovery slices. Product behavior will continue to be added in small vertical slices.
 
 ## Resource discovery
 
@@ -55,6 +55,14 @@ apps/cli/dist/aid list --remote https://git.company.internal/raw/main/index.json
 ```
 
 The default index path is `.ai-directory/registry/index.json`. Set `AI_DIRECTORY_REGISTRY_INDEX` or `AI_DIRECTORY_REGISTRY_INDEX_URL` to change the local or remote source. Use `--type`, `--include-retired`, or `--json` to filter the result.
+
+Inspect a version from the linked local registry:
+
+```sh
+apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review
+```
+
+Use `--version` to inspect a specific version or `--json` for machine-readable output.
 
 ## Checks
 

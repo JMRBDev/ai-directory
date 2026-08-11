@@ -1,6 +1,10 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { fetchRegistryIndex, readRegistryIndex } from '../src/index.js';
+import {
+  fetchRegistryIndex,
+  readRegistryIndex,
+  readResourceVersion,
+} from '../src/index.js';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/index.json', import.meta.url));
 
@@ -34,5 +38,24 @@ describe('readRegistryIndex', () => {
         async () => new Response(null, { status: 503, statusText: 'Unavailable' }),
       ),
     ).rejects.toThrow('Registry index request failed (503 Unavailable)');
+  });
+
+  it('loads a resource version and nested supporting files', async () => {
+    const result = await readResourceVersion(
+      fixturePath,
+      'john-doe/skills/typescript-review',
+    );
+
+    expect(result.version).toBe('1.2.0');
+    expect(result.files.map((file) => file.path)).toEqual([
+      'SKILL.md',
+      'references/checklist.md',
+    ]);
+  });
+
+  it('reports an unknown resource clearly', async () => {
+    await expect(readResourceVersion(fixturePath, 'john-doe/skills/missing')).rejects.toThrow(
+      'Resource not found: john-doe/skills/missing',
+    );
   });
 });
