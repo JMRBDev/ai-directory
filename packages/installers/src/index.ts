@@ -60,15 +60,41 @@ export async function installClaudeCodeResources(
   resources: ResourceVersion[],
   options: ClaudeCodeInstallOptions,
 ): Promise<InstallResult[]> {
+  return installResources(resources, options, createClaudeCodePlan, defaultInstallRoot);
+}
+
+export async function installOpenCodeResources(
+  resources: ResourceVersion[],
+  options: InstallOptions,
+): Promise<InstallResult[]> {
+  return installResources(resources, options, createOpenCodePlan, openCodeInstallRoot);
+}
+
+export async function installCodexResources(
+  resources: ResourceVersion[],
+  options: InstallOptions,
+): Promise<InstallResult[]> {
+  return installResources(resources, options, createCodexPlan, defaultInstallRoot);
+}
+
+async function installResources(
+  resources: ResourceVersion[],
+  options: InstallOptions,
+  createPlanForResource: (
+    root: string,
+    resource: ResourceVersion,
+    scope: InstallScope,
+  ) => InstallPlan,
+  getRoot: (options: InstallOptions) => string,
+): Promise<InstallResult[]> {
   if (resources.length === 0) {
     throw new Error('No resources to install.');
   }
 
-  const root =
-    options.scope === 'project'
-      ? options.cwd ?? process.cwd()
-      : options.homeDirectory ?? homedir();
-  const plans = resources.map((resource) => createPlan(root, resource));
+  const root = getRoot(options);
+  const plans = resources.map((resource) =>
+    createPlanForResource(root, resource, options.scope),
+  );
 
   const destinations = new Set<string>();
   const overlaps: string[] = [];
@@ -117,6 +143,16 @@ export async function installClaudeCodeResources(
 export const claudeCodeInstaller: HarnessInstaller = {
   harness: 'claude-code',
   install: installClaudeCodeResources,
+};
+
+export const openCodeInstaller: HarnessInstaller = {
+  harness: 'opencode',
+  install: installOpenCodeResources,
+};
+
+export const codexInstaller: HarnessInstaller = {
+  harness: 'codex',
+  install: installCodexResources,
 };
 
 export async function readInstallationManifest(path: string): Promise<InstallationManifest> {
@@ -229,7 +265,11 @@ type InstallPlan = {
   }>;
 };
 
-function createPlan(root: string, resource: ResourceVersion): InstallPlan {
+function createClaudeCodePlan(
+  root: string,
+  resource: ResourceVersion,
+  _scope: InstallScope,
+): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
       'Claude Code installation supports skills, agents, and rules. Templates must be expanded first.',
@@ -244,6 +284,77 @@ function createPlan(root: string, resource: ResourceVersion): InstallPlan {
   return {
     resource,
     destination: resourceDestination(root, resource),
+    files,
+  };
+}
+
+function createOpenCodePlan(
+  root: string,
+  resource: ResourceVersion,
+  scope: InstallScope,
+): InstallPlan {
+  if (resource.resource.type === 'templates') {
+    throw new Error(
+      'OpenCode installation supports skills and agents. Templates must be expanded first.',
+    );
+  }
+
+  if (resource.resource.type === 'rules') {
+    throw new Error(
+      'OpenCode rule installation is not supported yet because OpenCode loads rules through shared instruction files.',
+    );
+  }
+
+  const files = resource.files.map((file) => ({
+    ...file,
+    content:
+      resource.resource.type === 'agents' && file.path === 'AGENT.md'
+        ? openCodeAgentContent(resource)
+        : file.content,
+    destination: openCodeDestinationForFile(
+      root,
+      resource,
+      file.path,
+      scope,
+    ),
+  }));
+
+  return {
+    resource,
+    destination: openCodeResourceDestination(root, resource, scope),
+    files,
+  };
+}
+
+function createCodexPlan(
+  root: string,
+  resource: ResourceVersion,
+  _scope: InstallScope,
+): InstallPlan {
+  if (resource.resource.type === 'templates') {
+    throw new Error(
+      'Codex installation supports skills and agents. Templates must be expanded first.',
+    );
+  }
+
+  if (resource.resource.type === 'rules') {
+    throw new Error(
+      'Codex rule installation is not supported yet because Codex loads natural-language rules through AGENTS.md.',
+    );
+  }
+
+  const files = resource.files.map((file) => ({
+    ...file,
+    content:
+      resource.resource.type === 'agents' && file.path === 'AGENT.md'
+        ? codexAgentContent(resource)
+        : file.content,
+    destination: codexDestinationForFile(root, resource, file.path),
+  }));
+
+  return {
+    resource,
+    destination: codexResourceDestination(root, resource),
     files,
   };
 }
@@ -272,12 +383,122 @@ function destinationForFile(
   );
 }
 
+function defaultInstallRoot(options: InstallOptions): string {
+  return options.scope === 'project'
+    ? options.cwd ?? process.cwd()
+    : options.homeDirectory ?? homedir();
+}
+
+function openCodeInstallRoot(options: InstallOptions): string {
+  if (options.scope === 'project') return options.cwd ?? process.cwd();
+
+  return join(options.homeDirectory ?? homedir(), '.config', 'opencode');
+}
+
 function resourceDestination(root: string, resource: ResourceVersion): string {
   if (resource.resource.type === 'skills') {
     return join(root, '.claude', 'skills', resource.resource.name);
   }
 
   return join(root, '.claude', resource.resource.type, `${resource.resource.name}.md`);
+}
+
+function openCodeDestinationForFile(
+  root: string,
+  resource: ResourceVersion,
+  resourcePath: string,
+  scope: InstallScope,
+): string {
+  const directory = scope === 'project' ? join(root, '.opencode') : root;
+
+  if (resource.resource.type === 'skills') {
+    return safeDestination(
+      openCodeResourceDestination(root, resource, scope),
+      resourcePath,
+    );
+  }
+
+  if (resourcePath === 'AGENT.md') {
+    return safeDestination(join(directory, 'agents'), `${resource.resource.name}.md`);
+  }
+
+  return safeDestination(
+    join(directory, 'agents', `${resource.resource.name}.files`),
+    resourcePath,
+  );
+}
+
+function openCodeResourceDestination(
+  root: string,
+  resource: ResourceVersion,
+  scope: InstallScope,
+): string {
+  const directory = scope === 'project' ? join(root, '.opencode') : root;
+
+  if (resource.resource.type === 'skills') {
+    return join(directory, 'skills', resource.resource.name);
+  }
+
+  return join(directory, 'agents', `${resource.resource.name}.md`);
+}
+
+function codexDestinationForFile(
+  root: string,
+  resource: ResourceVersion,
+  resourcePath: string,
+): string {
+  if (resource.resource.type === 'skills') {
+    return safeDestination(codexResourceDestination(root, resource), resourcePath);
+  }
+
+  if (resourcePath === 'AGENT.md') {
+    return safeDestination(join(root, '.codex', 'agents'), `${resource.resource.name}.toml`);
+  }
+
+  return safeDestination(
+    join(root, '.codex', 'agents', `${resource.resource.name}.files`),
+    resourcePath,
+  );
+}
+
+function codexResourceDestination(root: string, resource: ResourceVersion): string {
+  if (resource.resource.type === 'skills') {
+    return join(root, '.agents', 'skills', resource.resource.name);
+  }
+
+  return join(root, '.codex', 'agents', `${resource.resource.name}.toml`);
+}
+
+function openCodeAgentContent(resource: ResourceVersion): string {
+  const entry = resource.files.find((file) => file.path === 'AGENT.md');
+
+  if (!entry) {
+    throw new Error(`Agent is missing AGENT.md: ${resourceKey(resource.resource)}`);
+  }
+
+  return [
+    '---',
+    `description: ${JSON.stringify(resource.resource.description)}`,
+    'mode: subagent',
+    '---',
+    '',
+    entry.content,
+  ].join('\n');
+}
+
+function codexAgentContent(resource: ResourceVersion): string {
+  const entry = resource.files.find((file) => file.path === 'AGENT.md');
+
+  if (!entry) {
+    throw new Error(`Agent is missing AGENT.md: ${resourceKey(resource.resource)}`);
+  }
+
+  return [
+    `name = ${JSON.stringify(resource.resource.name)}`,
+    `description = ${JSON.stringify(resource.resource.description)}`,
+    `developer_instructions = ${JSON.stringify(entry.content)}`,
+    '',
+  ].join('\n');
 }
 
 function safeDestination(root: string, resourcePath: string): string {
