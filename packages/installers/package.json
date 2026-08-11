@@ -19,7 +19,8 @@
   "dependencies": {
     "@ai-directory/contracts": "workspace:*",
     "@ai-directory/domain": "workspace:*",
-    "@ai-directory/registry": "workspace:*"
+    "@ai-directory/registry": "workspace:*",
+    "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
