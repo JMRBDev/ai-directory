@@ -19,14 +19,11 @@ import {
 import { cancel, intro, isCancel, outro, select, spinner, text } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
 import {
-  claudeCodeInstaller,
-  codexInstaller,
-  openCodeInstaller,
+  getHarnessAdapter,
   readInstallationManifest,
   removeStaleInstallationFiles,
   updateInstallationManifest,
   type Harness,
-  type HarnessInstaller,
   type InstallResult,
   type InstallScope,
   type InstallationRecord,
@@ -42,14 +39,6 @@ import {
 } from '@ai-directory/registry';
 
 const localIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX;
-
-function getHarnessInstaller(value: string): { harness: Harness; installer: HarnessInstaller } {
-  if (value === 'claude-code') return { harness: value, installer: claudeCodeInstaller };
-  if (value === 'opencode') return { harness: value, installer: openCodeInstaller };
-  if (value === 'codex') return { harness: value, installer: codexInstaller };
-
-  throw new Error(`Unsupported harness: ${value}`);
-}
 
 function getRegistrySource(indexPath?: string, repository?: string, baseBranch?: string) {
   const repositoryUrl = resolveRepository(repository);
@@ -428,7 +417,8 @@ const install = defineCommand({
       const source = getRegistrySource(args.index, args.repository, args.base);
       const loaded = await readRegistrySourceResource(source, args.resource, args.version);
       const result = loaded.resource;
-      const { harness, installer } = getHarnessInstaller(args.harness);
+      const installer = getHarnessAdapter(args.harness);
+      const { harness } = installer;
 
       const resources = loaded.resources;
 
@@ -566,7 +556,8 @@ const update = defineCommand({
   },
   async run({ args }) {
     try {
-      const { harness, installer } = getHarnessInstaller(args.harness);
+      const installer = getHarnessAdapter(args.harness);
+      const { harness } = installer;
 
       const scope = args.scope as InstallScope;
       const manifestPath = getInstallManifestPath(scope);

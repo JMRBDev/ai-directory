@@ -8,6 +8,7 @@ import {
   installClaudeCodeResources,
   installCodexResources,
   installOpenCodeResources,
+  getHarnessAdapter,
   readInstallationManifest,
   removeStaleInstallationFiles,
   updateInstallationManifest,
@@ -233,6 +234,24 @@ describe('installClaudeCodeResource', () => {
 });
 
 describe('portable harness installers', () => {
+  it('exposes the harness capability matrix', () => {
+    expect(getHarnessAdapter('claude-code').capabilities).toEqual({
+      skills: 'native',
+      agents: 'native',
+      rules: 'native',
+    });
+    expect(getHarnessAdapter('opencode').capabilities).toEqual({
+      skills: 'native',
+      agents: 'translated',
+      rules: 'configured',
+    });
+    expect(getHarnessAdapter('codex').capabilities).toEqual({
+      skills: 'native',
+      agents: 'translated',
+      rules: 'configured',
+    });
+  });
+
   it('installs native OpenCode skills and agents', async () => {
     const projectDirectory = await createTemporaryDirectory();
 
@@ -431,6 +450,53 @@ describe('portable harness installers', () => {
       '# TypeScript quality',
     );
     await expect(readFile(join(projectDirectory, 'AGENTS.md'), 'utf8')).rejects.toThrow();
+  });
+
+  it('honors official harness path environment overrides', async () => {
+    const directory = await createTemporaryDirectory();
+    const claudeConfigDirectory = join(directory, 'claude-config');
+    const codexHome = join(directory, 'codex-home');
+    const openCodeConfigDirectory = join(directory, 'opencode-config');
+
+    const [claudeResult] = await installClaudeCodeResources([resource], {
+      scope: 'global',
+      environment: { CLAUDE_CONFIG_DIR: claudeConfigDirectory },
+    });
+    const [codexResult] = await installCodexResources([agentResource], {
+      scope: 'global',
+      homeDirectory: directory,
+      environment: { CODEX_HOME: codexHome },
+    });
+    const [openCodeResult] = await installOpenCodeResources([resource], {
+      scope: 'global',
+      homeDirectory: directory,
+      environment: { OPENCODE_CONFIG_DIR: openCodeConfigDirectory },
+    });
+
+    expect(claudeResult.destination).toBe(
+      join(claudeConfigDirectory, 'skills', 'typescript-api-review'),
+    );
+    expect(codexResult.destination).toBe(
+      join(codexHome, 'agents', 'api-reviewer.toml'),
+    );
+    expect(openCodeResult.destination).toBe(
+      join(openCodeConfigDirectory, 'skills', 'typescript-api-review'),
+    );
+  });
+
+  it('honors a custom OpenCode config file path', async () => {
+    const directory = await createTemporaryDirectory();
+    const configPath = join(directory, 'custom', 'opencode.jsonc');
+
+    await installOpenCodeResources([ruleResource], {
+      scope: 'global',
+      homeDirectory: directory,
+      environment: { OPENCODE_CONFIG: configPath },
+    });
+
+    await expect(readFile(configPath, 'utf8')).resolves.toContain(
+      'rules/typescript-quality.md',
+    );
   });
 });
 
