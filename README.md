@@ -56,6 +56,17 @@ apps/cli/dist/aid list --remote https://git.company.internal/raw/main/index.json
 
 The default index path is `.ai-directory/registry/index.json`. Set `AI_DIRECTORY_REGISTRY_INDEX` or `AI_DIRECTORY_REGISTRY_INDEX_URL` to change the local or remote source. Use `--type`, `--include-retired`, or `--json` to filter the result.
 
+## Run the local catalog
+
+The website is local-first. It reads the same registry index as the CLI and does not require a hosted API:
+
+```sh
+pnpm build
+apps/cli/dist/aid web --open
+```
+
+Use `--index`, `--host`, or `--port` to change the local setup. The command starts Astro from the workspace and passes the selected registry index to it.
+
 Inspect a version from the linked local registry:
 
 ```sh

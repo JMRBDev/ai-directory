@@ -15,5 +15,9 @@
     "astro": "^7.2.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@ai-directory/contracts": "workspace:*",
+    "@ai-directory/registry": "workspace:*"
   }
 }
