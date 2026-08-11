@@ -14,6 +14,7 @@ export type InstallOptions = {
   cwd?: string;
   homeDirectory?: string;
   force?: boolean;
+  environment?: NodeJS.ProcessEnv;
 };
 
 export type ClaudeCodeInstallOptions = InstallOptions;
@@ -39,10 +40,26 @@ export type InstallationManifest = {
   installations: InstallationRecord[];
 };
 
-export type HarnessInstaller = {
+export type ResourceInstallationMode = 'native' | 'translated' | 'configured';
+
+export type ResourceKind = Exclude<ResourceVersion['resource']['type'], 'templates'>;
+
+export type HarnessAdapter = {
   harness: Harness;
+  installation: 'native-filesystem';
+  capabilities: Record<ResourceKind, ResourceInstallationMode>;
   install(resources: ResourceVersion[], options: InstallOptions): Promise<InstallResult[]>;
 };
+
+export function getHarnessAdapter(value: string): HarnessAdapter {
+  const adapter = harnessAdapters[value as Harness];
+
+  if (!adapter) {
+    throw new Error(`Unsupported harness: ${value}`);
+  }
+
+  return adapter;
+}
 
 export async function installClaudeCodeResource(
   resource: ResourceVersion,
@@ -61,7 +78,7 @@ export async function installClaudeCodeResources(
   resources: ResourceVersion[],
   options: ClaudeCodeInstallOptions,
 ): Promise<InstallResult[]> {
-  return installResources(resources, options, createClaudeCodePlan, defaultInstallRoot);
+  return installResources(resources, options, createClaudeCodePlan, claudeCodeInstallRoot);
 }
 
 export async function installOpenCodeResources(
@@ -76,7 +93,12 @@ export async function installOpenCodeResources(
   const plans = resources.map((resource) => createOpenCodePlan(root, resource, options.scope));
   const rules = plans.filter((plan) => plan.resource.resource.type === 'rules');
   const config = rules.length > 0
-    ? await prepareOpenCodeInstructions(root, options.scope, rules.map((plan) => plan.resource))
+    ? await prepareOpenCodeInstructions(
+        root,
+        options.scope,
+        rules.map((plan) => plan.resource),
+        options,
+      )
     : undefined;
 
   await assertInstallPlansAvailable(plans, options);
@@ -104,11 +126,11 @@ export async function installCodexResources(
     throw new Error('No resources to install.');
   }
 
-  const root = defaultInstallRoot(options);
-  const plans = resources.map((resource) => createCodexPlan(root, resource, options.scope));
+  const paths = codexInstallPaths(options);
+  const plans = resources.map((resource) => createCodexPlan(paths, resource));
   const rules = plans.filter((plan) => plan.resource.resource.type === 'rules');
   const guidance = rules.length > 0
-    ? await prepareCodexGuidance(root, options.scope, rules, options.force ?? false)
+    ? await prepareCodexGuidance(paths.guidanceRoot, rules, options.force ?? false)
     : undefined;
 
   await assertInstallPlansAvailable(plans, options);
@@ -204,19 +226,31 @@ async function writeInstallPlans(plans: InstallPlan[]): Promise<void> {
   }
 }
 
-export const claudeCodeInstaller: HarnessInstaller = {
+export const claudeCodeInstaller: HarnessAdapter = {
   harness: 'claude-code',
+  installation: 'native-filesystem',
+  capabilities: { skills: 'native', agents: 'native', rules: 'native' },
   install: installClaudeCodeResources,
 };
 
-export const openCodeInstaller: HarnessInstaller = {
+export const openCodeInstaller: HarnessAdapter = {
   harness: 'opencode',
+  installation: 'native-filesystem',
+  capabilities: { skills: 'native', agents: 'translated', rules: 'configured' },
   install: installOpenCodeResources,
 };
 
-export const codexInstaller: HarnessInstaller = {
+export const codexInstaller: HarnessAdapter = {
   harness: 'codex',
+  installation: 'native-filesystem',
+  capabilities: { skills: 'native', agents: 'translated', rules: 'configured' },
   install: installCodexResources,
+};
+
+const harnessAdapters: Record<Harness, HarnessAdapter> = {
+  'claude-code': claudeCodeInstaller,
+  opencode: openCodeInstaller,
+  codex: codexInstaller,
 };
 
 export async function readInstallationManifest(path: string): Promise<InstallationManifest> {
@@ -328,6 +362,12 @@ type PreparedText = {
   content: string;
 };
 
+type CodexInstallPaths = {
+  root: string;
+  codexHome: string;
+  guidanceRoot: string;
+};
+
 function createClaudeCodePlan(
   root: string,
   resource: ResourceVersion,
@@ -384,9 +424,8 @@ function createOpenCodePlan(
 }
 
 function createCodexPlan(
-  root: string,
+  paths: CodexInstallPaths,
   resource: ResourceVersion,
-  _scope: InstallScope,
 ): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
@@ -400,12 +439,12 @@ function createCodexPlan(
       resource.resource.type === 'agents' && file.path === 'AGENT.md'
         ? codexAgentContent(resource)
         : file.content,
-    destination: codexDestinationForFile(root, resource, file.path),
+    destination: codexDestinationForFile(paths, resource, file.path),
   }));
 
   return {
     resource,
-    destination: codexResourceDestination(root, resource),
+    destination: codexResourceDestination(paths, resource),
     files,
   };
 }
@@ -421,7 +460,7 @@ function destinationForFile(
     return safeDestination(resourceDestination(root, resource), resourcePath);
   }
 
-  const directory = join(root, '.claude', type);
+  const directory = join(root, type);
   const entryFile = type === 'agents' ? 'AGENT.md' : 'RULE.md';
 
   if (resourcePath === entryFile) {
@@ -434,24 +473,46 @@ function destinationForFile(
   );
 }
 
-function defaultInstallRoot(options: InstallOptions): string {
-  return options.scope === 'project'
-    ? options.cwd ?? process.cwd()
-    : options.homeDirectory ?? homedir();
+function claudeCodeInstallRoot(options: InstallOptions): string {
+  if (options.scope === 'project') {
+    return join(options.cwd ?? process.cwd(), '.claude');
+  }
+
+  if (options.homeDirectory) {
+    return join(options.homeDirectory, '.claude');
+  }
+
+  return configuredPath(options, 'CLAUDE_CONFIG_DIR') ?? join(homedir(), '.claude');
 }
 
 function openCodeInstallRoot(options: InstallOptions): string {
   if (options.scope === 'project') return options.cwd ?? process.cwd();
 
-  return join(options.homeDirectory ?? homedir(), '.config', 'opencode');
+  return configuredPath(options, 'OPENCODE_CONFIG_DIR')
+    ?? join(options.homeDirectory ?? homedir(), '.config', 'opencode');
+}
+
+function codexInstallPaths(options: InstallOptions): CodexInstallPaths {
+  const home = options.homeDirectory ?? homedir();
+  const project = options.cwd ?? process.cwd();
+
+  return {
+    root: options.scope === 'project' ? project : home,
+    codexHome: options.scope === 'project'
+      ? join(project, '.codex')
+      : configuredPath(options, 'CODEX_HOME') ?? join(home, '.codex'),
+    guidanceRoot: options.scope === 'project'
+      ? project
+      : configuredPath(options, 'CODEX_HOME') ?? join(home, '.codex'),
+  };
 }
 
 function resourceDestination(root: string, resource: ResourceVersion): string {
   if (resource.resource.type === 'skills') {
-    return join(root, '.claude', 'skills', resource.resource.name);
+    return join(root, 'skills', resource.resource.name);
   }
 
-  return join(root, '.claude', resource.resource.type, `${resource.resource.name}.md`);
+  return join(root, resource.resource.type, `${resource.resource.name}.md`);
 }
 
 function openCodeDestinationForFile(
@@ -497,25 +558,25 @@ function openCodeResourceDestination(
 }
 
 function codexDestinationForFile(
-  root: string,
+  paths: CodexInstallPaths,
   resource: ResourceVersion,
   resourcePath: string,
 ): string {
   if (resource.resource.type === 'skills') {
-    return safeDestination(codexResourceDestination(root, resource), resourcePath);
+    return safeDestination(codexResourceDestination(paths, resource), resourcePath);
   }
 
   if (resource.resource.type === 'agents' && resourcePath === 'AGENT.md') {
-    return safeDestination(join(root, '.codex', 'agents'), `${resource.resource.name}.toml`);
+    return safeDestination(join(paths.codexHome, 'agents'), `${resource.resource.name}.toml`);
   }
 
   if (resource.resource.type === 'rules' && resourcePath === 'RULE.md') {
-    return safeDestination(join(root, '.ai-directory', 'rules'), `${resource.resource.name}.md`);
+    return safeDestination(join(paths.root, '.ai-directory', 'rules'), `${resource.resource.name}.md`);
   }
 
   const directory = resource.resource.type === 'agents'
-    ? join(root, '.codex', 'agents')
-    : join(root, '.ai-directory', 'rules');
+    ? join(paths.codexHome, 'agents')
+    : join(paths.root, '.ai-directory', 'rules');
 
   return safeDestination(
     join(directory, `${resource.resource.name}.files`),
@@ -523,24 +584,25 @@ function codexDestinationForFile(
   );
 }
 
-function codexResourceDestination(root: string, resource: ResourceVersion): string {
+function codexResourceDestination(paths: CodexInstallPaths, resource: ResourceVersion): string {
   if (resource.resource.type === 'skills') {
-    return join(root, '.agents', 'skills', resource.resource.name);
+    return join(paths.root, '.agents', 'skills', resource.resource.name);
   }
 
   if (resource.resource.type === 'agents') {
-    return join(root, '.codex', 'agents', `${resource.resource.name}.toml`);
+    return join(paths.codexHome, 'agents', `${resource.resource.name}.toml`);
   }
 
-  return join(root, '.ai-directory', 'rules', `${resource.resource.name}.md`);
+  return join(paths.root, '.ai-directory', 'rules', `${resource.resource.name}.md`);
 }
 
 async function prepareOpenCodeInstructions(
   root: string,
   scope: InstallScope,
   resources: ResourceVersion[],
+  options: InstallOptions,
 ): Promise<PreparedText> {
-  const path = await openCodeConfigPath(root, scope);
+  const path = await openCodeConfigPath(root, scope, options);
   const entries = resources.map((resource) =>
     toPosixPath(relative(
       dirname(path),
@@ -599,7 +661,17 @@ async function prepareOpenCodeInstructions(
   };
 }
 
-async function openCodeConfigPath(root: string, scope: InstallScope): Promise<string> {
+async function openCodeConfigPath(
+  root: string,
+  scope: InstallScope,
+  options: InstallOptions,
+): Promise<string> {
+  const customPath = configuredPath(options, 'OPENCODE_CONFIG');
+
+  if (customPath) {
+    return customPath;
+  }
+
   const candidates = scope === 'project'
     ? [
         join(root, 'opencode.jsonc'),
@@ -619,12 +691,11 @@ async function openCodeConfigPath(root: string, scope: InstallScope): Promise<st
 }
 
 async function prepareCodexGuidance(
-  root: string,
-  scope: InstallScope,
+  codexHome: string,
   plans: InstallPlan[],
   force: boolean,
 ): Promise<PreparedText> {
-  const path = await codexGuidancePath(root, scope);
+  const path = await codexGuidancePath(codexHome);
   let content = (await readOptionalText(path)) ?? '';
 
   for (const plan of plans) {
@@ -634,15 +705,14 @@ async function prepareCodexGuidance(
   return { path, content };
 }
 
-async function codexGuidancePath(root: string, scope: InstallScope): Promise<string> {
-  const directory = scope === 'project' ? root : join(root, '.codex');
-  const overridePath = join(directory, 'AGENTS.override.md');
+async function codexGuidancePath(codexHome: string): Promise<string> {
+  const overridePath = join(codexHome, 'AGENTS.override.md');
 
   if (await pathExists(overridePath)) {
     return overridePath;
   }
 
-  return join(directory, 'AGENTS.md');
+  return join(codexHome, 'AGENTS.md');
 }
 
 function upsertCodexRule(
@@ -734,6 +804,11 @@ function safeDestination(root: string, resourcePath: string): string {
 
 function toPosixPath(path: string): string {
   return path.split(sep).join('/');
+}
+
+function configuredPath(options: InstallOptions, key: string): string | undefined {
+  const value = options.environment?.[key] ?? process.env[key];
+  return value?.trim() ? resolve(value) : undefined;
 }
 
 async function readOptionalText(path: string): Promise<string | null> {
