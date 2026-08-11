@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   fetchRegistryIndex,
   publishResource,
+  readRemoteRegistryIndex,
   readRemoteResource,
   readRegistryIndex,
   readResourceVersion,
@@ -50,6 +51,37 @@ describe('readRegistryIndex', () => {
     );
 
     expect(index.resources).toEqual([]);
+  });
+
+  it('reads an index from a temporary sparse checkout', async () => {
+    const commands: string[] = [];
+    let temporaryRepository = '';
+
+    const index = await readRemoteRegistryIndex({
+      repositoryUrl: 'git@example.com:company/registry.git',
+      commandRunner: async (command, args) => {
+        commands.push(`${command} ${args.join(' ')}`);
+
+        if (command === 'git' && args[0] === 'clone') {
+          const destination = args.at(-1);
+
+          if (!destination) throw new Error('Missing clone destination.');
+
+          temporaryRepository = destination;
+          await writeFile(
+            join(destination, 'index.json'),
+            JSON.stringify({ schemaVersion: 1, resources: [] }),
+            'utf8',
+          );
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    expect(index.resources).toEqual([]);
+    expect(commands).toContain('git sparse-checkout set index.json');
+    await expect(readFile(join(temporaryRepository, 'index.json'), 'utf8')).rejects.toThrow();
   });
 
   it('reports remote HTTP failures clearly', async () => {

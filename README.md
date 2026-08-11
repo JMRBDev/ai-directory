@@ -56,6 +56,15 @@ apps/cli/dist/aid list --remote https://git.company.internal/raw/main/index.json
 
 The default index path is `.ai-directory/registry/index.json`. Set `AI_DIRECTORY_REGISTRY_INDEX` or `AI_DIRECTORY_REGISTRY_INDEX_URL` to change the local or remote source. Use `--type`, `--include-retired`, or `--json` to filter the result.
 
+Set the company registry once for the current user:
+
+```sh
+apps/cli/dist/aid config set repository \
+  git@github.com:company/ai-directory-registry.git
+```
+
+After this, `list`, `show`, `install`, and `submit` use the configured Git repository by default. Use `--scope project` to store an override in `.ai-directory/config.json`, or use `AI_DIRECTORY_REGISTRY_REPOSITORY` for an environment-level override. Inspect the effective value with `aid config get repository`.
+
 ## Run the local catalog
 
 The website is local-first. It reads the same registry index as the CLI and does not require a hosted API:

@@ -46,6 +46,12 @@ export type RemoteResourceOptions = {
   commandRunner?: CommandRunner;
 };
 
+export type RemoteRegistryOptions = {
+  repositoryUrl: string;
+  baseBranch?: string;
+  commandRunner?: CommandRunner;
+};
+
 export type RemoteResourceResult = {
   resource: ResourceVersion;
   resources: ResourceVersion[];
@@ -228,6 +234,26 @@ export async function readResourceVersion(
   }
 
   return { resource, version, files };
+}
+
+export async function readRemoteRegistryIndex(
+  options: RemoteRegistryOptions,
+): Promise<RegistryIndex> {
+  const temporaryRepository = await mkdtemp(join(tmpdir(), 'ai-directory-index-'));
+  const runner = options.commandRunner ?? runCommand;
+
+  try {
+    await clonePartialRepository(
+      runner,
+      options.repositoryUrl,
+      temporaryRepository,
+      options.baseBranch ?? 'main',
+    );
+
+    return readRegistryIndex(join(temporaryRepository, 'index.json'));
+  } finally {
+    await rm(temporaryRepository, { recursive: true, force: true });
+  }
 }
 
 export async function readRemoteResource(
