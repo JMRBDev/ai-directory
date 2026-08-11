@@ -39,6 +39,17 @@ pnpm dev
 
 The workspace currently contains only bootstraps and package boundaries. Product behavior will be added in vertical slices.
 
+## Resource discovery
+
+The first feature reads a validated registry index and lists active resources:
+
+```sh
+pnpm build
+apps/cli/dist/aid list --index /path/to/registry/index.json
+```
+
+The default index path is `.ai-directory/registry/index.json`. Set `AI_DIRECTORY_REGISTRY_INDEX` to use another path. Use `--type`, `--include-retired`, or `--json` to filter the result.
+
 ## Checks
 
 ```sh
@@ -49,4 +60,4 @@ pnpm build
 
 ## Repository boundary
 
-The application repository stores code. The separate registry repository stores versioned resource packages, metadata, and bundles. See [docs/registry-repository.md](docs/registry-repository.md).
+The application repository stores code. The separate registry repository stores versioned resource packages, metadata, and bundles.
