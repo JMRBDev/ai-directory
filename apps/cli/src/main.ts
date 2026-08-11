@@ -24,6 +24,7 @@ import {
   readTemplateResources,
   submitResource,
   validateRegistry,
+  validateRemoteRegistry,
 } from '@ai-directory/registry';
 
 const defaultIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX ?? '.ai-directory/registry/index.json';
@@ -198,19 +199,38 @@ const show = defineCommand({
 const check = defineCommand({
   meta: {
     name: 'check',
-    description: 'Validate the local registry index and resource packages',
+    description: 'Validate the configured remote registry or a local index',
   },
   args: {
     index: {
       type: 'string',
       alias: 'i',
-      default: defaultIndexPath,
-      description: 'Path to a registry index JSON file',
+      description: 'Path to a local registry index JSON file; overrides remote checking',
+    },
+    repository: {
+      type: 'string',
+      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
+      description: 'Registry Git URL; uses a temporary sparse checkout',
+    },
+    base: {
+      type: 'string',
+      default: 'main',
+      description: 'Production branch to check remotely',
     },
   },
   async run({ args }) {
     try {
-      const result = await validateRegistry(args.index ?? defaultIndexPath);
+      const indexPath = args.index ?? defaultIndexPath;
+      const repository = resolveRepository(args.repository);
+      const remote = Boolean(
+        repository && !args.index && !process.env.AI_DIRECTORY_REGISTRY_INDEX,
+      );
+      const result = remote
+        ? await validateRemoteRegistry({
+            repositoryUrl: repository,
+            baseBranch: args.base,
+          })
+        : await validateRegistry(indexPath);
 
       if (result.issues.length > 0) {
         console.error(`Registry check failed with ${result.issues.length} issue(s):`);
@@ -221,7 +241,9 @@ const check = defineCommand({
         return;
       }
 
-      console.log(`Registry is valid. Checked ${result.resourceCount} resource(s).`);
+      console.log(
+        `Registry is valid. Checked ${result.resourceCount} resource(s)${remote ? ' from the configured remote repository' : ` at ${indexPath}`}.`,
+      );
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -521,6 +543,7 @@ const web = defineCommand({
         env: {
           ...process.env,
           AI_DIRECTORY_REGISTRY_INDEX: indexPath,
+          AI_DIRECTORY_CONFIG_CWD: process.cwd(),
           PUBLIC_AI_DIRECTORY_API_URL: apiUrl,
         },
         stderr: 'inherit',

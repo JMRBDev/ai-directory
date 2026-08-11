@@ -38,7 +38,9 @@ function statusLabel(resource: ResourceSummary): string {
         <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
         <div class="header-tools">
           <span class="header-state">
-            {registry.index ? 'Local production index' : 'Registry unavailable'}
+            {registry.index
+              ? `${registry.source === 'remote' ? 'Remote' : 'Local'} production index`
+              : 'Registry unavailable'}
           </span>
           <a class="header-link" href="/settings/">Settings</a>
         </div>
@@ -75,7 +77,9 @@ function statusLabel(resource: ResourceSummary): string {
             <p class="section-kicker">Catalog</p>
             <h2 id="catalog-title">Available resources</h2>
           </div>
-          <p class="source-note">Source: local production index</p>
+          <p class="source-note">
+            Source: {registry.source === 'remote' ? 'configured Git registry' : 'local production index'}
+          </p>
         </div>
 
         {registry.error ? (

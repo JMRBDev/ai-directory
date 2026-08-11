@@ -17,6 +17,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@ai-directory/config": "workspace:*",
     "@ai-directory/contracts": "workspace:*",
     "@ai-directory/registry": "workspace:*"
   }

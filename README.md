@@ -38,7 +38,7 @@ pnpm install
 pnpm dev
 ```
 
-The workspace contains the first discovery slices. Product behavior will continue to be added in small vertical slices.
+The root `dev` command starts the long-running API and website. The CLI is command-driven and is not part of that process; run it directly with `apps/cli/dist/aid ...` after `pnpm build`. The workspace contains the first discovery slices. Product behavior will continue to be added in small vertical slices.
 
 ## Resource discovery
 
@@ -118,10 +118,16 @@ apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review \
 
 The command uses a temporary sparse checkout for `index.json` and the requested resource. It removes that checkout after reading.
 
-Validate the linked registry before using it:
+Validate the configured remote registry before using it:
 
 ```sh
 apps/cli/dist/aid check
+```
+
+To validate an explicit local checkout instead, pass `--index`:
+
+```sh
+apps/cli/dist/aid check --index /path/to/registry/index.json
 ```
 
 ## Submit a resource for review

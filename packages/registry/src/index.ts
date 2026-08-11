@@ -256,6 +256,24 @@ export async function readRemoteRegistryIndex(
   }
 }
 
+export async function validateRemoteRegistry(
+  options: RemoteRegistryOptions,
+): Promise<RegistryValidationResult> {
+  const index = await readRemoteRegistryIndex(options);
+
+  return validateResourceIndex(index, async (resource) =>
+    (
+      await readRemoteResource({
+        repositoryUrl: options.repositoryUrl,
+        resourceId: resourceKey(resource),
+        version: resource.latestVersion,
+        ...(options.baseBranch ? { baseBranch: options.baseBranch } : {}),
+        ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+      })
+    ).resource,
+  );
+}
+
 export async function readRemoteResource(
   options: RemoteResourceOptions,
 ): Promise<RemoteResourceResult> {
@@ -652,13 +670,21 @@ export async function readTemplateResources(
 
 export async function validateRegistry(indexPath: string): Promise<RegistryValidationResult> {
   const index = await readRegistryIndex(indexPath);
-  const registryRoot = dirname(await realpath(indexPath));
+  return validateResourceIndex(index, (resource) =>
+    readResourceVersion(indexPath, resourceKey(resource), resource.latestVersion),
+  );
+}
+
+async function validateResourceIndex(
+  index: RegistryIndex,
+  readVersion: (resource: ResourceSummary) => Promise<ResourceVersion>,
+): Promise<RegistryValidationResult> {
   const issues: string[] = [];
   const resourceIds = new Set<string>();
 
   for (const resource of index.resources) {
     const id = resourceKey(resource);
-    const version = resource.latestVersion;
+    const requestedVersion = resource.latestVersion;
 
     if (resourceIds.has(id)) {
       issues.push(`Duplicate resource ID: ${id}`);
@@ -668,19 +694,20 @@ export async function validateRegistry(indexPath: string): Promise<RegistryValid
     resourceIds.add(id);
 
     try {
-      const files = await readResourceFiles(resourceDirectory(registryRoot, resource, version));
+      const loadedVersion = await readVersion(resource);
+      const files = loadedVersion.files;
       const entryFile = files.find((file) => file.path === requiredEntryFiles[resource.type]);
 
       if (!entryFile) {
-        issues.push(`${id}@${version} is missing ${requiredEntryFiles[resource.type]}`);
+        issues.push(`${id}@${requestedVersion} is missing ${requiredEntryFiles[resource.type]}`);
       } else if (!entryFile.content.trim()) {
-        issues.push(`${id}@${version} has an empty ${entryFile.path}`);
+        issues.push(`${id}@${requestedVersion} has an empty ${entryFile.path}`);
       }
     } catch (error) {
       if (isMissingPathError(error)) {
-        issues.push(`Resource version not found: ${id}@${version}`);
+        issues.push(`Resource version not found: ${id}@${requestedVersion}`);
       } else {
-        issues.push(`Could not read resource version: ${id}@${version}`);
+        issues.push(`Could not read resource version: ${id}@${requestedVersion}`);
       }
     }
   }
@@ -798,10 +825,9 @@ async function runCommand(
 }
 
 function isMissingPathError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'ENOENT'
-  );
+  if (typeof error !== 'object' || error === null) return false;
+  if ('code' in error && error.code === 'ENOENT') return true;
+  if ('cause' in error) return isMissingPathError(error.cause);
+
+  return false;
 }
