@@ -21,18 +21,19 @@ export async function installClaudeCodeResource(
   resource: ResourceVersion,
   options: ClaudeCodeInstallOptions,
 ): Promise<InstallResult> {
-  if (resource.resource.type !== 'skills') {
-    throw new Error('Claude Code installation currently supports skills only.');
+  if (resource.resource.type === 'templates') {
+    throw new Error(
+      'Claude Code installation supports skills, agents, and rules. Templates must be expanded first.',
+    );
   }
 
   const root =
     options.scope === 'project'
       ? options.cwd ?? process.cwd()
       : options.homeDirectory ?? homedir();
-  const destination = join(root, '.claude', 'skills', resource.resource.name);
   const files = resource.files.map((file) => ({
     ...file,
-    destination: safeDestination(destination, file.path),
+    destination: destinationForFile(root, resource, file.path),
   }));
 
   if (!options.force) {
@@ -57,9 +58,41 @@ export async function installClaudeCodeResource(
   }
 
   return {
-    destination,
+    destination: resourceDestination(root, resource),
     files: resource.files.map((file) => file.path),
   };
+}
+
+function destinationForFile(
+  root: string,
+  resource: ResourceVersion,
+  resourcePath: string,
+): string {
+  const type = resource.resource.type;
+
+  if (type === 'skills') {
+    return safeDestination(resourceDestination(root, resource), resourcePath);
+  }
+
+  const directory = join(root, '.claude', type);
+  const entryFile = type === 'agents' ? 'AGENT.md' : 'RULE.md';
+
+  if (resourcePath === entryFile) {
+    return safeDestination(directory, `${resource.resource.name}.md`);
+  }
+
+  return safeDestination(
+    join(directory, `${resource.resource.name}.files`),
+    resourcePath,
+  );
+}
+
+function resourceDestination(root: string, resource: ResourceVersion): string {
+  if (resource.resource.type === 'skills') {
+    return join(root, '.claude', 'skills', resource.resource.name);
+  }
+
+  return join(root, '.claude', resource.resource.type, `${resource.resource.name}.md`);
 }
 
 function safeDestination(root: string, resourcePath: string): string {
