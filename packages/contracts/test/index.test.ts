@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { registryIndexSchema } from '../src/index.js';
+import { registryIndexSchema, templateManifestSchema } from '../src/index.js';
 
 const resource = {
   owner: 'john-doe',
@@ -25,6 +25,28 @@ describe('registry index contract', () => {
     const result = registryIndexSchema.safeParse({
       schemaVersion: 1,
       resources: [{ ...resource, name: 'Not a slug' }],
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('template manifest contract', () => {
+  it('accepts installable resource references', () => {
+    expect(
+      templateManifestSchema.parse({
+        name: 'review-pack',
+        description: 'A review pack.',
+        resources: [{ id: 'john-doe/skills/typescript-review', version: '1.2.0' }],
+      }),
+    ).toMatchObject({ name: 'review-pack' });
+  });
+
+  it('rejects nested template references', () => {
+    const result = templateManifestSchema.safeParse({
+      name: 'review-pack',
+      description: 'A review pack.',
+      resources: [{ id: 'john-doe/templates/other-pack', version: '1.0.0' }],
     });
 
     expect(result.success).toBe(false);

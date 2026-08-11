@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@ai-directory/contracts": "workspace:*",
-    "@ai-directory/domain": "workspace:*"
+    "@ai-directory/domain": "workspace:*",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

@@ -4,12 +4,15 @@ import {
   fetchRegistryIndex,
   readRegistryIndex,
   readResourceVersion,
+  readTemplateManifest,
+  readTemplateResources,
   validateRegistry,
 } from '../src/index.js';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/index.json', import.meta.url));
 const invalidIndexPath = fileURLToPath(new URL('./fixtures/invalid-index.json', import.meta.url));
 const duplicateIndexPath = fileURLToPath(new URL('./fixtures/duplicate-index.json', import.meta.url));
+const templateIndexPath = fileURLToPath(new URL('./fixtures/template-index.json', import.meta.url));
 
 describe('readRegistryIndex', () => {
   it('loads a valid index', async () => {
@@ -53,6 +56,29 @@ describe('readRegistryIndex', () => {
     expect(result.files.map((file) => file.path)).toEqual([
       'SKILL.md',
       'references/checklist.md',
+    ]);
+  });
+
+  it('loads a template manifest and its referenced resources', async () => {
+    const template = await readResourceVersion(
+      templateIndexPath,
+      'john-doe/templates/review-pack',
+    );
+
+    expect(readTemplateManifest(template)).toEqual({
+      name: 'review-pack',
+      description: 'A review pack for TypeScript API changes.',
+      resources: [
+        { id: 'john-doe/skills/typescript-review', version: '1.2.0' },
+        { id: 'jane-doe/agents/api-reviewer', version: '0.3.0' },
+      ],
+    });
+
+    const resources = await readTemplateResources(templateIndexPath, template);
+
+    expect(resources.map((resource) => `${resource.resource.owner}/${resource.resource.type}/${resource.resource.name}`)).toEqual([
+      'john-doe/skills/typescript-review',
+      'jane-doe/agents/api-reviewer',
     ]);
   });
 

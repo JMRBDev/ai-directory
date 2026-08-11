@@ -148,6 +148,9 @@ importers:
       '@ai-directory/domain':
         specifier: workspace:*
         version: link:../domain
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/node':
         specifier: ^26.2.0
