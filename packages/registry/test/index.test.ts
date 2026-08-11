@@ -1,11 +1,16 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   fetchRegistryIndex,
+  publishResource,
   readRegistryIndex,
   readResourceVersion,
   readTemplateManifest,
   readTemplateResources,
+  submitResource,
   validateRegistry,
 } from '../src/index.js';
 
@@ -13,6 +18,15 @@ const fixturePath = fileURLToPath(new URL('./fixtures/index.json', import.meta.u
 const invalidIndexPath = fileURLToPath(new URL('./fixtures/invalid-index.json', import.meta.url));
 const duplicateIndexPath = fileURLToPath(new URL('./fixtures/duplicate-index.json', import.meta.url));
 const templateIndexPath = fileURLToPath(new URL('./fixtures/template-index.json', import.meta.url));
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) =>
+      rm(directory, { recursive: true, force: true }),
+    ),
+  );
+});
 
 describe('readRegistryIndex', () => {
   it('loads a valid index', async () => {
@@ -106,3 +120,242 @@ describe('readRegistryIndex', () => {
     expect(result.issues).toContain('Duplicate resource ID: john-doe/skills/typescript-review');
   });
 });
+
+describe('publishResource', () => {
+  it('publishes a new resource package and marks it unreviewed', async () => {
+    const { indexPath, sourceDirectory, registryRoot } = await createPublishFixture();
+    await mkdir(join(sourceDirectory, 'references'), { recursive: true });
+    await writeFile(join(sourceDirectory, 'SKILL.md'), '# New skill\n', 'utf8');
+    await writeFile(join(sourceDirectory, 'references', 'notes.md'), 'Notes\n', 'utf8');
+
+    const result = await publishResource({
+      indexPath,
+      sourceDirectory,
+      resourceId: 'jane-doe/skills/new-skill',
+      version: '1.0.0',
+      description: 'A new skill.',
+    });
+
+    expect(result.resource).toMatchObject({
+      owner: 'jane-doe',
+      type: 'skills',
+      name: 'new-skill',
+      latestVersion: '1.0.0',
+      reviewStatus: 'unreviewed',
+      lifecycleStatus: 'active',
+      visibility: 'public',
+    });
+    await expect(
+      readFile(
+        join(registryRoot, 'resources', 'jane-doe', 'skills', 'new-skill', '1.0.0', 'SKILL.md'),
+        'utf8',
+      ),
+    ).resolves.toBe('# New skill\n');
+    await expect(readRegistryIndex(indexPath)).resolves.toMatchObject({
+      resources: [expect.objectContaining({ name: 'new-skill', latestVersion: '1.0.0' })],
+    });
+  });
+
+  it('requires each new version to increase and resets review status', async () => {
+    const { indexPath, sourceDirectory } = await createPublishFixture();
+    await writeFile(join(sourceDirectory, 'AGENT.md'), '# Agent v1\n', 'utf8');
+
+    await publishResource({
+      indexPath,
+      sourceDirectory,
+      resourceId: 'jane-doe/agents/reviewer',
+      version: '1.0.0',
+      description: 'Review changes.',
+    });
+
+    const reviewedIndex = await readRegistryIndex(indexPath);
+    const reviewedResource = reviewedIndex.resources[0];
+
+    if (!reviewedResource) {
+      throw new Error('Expected the first published resource.');
+    }
+
+    await writeFile(
+      indexPath,
+      JSON.stringify(
+        {
+          ...reviewedIndex,
+          resources: [{ ...reviewedResource, reviewStatus: 'reviewed' }],
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    await writeFile(join(sourceDirectory, 'AGENT.md'), '# Agent v2\n', 'utf8');
+    const result = await publishResource({
+      indexPath,
+      sourceDirectory,
+      resourceId: 'jane-doe/agents/reviewer',
+      version: '1.1.0',
+      description: 'Review changes with updated guidance.',
+    });
+
+    expect(result.resource.latestVersion).toBe('1.1.0');
+    expect(result.resource.reviewStatus).toBe('unreviewed');
+    await expect(
+      publishResource({
+        indexPath,
+        sourceDirectory,
+        resourceId: 'jane-doe/agents/reviewer',
+        version: '1.0.1',
+        description: 'An older version.',
+      }),
+    ).rejects.toThrow('Version must be greater than the current version 1.1.0');
+  });
+});
+
+describe('submitResource', () => {
+  it('creates a branch, pushes it, and opens a pull request', async () => {
+    const { indexPath, sourceDirectory } = await createPublishFixture();
+    await writeFile(join(sourceDirectory, 'SKILL.md'), '# Release check\n', 'utf8');
+    const commands: string[] = [];
+
+    const result = await submitResource({
+      indexPath,
+      sourceDirectory,
+      resourceId: 'jane-doe/skills/release-check',
+      version: '1.0.0',
+      description: 'Check releases.',
+      branch: 'submit/release-check-1.0.0',
+      title: 'Submit release check',
+      body: 'Please review.',
+      commandRunner: async (command, args) => {
+        commands.push(`${command} ${args.join(' ')}`);
+
+        if (command === 'git' && args[0] === 'branch') {
+          return { stdout: 'main\n', stderr: '' };
+        }
+
+        if (command === 'git' && args[0] === 'rev-parse') {
+          return { stdout: 'abc123\n', stderr: '' };
+        }
+
+        if (command === 'gh' && args[0] === 'pr') {
+          return { stdout: 'https://github.com/example/registry/pull/42\n', stderr: '' };
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    expect(result).toMatchObject({
+      branch: 'submit/release-check-1.0.0',
+      commit: 'abc123',
+      pullRequestUrl: 'https://github.com/example/registry/pull/42',
+    });
+    expect(commands).toEqual([
+      'git status --porcelain --untracked-files=all',
+      'git branch --show-current',
+      'git remote get-url origin',
+      'gh auth status',
+      'git switch -c submit/release-check-1.0.0',
+      'git add -- index.json resources/jane-doe/skills/release-check/1.0.0',
+      'git commit -m Submit jane-doe/skills/release-check@1.0.0',
+      'git rev-parse HEAD',
+      'git push --set-upstream origin submit/release-check-1.0.0',
+      'gh pr create --base main --head submit/release-check-1.0.0 --title Submit release check --body Please review.',
+    ]);
+  });
+
+  it('refuses to submit from a dirty registry checkout', async () => {
+    const { indexPath, sourceDirectory } = await createPublishFixture();
+
+    await expect(
+      submitResource({
+        indexPath,
+        sourceDirectory,
+        resourceId: 'jane-doe/skills/release-check',
+        version: '1.0.0',
+        description: 'Check releases.',
+        commandRunner: async () => ({ stdout: ' M index.json\n', stderr: '' }),
+      }),
+    ).rejects.toThrow('Registry working tree is not clean');
+  });
+
+  it('uses a temporary partial clone for remote repositories', async () => {
+    const { indexPath, sourceDirectory } = await createPublishFixture();
+    await writeFile(join(sourceDirectory, 'SKILL.md'), '# Remote release check\n', 'utf8');
+    const commands: string[] = [];
+    let temporaryRepository = '';
+
+    const result = await submitResource({
+      indexPath,
+      sourceDirectory,
+      repositoryUrl: 'git@example.com:company/registry.git',
+      resourceId: 'jane-doe/skills/remote-check',
+      version: '1.0.0',
+      description: 'Check remote releases.',
+      branch: 'submit/remote-check-1.0.0',
+      commandRunner: async (command, args) => {
+        commands.push(`${command} ${args.join(' ')}`);
+
+        if (command === 'git' && args[0] === 'clone') {
+          const destination = args.at(-1);
+
+          if (!destination) {
+            throw new Error('Missing clone destination.');
+          }
+
+          temporaryRepository = destination;
+          await writeFile(
+            join(destination, 'index.json'),
+            JSON.stringify({ schemaVersion: 1, resources: [] }),
+            'utf8',
+          );
+        }
+
+        if (command === 'git' && args[0] === 'branch') {
+          return { stdout: 'main\n', stderr: '' };
+        }
+
+        if (command === 'git' && args[0] === 'rev-parse') {
+          return { stdout: 'def456\n', stderr: '' };
+        }
+
+        if (command === 'gh' && args[0] === 'pr') {
+          return { stdout: 'https://github.com/example/registry/pull/43\n', stderr: '' };
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    expect(result.pullRequestUrl).toBe('https://github.com/example/registry/pull/43');
+    expect(commands.slice(0, 4)).toEqual([
+      'git clone --filter=blob:none --no-checkout --branch main git@example.com:company/registry.git ' +
+        temporaryRepository,
+      'git sparse-checkout init --no-cone',
+      'git sparse-checkout set index.json',
+      'git checkout main',
+    ]);
+    await expect(readFile(join(temporaryRepository, 'index.json'), 'utf8')).rejects.toThrow();
+  });
+});
+
+async function createPublishFixture(): Promise<{
+  indexPath: string;
+  sourceDirectory: string;
+  registryRoot: string;
+}> {
+  const registryRoot = await mkdtemp(join(tmpdir(), 'ai-directory-publish-'));
+  temporaryDirectories.push(registryRoot);
+
+  const indexPath = join(registryRoot, 'index.json');
+  const sourceDirectory = join(registryRoot, 'source');
+
+  await mkdir(sourceDirectory, { recursive: true });
+  await writeFile(
+    indexPath,
+    JSON.stringify({ schemaVersion: 1, resources: [] }, null, 2),
+    'utf8',
+  );
+
+  return { indexPath, sourceDirectory, registryRoot };
+}

@@ -19,10 +19,12 @@
   "dependencies": {
     "@ai-directory/contracts": "workspace:*",
     "@ai-directory/domain": "workspace:*",
+    "semver": "^7.8.5",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@types/semver": "^7.8.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }

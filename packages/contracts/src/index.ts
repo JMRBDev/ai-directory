@@ -10,8 +10,13 @@ export const resourceVersionSchema = z
   .string()
   .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 
-const templateResourceIdSchema = z.string().regex(
-  /^[a-z0-9]+(?:-[a-z0-9]+)*\/(?:skills|agents|rules)\/[a-z0-9]+(?:-[a-z0-9]+)*$/,
+export const resourceIdSchema = z.string().regex(
+  /^[a-z0-9]+(?:-[a-z0-9]+)*\/(?:skills|agents|rules|templates)\/[a-z0-9]+(?:-[a-z0-9]+)*$/,
+);
+
+const templateResourceIdSchema = resourceIdSchema.refine(
+  (id) => !id.includes('/templates/'),
+  'Templates cannot contain nested templates',
 );
 
 export const templateManifestSchema = z.object({

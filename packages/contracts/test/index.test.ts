@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { registryIndexSchema, templateManifestSchema } from '../src/index.js';
+import {
+  registryIndexSchema,
+  resourceIdSchema,
+  templateManifestSchema,
+} from '../src/index.js';
 
 const resource = {
   owner: 'john-doe',
@@ -50,5 +54,17 @@ describe('template manifest contract', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe('resource ID contract', () => {
+  it('accepts owner, type, and name identifiers', () => {
+    expect(resourceIdSchema.parse('john-doe/skills/typescript-review')).toBe(
+      'john-doe/skills/typescript-review',
+    );
+  });
+
+  it('rejects malformed identifiers', () => {
+    expect(resourceIdSchema.safeParse('John Doe/skills/my-skill').success).toBe(false);
   });
 });

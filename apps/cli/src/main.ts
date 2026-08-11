@@ -8,11 +8,13 @@ import {
   readRegistryIndex,
   readResourceVersion,
   readTemplateResources,
+  submitResource,
   validateRegistry,
 } from '@ai-directory/registry';
 
 const defaultIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX ?? '.ai-directory/registry/index.json';
 const defaultIndexUrl = process.env.AI_DIRECTORY_REGISTRY_INDEX_URL;
+const defaultRepositoryUrl = process.env.AI_DIRECTORY_REGISTRY_REPOSITORY;
 
 const list = defineCommand({
   meta: {
@@ -176,6 +178,97 @@ const check = defineCommand({
   },
 });
 
+const submit = defineCommand({
+  meta: {
+    name: 'submit',
+    description: 'Submit a prepared resource directory as a pull request',
+  },
+  args: {
+    source: {
+      type: 'positional',
+      required: true,
+      description: 'Directory containing the resource entry file and supporting files',
+    },
+    id: {
+      type: 'string',
+      required: true,
+      description: 'Resource ID: owner/type/name',
+    },
+    version: {
+      type: 'string',
+      alias: 'v',
+      required: true,
+      description: 'New semantic version to publish',
+    },
+    description: {
+      type: 'string',
+      required: true,
+      description: 'Short description shown in the registry',
+    },
+    index: {
+      type: 'string',
+      alias: 'i',
+      default: defaultIndexPath,
+      description: 'Path to a registry index JSON file',
+    },
+    repository: {
+      type: 'string',
+      ...(defaultRepositoryUrl ? { default: defaultRepositoryUrl } : {}),
+      description: 'Git repository URL; uses a temporary partial checkout',
+    },
+    base: {
+      type: 'string',
+      default: 'main',
+      description: 'Production branch to submit against',
+    },
+    branch: {
+      type: 'string',
+      description: 'Submission branch name; defaults to a generated name',
+    },
+    remote: {
+      type: 'string',
+      default: 'origin',
+      description: 'Git remote to push the submission branch to',
+    },
+    title: {
+      type: 'string',
+      description: 'Pull request title',
+    },
+    body: {
+      type: 'string',
+      description: 'Pull request body',
+    },
+  },
+  async run({ args }) {
+    try {
+      const result = await submitResource({
+        indexPath: args.index ?? defaultIndexPath,
+        sourceDirectory: args.source,
+        resourceId: args.id,
+        version: args.version,
+        description: args.description,
+        baseBranch: args.base,
+        remote: args.remote,
+        ...(args.repository !== undefined ? { repositoryUrl: args.repository } : {}),
+        ...(args.branch !== undefined ? { branch: args.branch } : {}),
+        ...(args.title !== undefined ? { title: args.title } : {}),
+        ...(args.body !== undefined ? { body: args.body } : {}),
+      });
+
+      console.log(
+        `Submitted ${resourceKey(result.resource)}@${result.resource.latestVersion} as Unreviewed.`,
+      );
+      console.log(`Branch: ${result.branch}`);
+      console.log(`Commit: ${result.commit}`);
+      console.log(`Pull request: ${result.pullRequestUrl}`);
+      console.log(`Files: ${result.files.join(', ')}`);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  },
+});
+
 const install = defineCommand({
   meta: {
     name: 'install',
@@ -275,7 +368,7 @@ const main = defineCommand({
     version: '0.0.0',
     description: 'AI Directory resource registry',
   },
-  subCommands: { list, show, check, install },
+  subCommands: { list, show, check, submit, install },
 });
 
 runMain(main);

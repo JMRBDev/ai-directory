@@ -70,6 +70,20 @@ Validate the linked registry before using it:
 apps/cli/dist/aid check
 ```
 
+## Submit a resource for review
+
+Prepare a resource directory with its required entry file (`SKILL.md`, `AGENT.md`, `RULE.md`, or `TEMPLATE.md`) and publish it to the linked registry:
+
+```sh
+apps/cli/dist/aid submit ./my-resource \
+  --id jose-rosendo/skills/my-resource \
+  --version 1.0.0 \
+  --description "Short resource description" \
+  --repository git@github.com:company/ai-directory-registry.git
+```
+
+With `--repository`, the command uses a temporary partial checkout. It does not keep a full registry copy on the employee's computer. The command creates a branch, copies the package, updates `index.json`, commits and pushes the branch, and opens a pull request through the authenticated GitHub CLI. The production branch remains unchanged until reviewers merge the pull request.
+
 ## Checks
 
 ```sh
