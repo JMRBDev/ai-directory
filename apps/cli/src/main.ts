@@ -8,6 +8,7 @@ import {
   clearConfigFile,
   findWorkspaceRoot,
   getConfigPath,
+  getInstallManifestPath,
   getRepositorySetting,
   readConfigFile,
   resolveRepository,
@@ -17,13 +18,22 @@ import {
 } from '@ai-directory/config';
 import { cancel, intro, isCancel, outro, select, spinner, text } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
-import { claudeCodeInstaller } from '@ai-directory/installers';
+import {
+  claudeCodeInstaller,
+  readInstallationManifest,
+  removeStaleInstallationFiles,
+  updateInstallationManifest,
+  type InstallResult,
+  type InstallScope,
+  type InstallationRecord,
+} from '@ai-directory/installers';
 import {
   readRemoteRegistryIndex,
   readRegistrySourceIndex,
   readRegistrySourceResource,
   resolveRegistrySource,
   submitResource,
+  type ResourceVersion,
   validateRegistrySource,
 } from '@ai-directory/registry';
 
@@ -307,6 +317,52 @@ const submit = defineCommand({
   },
 });
 
+function createInstallationRecords(
+  resources: ResourceVersion[],
+  installations: InstallResult[],
+  scope: InstallScope,
+): InstallationRecord[] {
+  const installedAt = new Date().toISOString();
+
+  return resources.map((resource, index) => {
+    const installation = installations[index];
+
+    if (!installation) {
+      throw new Error(`Installation result missing for ${resourceKey(resource.resource)}.`);
+    }
+
+    return {
+      resource: resourceKey(resource.resource),
+      version: resource.version,
+      harness: 'claude-code',
+      scope,
+      destination: installation.destination,
+      files: installation.paths,
+      installedAt,
+    };
+  });
+}
+
+async function saveInstallationRecords(
+  scope: InstallScope,
+  records: InstallationRecord[],
+): Promise<string> {
+  const path = getInstallManifestPath(scope);
+  const current = await readInstallationManifest(path);
+  const keys = new Set(records.map((record) => `${record.scope}:${record.harness}:${record.resource}`));
+  const previous = current.installations.filter((record) =>
+    keys.has(`${record.scope}:${record.harness}:${record.resource}`),
+  );
+
+  await updateInstallationManifest(path, records);
+  await removeStaleInstallationFiles(
+    previous,
+    records.flatMap((record) => record.files),
+  );
+
+  return path;
+}
+
 const install = defineCommand({
   meta: {
     name: 'install',
@@ -378,6 +434,8 @@ const install = defineCommand({
         scope: args.scope,
         force: args.force ?? false,
       });
+      const records = createInstallationRecords(resources, installations, args.scope);
+      const manifestPath = await saveInstallationRecords(args.scope, records);
 
       if (result.resource.type === 'templates') {
         console.log(
@@ -386,6 +444,7 @@ const install = defineCommand({
       } else {
         console.log(`Installed ${resourceKey(result.resource)}@${result.version} for Claude Code.`);
       }
+      console.log(`Tracked in: ${manifestPath}`);
 
       for (const [index, resource] of resources.entries()) {
         const installation = installations[index];
@@ -399,6 +458,152 @@ const install = defineCommand({
         );
         console.log(`Files: ${installation.files.join(', ')}`);
       }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  },
+});
+
+const installed = defineCommand({
+  meta: {
+    name: 'installed',
+    description: 'List installed resources',
+  },
+  args: {
+    scope: {
+      type: 'enum',
+      options: ['project', 'global'],
+      description: 'Limit results to one installation scope',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Print JSON instead of a table',
+    },
+  },
+  async run({ args }) {
+    try {
+      const scopes: InstallScope[] = args.scope
+        ? [args.scope]
+        : ['project', 'global'];
+      const records = (
+        await Promise.all(
+          scopes.map(async (scope) => (await readInstallationManifest(getInstallManifestPath(scope))).installations),
+        )
+      )
+        .flat()
+        .sort((left, right) => left.resource.localeCompare(right.resource));
+
+      if (args.json) {
+        console.log(JSON.stringify(records, null, 2));
+        return;
+      }
+
+      if (records.length === 0) {
+        console.log('No installed resources found.');
+        return;
+      }
+
+      for (const record of records) {
+        console.log(
+          `${record.resource}\t${record.version}\t${record.harness}\t${record.scope}\t${record.destination}`,
+        );
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  },
+});
+
+const update = defineCommand({
+  meta: {
+    name: 'update',
+    description: 'Update an installed resource to its latest version',
+  },
+  args: {
+    resource: {
+      type: 'positional',
+      required: true,
+      description: 'Resource ID: owner/type/name',
+    },
+    harness: {
+      type: 'enum',
+      options: ['claude-code'],
+      default: 'claude-code',
+      description: 'Coding harness to update for',
+    },
+    scope: {
+      type: 'enum',
+      options: ['project', 'global'],
+      required: true,
+      description: 'Installation scope to update',
+    },
+    index: {
+      type: 'string',
+      alias: 'i',
+      description: 'Local registry index path; overrides the configured Git repository',
+    },
+    repository: {
+      type: 'string',
+      description: 'Git repository URL; uses a temporary sparse checkout',
+    },
+    base: {
+      type: 'string',
+      default: 'main',
+      description: 'Production branch to read from',
+    },
+  },
+  async run({ args }) {
+    try {
+      if (args.harness !== 'claude-code') {
+        throw new Error(`Unsupported harness: ${args.harness}`);
+      }
+
+      const scope = args.scope as InstallScope;
+      const manifestPath = getInstallManifestPath(scope);
+      const manifest = await readInstallationManifest(manifestPath);
+      const existing = manifest.installations.find(
+        (record) =>
+          record.resource === args.resource &&
+          record.harness === args.harness &&
+          record.scope === scope,
+      );
+
+      if (!existing) {
+        throw new Error(
+          `${args.resource} is not installed for ${args.harness} in the ${scope} scope.`,
+        );
+      }
+
+      const source = getRegistrySource(args.index, args.repository, args.base);
+      const loaded = await readRegistrySourceResource(source, args.resource);
+
+      if (loaded.resource.resource.type === 'templates') {
+        throw new Error('Templates are updated through their installed resources.');
+      }
+
+      if (loaded.resource.version === existing.version) {
+        console.log(`${args.resource} is already at the latest version (${existing.version}).`);
+        return;
+      }
+
+      for (const resource of [loaded.resource, ...loaded.resources]) {
+        if (resource.resource.reviewStatus === 'unreviewed') {
+          console.warn(
+            `Warning: ${resourceKey(resource.resource)}@${resource.version} has not been reviewed.`,
+          );
+        }
+      }
+
+      const installations = await claudeCodeInstaller.install(loaded.resources, {
+        scope,
+        force: true,
+      });
+      const records = createInstallationRecords(loaded.resources, installations, scope);
+      await saveInstallationRecords(scope, records);
+
+      console.log(`Updated ${args.resource} from ${existing.version} to ${loaded.resource.version}.`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -878,7 +1083,19 @@ const main = defineCommand({
     version: '0.0.0',
     description: 'AI Directory resource registry',
   },
-  subCommands: { list, show, check, submit, install, web, setup, doctor, config },
+  subCommands: {
+    list,
+    show,
+    check,
+    submit,
+    install,
+    installed,
+    update,
+    web,
+    setup,
+    doctor,
+    config,
+  },
 });
 
 runMain(main);
