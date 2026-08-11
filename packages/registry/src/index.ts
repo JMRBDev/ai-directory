@@ -4,6 +4,20 @@ import {
   type RegistryIndex,
 } from '@ai-directory/contracts';
 
+function parseRegistryIndex(data: unknown, source: string): RegistryIndex {
+  const result = registryIndexSchema.safeParse(data);
+
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `${issue.path.join('.') || 'index'}: ${issue.message}`)
+      .join('; ');
+
+    throw new Error(`Registry index is invalid (${source}): ${issues}`);
+  }
+
+  return result.data;
+}
+
 export async function readRegistryIndex(filePath: string): Promise<RegistryIndex> {
   let contents: string;
 
@@ -21,15 +35,34 @@ export async function readRegistryIndex(filePath: string): Promise<RegistryIndex
     throw new Error(`Registry index is not valid JSON: ${filePath}`, { cause: error });
   }
 
-  const result = registryIndexSchema.safeParse(data);
+  return parseRegistryIndex(data, filePath);
+}
 
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((issue) => `${issue.path.join('.') || 'index'}: ${issue.message}`)
-      .join('; ');
+export async function fetchRegistryIndex(
+  url: string,
+  fetcher: typeof fetch = fetch,
+): Promise<RegistryIndex> {
+  let response: Response;
 
-    throw new Error(`Registry index is invalid: ${issues}`);
+  try {
+    response = await fetcher(url);
+  } catch (error) {
+    throw new Error(`Could not fetch registry index: ${url}`, { cause: error });
   }
 
-  return result.data;
+  if (!response.ok) {
+    throw new Error(
+      `Registry index request failed (${response.status} ${response.statusText}): ${url}`,
+    );
+  }
+
+  let data: unknown;
+
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error(`Registry index response is not valid JSON: ${url}`, { cause: error });
+  }
+
+  return parseRegistryIndex(data, url);
 }

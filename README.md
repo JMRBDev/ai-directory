@@ -48,7 +48,13 @@ pnpm build
 apps/cli/dist/aid list --index /path/to/registry/index.json
 ```
 
-The default index path is `.ai-directory/registry/index.json`. Set `AI_DIRECTORY_REGISTRY_INDEX` to use another path. Use `--type`, `--include-retired`, or `--json` to filter the result.
+To read the index directly from the Git server without cloning the repository:
+
+```sh
+apps/cli/dist/aid list --remote https://git.company.internal/raw/main/index.json
+```
+
+The default index path is `.ai-directory/registry/index.json`. Set `AI_DIRECTORY_REGISTRY_INDEX` or `AI_DIRECTORY_REGISTRY_INDEX_URL` to change the local or remote source. Use `--type`, `--include-retired`, or `--json` to filter the result.
 
 ## Checks
 
