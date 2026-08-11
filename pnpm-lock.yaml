@@ -126,7 +126,13 @@ importers:
       '@ai-directory/domain':
         specifier: workspace:*
         version: link:../domain
+      '@ai-directory/registry':
+        specifier: workspace:*
+        version: link:../registry
     devDependencies:
+      '@types/node':
+        specifier: ^26.2.0
+        version: 26.2.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
