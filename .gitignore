@@ -1,0 +1,15 @@
+node_modules/
+.turbo/
+dist/
+.astro/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Local registry data and compiled CLI artifacts
+.ai-directory/
+registry-cache/
+artifacts/
