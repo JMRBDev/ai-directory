@@ -301,17 +301,136 @@ describe('portable harness installers', () => {
     expect(codexResult.destination).toBe(
       join(homeDirectory, '.codex', 'agents', 'api-reviewer.toml'),
     );
+
+    const [ruleResult] = await installOpenCodeResources([ruleResource], {
+      scope: 'global',
+      homeDirectory,
+    });
+
+    expect(ruleResult.destination).toBe(
+      join(homeDirectory, '.config', 'opencode', 'rules', 'typescript-quality.md'),
+    );
+    await expect(
+      readFile(join(homeDirectory, '.config', 'opencode', 'opencode.json'), 'utf8'),
+    ).resolves.toContain('rules/typescript-quality.md');
   });
 
-  it('rejects rules that have no safe native Markdown location', async () => {
+  it('installs OpenCode rules and preserves JSONC configuration', async () => {
     const projectDirectory = await createTemporaryDirectory();
+    const configPath = join(projectDirectory, 'opencode.jsonc');
+    await writeFile(
+      configPath,
+      '{\n  // Keep this setting.\n  "instructions": ["README.md"]\n}\n',
+      'utf8',
+    );
 
+    const [result] = await installOpenCodeResources([ruleResource], {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+
+    expect(result.destination).toBe(
+      join(projectDirectory, '.opencode', 'rules', 'typescript-quality.md'),
+    );
+    await expect(readFile(result.destination, 'utf8')).resolves.toBe(
+      '# TypeScript quality\n',
+    );
     await expect(
-      installOpenCodeResources([ruleResource], { scope: 'project', cwd: projectDirectory }),
-    ).rejects.toThrow('OpenCode rule installation is not supported yet');
+      readFile(
+        join(
+          projectDirectory,
+          '.opencode',
+          'rules',
+          'typescript-quality.files',
+          'references',
+          'examples.md',
+        ),
+        'utf8',
+      ),
+    ).resolves.toBe('- Prefer narrow types\n');
+
+    const config = await readFile(configPath, 'utf8');
+    expect(config).toContain('// Keep this setting.');
+    expect(config).toContain('"README.md"');
+    expect(config).toContain('.opencode/rules/typescript-quality.md');
+
+    const updatedRule = {
+      ...ruleResource,
+      version: '1.1.0',
+      files: [{ path: 'RULE.md', content: '# Updated TypeScript quality\n' }],
+    } satisfies ResourceVersion;
+
+    await installOpenCodeResources([updatedRule], {
+      scope: 'project',
+      cwd: projectDirectory,
+      force: true,
+    });
+
+    await expect(readFile(result.destination, 'utf8')).resolves.toBe(
+      '# Updated TypeScript quality\n',
+    );
+    const updatedConfig = await readFile(configPath, 'utf8');
+    expect(updatedConfig.split('.opencode/rules/typescript-quality.md')).toHaveLength(2);
+  });
+
+  it('installs Codex rules in managed AGENTS blocks', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const agentsPath = join(projectDirectory, 'AGENTS.md');
+    await writeFile(agentsPath, '# Existing guidance\n\nKeep this content.\n', 'utf8');
+
+    const [result] = await installCodexResources([ruleResource], {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+
+    expect(result.destination).toBe(agentsPath);
     await expect(
-      installCodexResources([ruleResource], { scope: 'project', cwd: projectDirectory }),
-    ).rejects.toThrow('Codex rule installation is not supported yet');
+      readFile(
+        join(projectDirectory, '.ai-directory', 'rules', 'typescript-quality.md'),
+        'utf8',
+      ),
+    ).resolves.toBe('# TypeScript quality\n');
+
+    const agents = await readFile(agentsPath, 'utf8');
+    expect(agents).toContain('# Existing guidance');
+    expect(agents).toContain('<!-- ai-directory:rule:jose-rosendo/rules/typescript-quality -->');
+    expect(agents).toContain('# TypeScript quality');
+
+    const updatedRule = {
+      ...ruleResource,
+      version: '1.1.0',
+      files: [{ path: 'RULE.md', content: '# Updated TypeScript quality\n' }],
+    } satisfies ResourceVersion;
+
+    await installCodexResources([updatedRule], {
+      scope: 'project',
+      cwd: projectDirectory,
+      force: true,
+    });
+
+    const updatedAgents = await readFile(agentsPath, 'utf8');
+    expect(updatedAgents).toContain('# Updated TypeScript quality');
+    expect(updatedAgents).not.toContain('# TypeScript quality\n');
+    expect(
+      updatedAgents.split('<!-- ai-directory:rule:jose-rosendo/rules/typescript-quality -->'),
+    ).toHaveLength(2);
+  });
+
+  it('uses a Codex AGENTS override file when it exists', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const overridePath = join(projectDirectory, 'AGENTS.override.md');
+    await writeFile(overridePath, '# Override guidance\n', 'utf8');
+
+    const [result] = await installCodexResources([ruleResource], {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+
+    expect(result.destination).toBe(overridePath);
+    await expect(readFile(overridePath, 'utf8')).resolves.toContain(
+      '# TypeScript quality',
+    );
+    await expect(readFile(join(projectDirectory, 'AGENTS.md'), 'utf8')).rejects.toThrow();
   });
 });
 

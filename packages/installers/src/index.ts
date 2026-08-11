@@ -1,8 +1,9 @@
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
+import { applyEdits, modify, parse } from 'jsonc-parser';
 
 export type InstallScope = 'project' | 'global';
 
@@ -67,14 +68,67 @@ export async function installOpenCodeResources(
   resources: ResourceVersion[],
   options: InstallOptions,
 ): Promise<InstallResult[]> {
-  return installResources(resources, options, createOpenCodePlan, openCodeInstallRoot);
+  if (resources.length === 0) {
+    throw new Error('No resources to install.');
+  }
+
+  const root = openCodeInstallRoot(options);
+  const plans = resources.map((resource) => createOpenCodePlan(root, resource, options.scope));
+  const rules = plans.filter((plan) => plan.resource.resource.type === 'rules');
+  const config = rules.length > 0
+    ? await prepareOpenCodeInstructions(root, options.scope, rules.map((plan) => plan.resource))
+    : undefined;
+
+  await assertInstallPlansAvailable(plans, options);
+  await writeInstallPlans(plans);
+
+  if (config) {
+    await writeTextAtomic(config.path, config.content);
+  }
+
+  return plans.map((plan) => ({
+    destination: plan.destination,
+    files: plan.resource.files.map((file) => file.path),
+    paths: [
+      ...plan.files.map((file) => file.destination),
+      ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
+    ],
+  }));
 }
 
 export async function installCodexResources(
   resources: ResourceVersion[],
   options: InstallOptions,
 ): Promise<InstallResult[]> {
-  return installResources(resources, options, createCodexPlan, defaultInstallRoot);
+  if (resources.length === 0) {
+    throw new Error('No resources to install.');
+  }
+
+  const root = defaultInstallRoot(options);
+  const plans = resources.map((resource) => createCodexPlan(root, resource, options.scope));
+  const rules = plans.filter((plan) => plan.resource.resource.type === 'rules');
+  const guidance = rules.length > 0
+    ? await prepareCodexGuidance(root, options.scope, rules, options.force ?? false)
+    : undefined;
+
+  await assertInstallPlansAvailable(plans, options);
+  await writeInstallPlans(plans);
+
+  if (guidance) {
+    await writeTextAtomic(guidance.path, guidance.content);
+  }
+
+  return plans.map((plan) => ({
+    destination:
+      plan.resource.resource.type === 'rules' && guidance
+        ? guidance.path
+        : plan.destination,
+    files: plan.resource.files.map((file) => file.path),
+    paths: [
+      ...plan.files.map((file) => file.destination),
+      ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
+    ],
+  }));
 }
 
 async function installResources(
@@ -96,6 +150,20 @@ async function installResources(
     createPlanForResource(root, resource, options.scope),
   );
 
+  await assertInstallPlansAvailable(plans, options);
+  await writeInstallPlans(plans);
+
+  return plans.map((plan) => ({
+    destination: plan.destination,
+    files: plan.resource.files.map((file) => file.path),
+    paths: plan.files.map((file) => file.destination),
+  }));
+}
+
+async function assertInstallPlansAvailable(
+  plans: InstallPlan[],
+  options: InstallOptions,
+): Promise<void> {
   const destinations = new Set<string>();
   const overlaps: string[] = [];
   const existing: string[] = [];
@@ -125,19 +193,15 @@ async function installResources(
       `Install destinations are not available: ${existing.join(', ')}. Use --force to overwrite.`,
     );
   }
+}
 
+async function writeInstallPlans(plans: InstallPlan[]): Promise<void> {
   for (const plan of plans) {
     for (const file of plan.files) {
       await mkdir(dirname(file.destination), { recursive: true });
       await writeFile(file.destination, file.content, 'utf8');
     }
   }
-
-  return plans.map((plan) => ({
-    destination: plan.destination,
-    files: plan.resource.files.map((file) => file.path),
-    paths: plan.files.map((file) => file.destination),
-  }));
 }
 
 export const claudeCodeInstaller: HarnessInstaller = {
@@ -186,15 +250,7 @@ export async function updateInstallationManifest(
     ],
   };
 
-  await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.tmp-${process.pid}`;
-
-  try {
-    await writeFile(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-    await rename(temporaryPath, path);
-  } finally {
-    await rm(temporaryPath, { force: true });
-  }
+  await writeTextAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
 
   return manifest;
 }
@@ -258,11 +314,18 @@ function isInstallScope(value: unknown): value is InstallScope {
 type InstallPlan = {
   resource: ResourceVersion;
   destination: string;
-  files: Array<{
-    path: string;
-    content: string;
-    destination: string;
-  }>;
+  files: InstallFile[];
+};
+
+type InstallFile = {
+  path: string;
+  content: string;
+  destination: string;
+};
+
+type PreparedText = {
+  path: string;
+  content: string;
 };
 
 function createClaudeCodePlan(
@@ -295,13 +358,7 @@ function createOpenCodePlan(
 ): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
-      'OpenCode installation supports skills and agents. Templates must be expanded first.',
-    );
-  }
-
-  if (resource.resource.type === 'rules') {
-    throw new Error(
-      'OpenCode rule installation is not supported yet because OpenCode loads rules through shared instruction files.',
+      'OpenCode installation supports skills, agents, and rules. Templates must be expanded first.',
     );
   }
 
@@ -333,13 +390,7 @@ function createCodexPlan(
 ): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
-      'Codex installation supports skills and agents. Templates must be expanded first.',
-    );
-  }
-
-  if (resource.resource.type === 'rules') {
-    throw new Error(
-      'Codex rule installation is not supported yet because Codex loads natural-language rules through AGENTS.md.',
+      'Codex installation supports skills, agents, and rules. Templates must be expanded first.',
     );
   }
 
@@ -418,12 +469,15 @@ function openCodeDestinationForFile(
     );
   }
 
-  if (resourcePath === 'AGENT.md') {
-    return safeDestination(join(directory, 'agents'), `${resource.resource.name}.md`);
+  const type = resource.resource.type;
+  const entryFile = type === 'agents' ? 'AGENT.md' : 'RULE.md';
+
+  if (resourcePath === entryFile) {
+    return safeDestination(join(directory, type), `${resource.resource.name}.md`);
   }
 
   return safeDestination(
-    join(directory, 'agents', `${resource.resource.name}.files`),
+    join(directory, type, `${resource.resource.name}.files`),
     resourcePath,
   );
 }
@@ -439,7 +493,7 @@ function openCodeResourceDestination(
     return join(directory, 'skills', resource.resource.name);
   }
 
-  return join(directory, 'agents', `${resource.resource.name}.md`);
+  return join(directory, resource.resource.type, `${resource.resource.name}.md`);
 }
 
 function codexDestinationForFile(
@@ -451,12 +505,20 @@ function codexDestinationForFile(
     return safeDestination(codexResourceDestination(root, resource), resourcePath);
   }
 
-  if (resourcePath === 'AGENT.md') {
+  if (resource.resource.type === 'agents' && resourcePath === 'AGENT.md') {
     return safeDestination(join(root, '.codex', 'agents'), `${resource.resource.name}.toml`);
   }
 
+  if (resource.resource.type === 'rules' && resourcePath === 'RULE.md') {
+    return safeDestination(join(root, '.ai-directory', 'rules'), `${resource.resource.name}.md`);
+  }
+
+  const directory = resource.resource.type === 'agents'
+    ? join(root, '.codex', 'agents')
+    : join(root, '.ai-directory', 'rules');
+
   return safeDestination(
-    join(root, '.codex', 'agents', `${resource.resource.name}.files`),
+    join(directory, `${resource.resource.name}.files`),
     resourcePath,
   );
 }
@@ -466,7 +528,165 @@ function codexResourceDestination(root: string, resource: ResourceVersion): stri
     return join(root, '.agents', 'skills', resource.resource.name);
   }
 
-  return join(root, '.codex', 'agents', `${resource.resource.name}.toml`);
+  if (resource.resource.type === 'agents') {
+    return join(root, '.codex', 'agents', `${resource.resource.name}.toml`);
+  }
+
+  return join(root, '.ai-directory', 'rules', `${resource.resource.name}.md`);
+}
+
+async function prepareOpenCodeInstructions(
+  root: string,
+  scope: InstallScope,
+  resources: ResourceVersion[],
+): Promise<PreparedText> {
+  const path = await openCodeConfigPath(root, scope);
+  const entries = resources.map((resource) =>
+    toPosixPath(relative(
+      dirname(path),
+      openCodeResourceDestination(root, resource, scope),
+    )),
+  );
+  const current = await readOptionalText(path);
+
+  if (current === null) {
+    return {
+      path,
+      content: `${JSON.stringify({ instructions: entries }, null, 2)}\n`,
+    };
+  }
+
+  const errors: Array<{ error: number; offset: number; length: number }> = [];
+  const data = parse(current, errors);
+
+  if (
+    errors.length > 0 ||
+    typeof data !== 'object' ||
+    data === null ||
+    Array.isArray(data)
+  ) {
+    throw new Error(`OpenCode config is not a valid object: ${path}`);
+  }
+
+  const currentInstructions = 'instructions' in data ? data.instructions : undefined;
+
+  if (
+    currentInstructions !== undefined &&
+    (!Array.isArray(currentInstructions) ||
+      currentInstructions.some((entry) => typeof entry !== 'string'))
+  ) {
+    throw new Error(`OpenCode config instructions must be an array of strings: ${path}`);
+  }
+
+  const instructions = currentInstructions === undefined
+    ? []
+    : [...currentInstructions];
+
+  for (const entry of entries) {
+    if (!instructions.includes(entry)) {
+      instructions.push(entry);
+    }
+  }
+
+  return {
+    path,
+    content: applyEdits(
+      current,
+      modify(current, ['instructions'], instructions, {
+        formattingOptions: { insertSpaces: true, tabSize: 2 },
+      }),
+    ),
+  };
+}
+
+async function openCodeConfigPath(root: string, scope: InstallScope): Promise<string> {
+  const candidates = scope === 'project'
+    ? [
+        join(root, 'opencode.jsonc'),
+        join(root, 'opencode.json'),
+        join(root, '.opencode', 'opencode.jsonc'),
+        join(root, '.opencode', 'opencode.json'),
+      ]
+    : [join(root, 'opencode.jsonc'), join(root, 'opencode.json')];
+
+  for (const path of candidates) {
+    if (await pathExists(path)) {
+      return path;
+    }
+  }
+
+  return join(root, 'opencode.json');
+}
+
+async function prepareCodexGuidance(
+  root: string,
+  scope: InstallScope,
+  plans: InstallPlan[],
+  force: boolean,
+): Promise<PreparedText> {
+  const path = await codexGuidancePath(root, scope);
+  let content = (await readOptionalText(path)) ?? '';
+
+  for (const plan of plans) {
+    content = upsertCodexRule(content, plan.resource, force);
+  }
+
+  return { path, content };
+}
+
+async function codexGuidancePath(root: string, scope: InstallScope): Promise<string> {
+  const directory = scope === 'project' ? root : join(root, '.codex');
+  const overridePath = join(directory, 'AGENTS.override.md');
+
+  if (await pathExists(overridePath)) {
+    return overridePath;
+  }
+
+  return join(directory, 'AGENTS.md');
+}
+
+function upsertCodexRule(
+  contents: string,
+  resource: ResourceVersion,
+  force: boolean,
+): string {
+  const entry = resource.files.find((file) => file.path === 'RULE.md');
+
+  if (!entry) {
+    throw new Error(`Rule is missing RULE.md: ${resourceKey(resource.resource)}`);
+  }
+
+  const key = resourceKey(resource.resource);
+  const startMarker = `<!-- ai-directory:rule:${key} -->`;
+  const endMarker = `<!-- /ai-directory:rule:${key} -->`;
+  const start = contents.indexOf(startMarker);
+  const end = contents.indexOf(endMarker);
+
+  if ((start === -1) !== (end === -1) || (start !== -1 && end < start)) {
+    throw new Error(`Codex managed rule block is malformed: ${key}`);
+  }
+
+  const block = [
+    startMarker,
+    entry.content.endsWith('\n') ? entry.content : `${entry.content}\n`,
+    endMarker,
+  ].join('\n');
+
+  if (start !== -1 && end !== -1) {
+    if (!force) {
+      throw new Error(`Codex rule is already installed: ${key}. Use --force to overwrite.`);
+    }
+
+    return `${contents.slice(0, start)}${block}${contents.slice(end + endMarker.length)}`;
+  }
+
+  const separator = contents.length === 0
+    ? ''
+    : contents.endsWith('\n')
+      ? '\n'
+      : '\n\n';
+
+  return `${contents}${separator}${block}\n`;
 }
 
 function openCodeAgentContent(resource: ResourceVersion): string {
@@ -510,6 +730,34 @@ function safeDestination(root: string, resourcePath: string): string {
   }
 
   return destination;
+}
+
+function toPosixPath(path: string): string {
+  return path.split(sep).join('/');
+}
+
+async function readOptionalText(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function writeTextAtomic(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const temporaryPath = `${path}.tmp-${process.pid}`;
+
+  try {
+    await writeFile(temporaryPath, content, 'utf8');
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
 }
 
 async function pathExists(path: string): Promise<boolean> {
