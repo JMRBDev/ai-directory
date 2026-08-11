@@ -52,6 +52,10 @@ export type RemoteRegistryOptions = {
   commandRunner?: CommandRunner;
 };
 
+export type RegistrySource =
+  | { type: 'local'; indexPath: string }
+  | { type: 'remote'; repositoryUrl: string; baseBranch: string };
+
 export type RemoteResourceResult = {
   resource: ResourceVersion;
   resources: ResourceVersion[];
@@ -87,7 +91,8 @@ export type CommandRunner = (
   cwd: string,
 ) => Promise<CommandResult>;
 
-export type SubmitResourceOptions = PublishResourceOptions & {
+export type SubmitResourceOptions = Omit<PublishResourceOptions, 'indexPath'> & {
+  indexPath?: string;
   repositoryUrl?: string;
   baseBranch?: string;
   branch?: string;
@@ -146,35 +151,6 @@ export async function readRegistryIndex(filePath: string): Promise<RegistryIndex
   }
 
   return parseRegistryIndex(data, filePath);
-}
-
-export async function fetchRegistryIndex(
-  url: string,
-  fetcher: typeof fetch = fetch,
-): Promise<RegistryIndex> {
-  let response: Response;
-
-  try {
-    response = await fetcher(url);
-  } catch (error) {
-    throw new Error(`Could not fetch registry index: ${url}`, { cause: error });
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `Registry index request failed (${response.status} ${response.statusText}): ${url}`,
-    );
-  }
-
-  let data: unknown;
-
-  try {
-    data = await response.json();
-  } catch (error) {
-    throw new Error(`Registry index response is not valid JSON: ${url}`, { cause: error });
-  }
-
-  return parseRegistryIndex(data, url);
 }
 
 async function readResourceFiles(directory: string, prefix = ''): Promise<ResourceFile[]> {
@@ -326,6 +302,67 @@ export async function readRemoteResource(
   }
 }
 
+export function resolveRegistrySource(options: {
+  indexPath?: string;
+  repositoryUrl?: string;
+  baseBranch?: string;
+}): RegistrySource {
+  if (options.indexPath?.trim()) {
+    return { type: 'local', indexPath: options.indexPath.trim() };
+  }
+
+  if (options.repositoryUrl?.trim()) {
+    return {
+      type: 'remote',
+      repositoryUrl: options.repositoryUrl.trim(),
+      baseBranch: options.baseBranch?.trim() || 'main',
+    };
+  }
+
+  throw new Error('No registry source configured. Run `aid setup` or pass `--index <path>`.');
+}
+
+export function readRegistrySourceIndex(source: RegistrySource): Promise<RegistryIndex> {
+  return source.type === 'local'
+    ? readRegistryIndex(source.indexPath)
+    : readRemoteRegistryIndex({
+        repositoryUrl: source.repositoryUrl,
+        baseBranch: source.baseBranch,
+      });
+}
+
+export function readRegistrySourceResource(
+  source: RegistrySource,
+  resourceId: string,
+  version?: string,
+): Promise<RemoteResourceResult> {
+  if (source.type === 'remote') {
+    return readRemoteResource({
+      repositoryUrl: source.repositoryUrl,
+      resourceId,
+      baseBranch: source.baseBranch,
+      ...(version === undefined ? {} : { version }),
+    });
+  }
+
+  return readResourceVersion(source.indexPath, resourceId, version).then(async (resource) => ({
+    resource,
+    resources:
+      resource.resource.type === 'templates'
+        ? await readTemplateResources(source.indexPath, resource)
+        : [resource],
+  }));
+}
+
+export function validateRegistrySource(source: RegistrySource): Promise<RegistryValidationResult> {
+  return source.type === 'local'
+    ? validateRegistry(source.indexPath)
+    : validateRemoteRegistry({
+        repositoryUrl: source.repositoryUrl,
+        baseBranch: source.baseBranch,
+      });
+}
+
 export async function publishResource(
   options: PublishResourceOptions,
 ): Promise<PublishResourceResult> {
@@ -449,11 +486,17 @@ export async function submitResource(
     }
   }
 
-  return submitResourceInCheckout(options);
+  const indexPath = options.indexPath;
+
+  if (!indexPath) {
+    throw new Error('Local submission requires an index path. Pass `--index <path>`.');
+  }
+
+  return submitResourceInCheckout({ ...options, indexPath });
 }
 
 async function submitResourceInCheckout(
-  options: SubmitResourceOptions,
+  options: SubmitResourceOptions & { indexPath: string },
 ): Promise<SubmitResourceResult> {
   if (!resourceIdSchema.safeParse(options.resourceId).success) {
     throw new Error(`Invalid resource ID: ${options.resourceId}`);

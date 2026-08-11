@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import envPaths from 'env-paths';
 
 export type ConfigScope = 'user' | 'project';
@@ -8,6 +8,15 @@ export type ConfigScope = 'user' | 'project';
 export type AiDirectoryConfig = {
   repository?: string;
 };
+
+export const CONFIG_OPTIONS = [
+  {
+    key: 'repository',
+    description: 'Git URL of the production resource registry.',
+  },
+] as const;
+
+export type ConfigKey = (typeof CONFIG_OPTIONS)[number]['key'];
 
 export type RepositorySetting = {
   value?: string;
@@ -20,6 +29,18 @@ export function getConfigPath(scope: ConfigScope, cwd = process.cwd()): string {
   if (scope === 'project') return join(cwd, '.ai-directory', configFileName);
 
   return join(envPaths('ai-directory', { suffix: '' }).config, configFileName);
+}
+
+export function findWorkspaceRoot(startDirectory: string): string | null {
+  let directory = resolve(startDirectory);
+
+  while (true) {
+    if (existsSync(join(directory, 'pnpm-workspace.yaml'))) return directory;
+
+    const parent = dirname(directory);
+    if (parent === directory) return null;
+    directory = parent;
+  }
 }
 
 export function readConfigFile(path: string): AiDirectoryConfig {

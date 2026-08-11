@@ -6,16 +6,25 @@ import type { ResourceVersion } from '@ai-directory/registry';
 
 export type InstallScope = 'project' | 'global';
 
-export type ClaudeCodeInstallOptions = {
+export type Harness = 'claude-code' | 'opencode' | 'codex';
+
+export type InstallOptions = {
   scope: InstallScope;
   cwd?: string;
   homeDirectory?: string;
   force?: boolean;
 };
 
+export type ClaudeCodeInstallOptions = InstallOptions;
+
 export type InstallResult = {
   destination: string;
   files: string[];
+};
+
+export type HarnessInstaller = {
+  harness: Harness;
+  install(resources: ResourceVersion[], options: InstallOptions): Promise<InstallResult[]>;
 };
 
 export async function installClaudeCodeResource(
@@ -87,6 +96,11 @@ export async function installClaudeCodeResources(
     files: plan.resource.files.map((file) => file.path),
   }));
 }
+
+export const claudeCodeInstaller: HarnessInstaller = {
+  harness: 'claude-code',
+  install: installClaudeCodeResources,
+};
 
 type InstallPlan = {
   resource: ResourceVersion;

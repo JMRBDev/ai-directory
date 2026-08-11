@@ -26,6 +26,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@ai-directory/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@ai-directory/server-core':
         specifier: workspace:*
         version: link:../../packages/server-core

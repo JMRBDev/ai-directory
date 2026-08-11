@@ -1,9 +1,9 @@
 ---
 import type { ResourceSummary } from '@ai-directory/contracts';
-import { loadLocalRegistry, resourceId } from '../lib/registry';
+import { loadRegistry, resourceId } from '../lib/registry';
 import '../styles/catalog.css';
 
-const registry = await loadLocalRegistry();
+const registry = await loadRegistry();
 const resources = (registry.index?.resources ?? [])
   .filter((resource) => resource.lifecycleStatus === 'active')
   .sort((left, right) => resourceId(left).localeCompare(resourceId(right)));
@@ -39,7 +39,9 @@ function statusLabel(resource: ResourceSummary): string {
         <div class="header-tools">
           <span class="header-state">
             {registry.index
-              ? `${registry.source === 'remote' ? 'Remote' : 'Local'} production index`
+              ? registry.source === 'remote'
+                ? 'Configured Git registry'
+                : 'Explicit local index'
               : 'Registry unavailable'}
           </span>
           <a class="header-link" href="/settings/">Settings</a>
@@ -78,15 +80,15 @@ function statusLabel(resource: ResourceSummary): string {
             <h2 id="catalog-title">Available resources</h2>
           </div>
           <p class="source-note">
-            Source: {registry.source === 'remote' ? 'configured Git registry' : 'local production index'}
+            Source: {registry.source === 'remote' ? 'configured Git registry' : 'explicit local index'}
           </p>
         </div>
 
         {registry.error ? (
           <div class="error-state" role="alert">
-            <strong>Could not load the local registry.</strong>
+            <strong>Could not load the registry.</strong>
             <p>{registry.error}</p>
-            <p>Set AI_DIRECTORY_REGISTRY_INDEX or create the local registry checkout.</p>
+            <p>Run <code>aid setup</code> or pass <code>--index &lt;path&gt;</code>.</p>
           </div>
         ) : resources.length === 0 ? (
           <div class="empty-state">

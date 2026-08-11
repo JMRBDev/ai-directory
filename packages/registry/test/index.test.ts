@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  fetchRegistryIndex,
   publishResource,
   readRemoteRegistryIndex,
   readRemoteResource,
+  resolveRegistrySource,
   readRegistryIndex,
   readResourceVersion,
   readTemplateManifest,
@@ -44,14 +44,29 @@ describe('readRegistryIndex', () => {
     );
   });
 
-  it('loads an index from a remote source', async () => {
-    const index = await fetchRegistryIndex(
-      'https://registry.test/index.json',
-      async () =>
-        new Response(JSON.stringify({ schemaVersion: 1, resources: [] }), { status: 200 }),
-    );
+  it('prefers an explicit local index over a remote repository', () => {
+    expect(
+      resolveRegistrySource({
+        indexPath: '/tmp/index.json',
+        repositoryUrl: 'git@example.com:company/registry.git',
+      }),
+    ).toEqual({ type: 'local', indexPath: '/tmp/index.json' });
+  });
 
-    expect(index.resources).toEqual([]);
+  it('uses the production branch for a remote repository by default', () => {
+    expect(resolveRegistrySource({ repositoryUrl: 'git@example.com:company/registry.git' })).toEqual(
+      {
+        type: 'remote',
+        repositoryUrl: 'git@example.com:company/registry.git',
+        baseBranch: 'main',
+      },
+    );
+  });
+
+  it('requires an explicit local index or repository', () => {
+    expect(() => resolveRegistrySource({})).toThrow(
+      'No registry source configured. Run `aid setup` or pass `--index <path>`.',
+    );
   });
 
   it('reads an index from a temporary sparse checkout', async () => {
@@ -83,15 +98,6 @@ describe('readRegistryIndex', () => {
     expect(index.resources).toEqual([]);
     expect(commands).toContain('git sparse-checkout set index.json');
     await expect(readFile(join(temporaryRepository, 'index.json'), 'utf8')).rejects.toThrow();
-  });
-
-  it('reports remote HTTP failures clearly', async () => {
-    await expect(
-      fetchRegistryIndex(
-        'https://registry.test/index.json',
-        async () => new Response(null, { status: 503, statusText: 'Unavailable' }),
-      ),
-    ).rejects.toThrow('Registry index request failed (503 Unavailable)');
   });
 
   it('validates resource packages from a temporary remote checkout', async () => {
