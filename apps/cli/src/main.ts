@@ -20,9 +20,13 @@ import { cancel, intro, isCancel, outro, select, spinner, text } from '@clack/pr
 import { resourceKey } from '@ai-directory/domain';
 import {
   claudeCodeInstaller,
+  codexInstaller,
+  openCodeInstaller,
   readInstallationManifest,
   removeStaleInstallationFiles,
   updateInstallationManifest,
+  type Harness,
+  type HarnessInstaller,
   type InstallResult,
   type InstallScope,
   type InstallationRecord,
@@ -38,6 +42,14 @@ import {
 } from '@ai-directory/registry';
 
 const localIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX;
+
+function getHarnessInstaller(value: string): { harness: Harness; installer: HarnessInstaller } {
+  if (value === 'claude-code') return { harness: value, installer: claudeCodeInstaller };
+  if (value === 'opencode') return { harness: value, installer: openCodeInstaller };
+  if (value === 'codex') return { harness: value, installer: codexInstaller };
+
+  throw new Error(`Unsupported harness: ${value}`);
+}
 
 function getRegistrySource(indexPath?: string, repository?: string, baseBranch?: string) {
   const repositoryUrl = resolveRepository(repository);
@@ -321,6 +333,7 @@ function createInstallationRecords(
   resources: ResourceVersion[],
   installations: InstallResult[],
   scope: InstallScope,
+  harness: Harness,
 ): InstallationRecord[] {
   const installedAt = new Date().toISOString();
 
@@ -334,7 +347,7 @@ function createInstallationRecords(
     return {
       resource: resourceKey(resource.resource),
       version: resource.version,
-      harness: 'claude-code',
+      harness,
       scope,
       destination: installation.destination,
       files: installation.paths,
@@ -376,7 +389,7 @@ const install = defineCommand({
     },
     harness: {
       type: 'enum',
-      options: ['claude-code'],
+      options: ['claude-code', 'opencode', 'codex'],
       default: 'claude-code',
       description: 'Coding harness to install for',
     },
@@ -415,10 +428,7 @@ const install = defineCommand({
       const source = getRegistrySource(args.index, args.repository, args.base);
       const loaded = await readRegistrySourceResource(source, args.resource, args.version);
       const result = loaded.resource;
-
-      if (args.harness !== 'claude-code') {
-        throw new Error(`Unsupported harness: ${args.harness}`);
-      }
+      const { harness, installer } = getHarnessInstaller(args.harness);
 
       const resources = loaded.resources;
 
@@ -430,19 +440,19 @@ const install = defineCommand({
         }
       }
 
-      const installations = await claudeCodeInstaller.install(resources, {
+      const installations = await installer.install(resources, {
         scope: args.scope,
         force: args.force ?? false,
       });
-      const records = createInstallationRecords(resources, installations, args.scope);
+      const records = createInstallationRecords(resources, installations, args.scope, harness);
       const manifestPath = await saveInstallationRecords(args.scope, records);
 
       if (result.resource.type === 'templates') {
         console.log(
-          `Installed ${resourceKey(result.resource)}@${result.version} with ${resources.length} resource(s) for Claude Code.`,
+          `Installed ${resourceKey(result.resource)}@${result.version} with ${resources.length} resource(s) for ${harness}.`,
         );
       } else {
-        console.log(`Installed ${resourceKey(result.resource)}@${result.version} for Claude Code.`);
+        console.log(`Installed ${resourceKey(result.resource)}@${result.version} for ${harness}.`);
       }
       console.log(`Tracked in: ${manifestPath}`);
 
@@ -529,7 +539,7 @@ const update = defineCommand({
     },
     harness: {
       type: 'enum',
-      options: ['claude-code'],
+      options: ['claude-code', 'opencode', 'codex'],
       default: 'claude-code',
       description: 'Coding harness to update for',
     },
@@ -556,9 +566,7 @@ const update = defineCommand({
   },
   async run({ args }) {
     try {
-      if (args.harness !== 'claude-code') {
-        throw new Error(`Unsupported harness: ${args.harness}`);
-      }
+      const { harness, installer } = getHarnessInstaller(args.harness);
 
       const scope = args.scope as InstallScope;
       const manifestPath = getInstallManifestPath(scope);
@@ -566,13 +574,13 @@ const update = defineCommand({
       const existing = manifest.installations.find(
         (record) =>
           record.resource === args.resource &&
-          record.harness === args.harness &&
+          record.harness === harness &&
           record.scope === scope,
       );
 
       if (!existing) {
         throw new Error(
-          `${args.resource} is not installed for ${args.harness} in the ${scope} scope.`,
+          `${args.resource} is not installed for ${harness} in the ${scope} scope.`,
         );
       }
 
@@ -596,11 +604,11 @@ const update = defineCommand({
         }
       }
 
-      const installations = await claudeCodeInstaller.install(loaded.resources, {
+      const installations = await installer.install(loaded.resources, {
         scope,
         force: true,
       });
-      const records = createInstallationRecords(loaded.resources, installations, scope);
+      const records = createInstallationRecords(loaded.resources, installations, scope, harness);
       await saveInstallationRecords(scope, records);
 
       console.log(`Updated ${args.resource} from ${existing.version} to ${loaded.resource.version}.`);

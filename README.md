@@ -164,6 +164,18 @@ apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
   --scope project
 ```
 
+Select the target harness when needed:
+
+```sh
+apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
+  --harness opencode --scope project
+
+apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
+  --harness codex --scope project
+```
+
+The current native locations are `.claude/`, `.opencode/`, and `.agents/` for project skills. Codex agents are converted from the registry's `AGENT.md` to `.codex/agents/<name>.toml`. OpenCode and Codex rule installation is deferred because their rule systems use shared configuration files rather than independent Markdown resources.
+
 Project installations are recorded in `.ai-directory/installed.json`. Global installations are recorded in the user's AI Directory data directory. List tracked installations and update one resource from the latest production version:
 
 ```sh

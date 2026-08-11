@@ -6,6 +6,8 @@ import type { ResourceVersion } from '@ai-directory/registry';
 import {
   installClaudeCodeResource,
   installClaudeCodeResources,
+  installCodexResources,
+  installOpenCodeResources,
   readInstallationManifest,
   removeStaleInstallationFiles,
   updateInstallationManifest,
@@ -227,6 +229,89 @@ describe('installClaudeCodeResource', () => {
         cwd: projectDirectory,
       }),
     ).rejects.toThrow('Unsafe resource file path');
+  });
+});
+
+describe('portable harness installers', () => {
+  it('installs native OpenCode skills and agents', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+
+    const [skillResult, agentResult] = await installOpenCodeResources(
+      [resource, agentResource],
+      { scope: 'project', cwd: projectDirectory },
+    );
+
+    expect(skillResult.destination).toBe(
+      join(projectDirectory, '.opencode', 'skills', 'typescript-api-review'),
+    );
+    expect(agentResult.destination).toBe(
+      join(projectDirectory, '.opencode', 'agents', 'api-reviewer.md'),
+    );
+    await expect(readFile(join(skillResult.destination, 'SKILL.md'), 'utf8')).resolves.toBe(
+      '# API review\n',
+    );
+    await expect(readFile(agentResult.destination, 'utf8')).resolves.toContain(
+      'mode: subagent',
+    );
+    await expect(readFile(agentResult.destination, 'utf8')).resolves.toContain(
+      '# API reviewer\n',
+    );
+  });
+
+  it('installs native Codex skills and converts agents to TOML', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+
+    const [skillResult, agentResult] = await installCodexResources(
+      [resource, agentResource],
+      { scope: 'project', cwd: projectDirectory },
+    );
+
+    expect(skillResult.destination).toBe(
+      join(projectDirectory, '.agents', 'skills', 'typescript-api-review'),
+    );
+    expect(agentResult.destination).toBe(
+      join(projectDirectory, '.codex', 'agents', 'api-reviewer.toml'),
+    );
+    await expect(readFile(join(skillResult.destination, 'SKILL.md'), 'utf8')).resolves.toBe(
+      '# API review\n',
+    );
+    await expect(readFile(agentResult.destination, 'utf8')).resolves.toContain(
+      'name = "api-reviewer"',
+    );
+    await expect(readFile(agentResult.destination, 'utf8')).resolves.toContain(
+      'developer_instructions = "# API reviewer\\n"',
+    );
+  });
+
+  it('uses the documented global directories', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    const [openCodeResult] = await installOpenCodeResources([resource], {
+      scope: 'global',
+      homeDirectory,
+    });
+    const [codexResult] = await installCodexResources([agentResource], {
+      scope: 'global',
+      homeDirectory,
+    });
+
+    expect(openCodeResult.destination).toBe(
+      join(homeDirectory, '.config', 'opencode', 'skills', 'typescript-api-review'),
+    );
+    expect(codexResult.destination).toBe(
+      join(homeDirectory, '.codex', 'agents', 'api-reviewer.toml'),
+    );
+  });
+
+  it('rejects rules that have no safe native Markdown location', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+
+    await expect(
+      installOpenCodeResources([ruleResource], { scope: 'project', cwd: projectDirectory }),
+    ).rejects.toThrow('OpenCode rule installation is not supported yet');
+    await expect(
+      installCodexResources([ruleResource], { scope: 'project', cwd: projectDirectory }),
+    ).rejects.toThrow('Codex rule installation is not supported yet');
   });
 });
 
