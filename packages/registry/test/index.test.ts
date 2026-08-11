@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   fetchRegistryIndex,
   publishResource,
+  readRemoteResource,
   readRegistryIndex,
   readResourceVersion,
   readTemplateManifest,
@@ -71,6 +72,134 @@ describe('readRegistryIndex', () => {
       'SKILL.md',
       'references/checklist.md',
     ]);
+  });
+
+  it('reads a resource from a temporary sparse checkout', async () => {
+    const commands: string[] = [];
+    let temporaryRepository = '';
+
+    const result = await readRemoteResource({
+      repositoryUrl: 'git@example.com:company/registry.git',
+      resourceId: 'john-doe/skills/typescript-review',
+      commandRunner: async (command, args) => {
+        commands.push(`${command} ${args.join(' ')}`);
+
+        if (command === 'git' && args[0] === 'clone') {
+          const destination = args.at(-1);
+
+          if (!destination) throw new Error('Missing clone destination.');
+
+          temporaryRepository = destination;
+          await mkdir(
+            join(
+              destination,
+              'resources/john-doe/skills/typescript-review/1.2.0/references',
+            ),
+            { recursive: true },
+          );
+          await writeFile(
+            join(destination, 'index.json'),
+            await readFile(fixturePath, 'utf8'),
+            'utf8',
+          );
+          await writeFile(
+            join(
+              destination,
+              'resources/john-doe/skills/typescript-review/1.2.0/SKILL.md',
+            ),
+            '# Remote review\n',
+            'utf8',
+          );
+          await writeFile(
+            join(
+              destination,
+              'resources/john-doe/skills/typescript-review/1.2.0/references/checklist.md',
+            ),
+            '- Check the API\n',
+            'utf8',
+          );
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    expect(result.resource.version).toBe('1.2.0');
+    expect(result.resources).toHaveLength(1);
+    expect(result.resource.files.map((file) => file.path)).toEqual([
+      'SKILL.md',
+      'references/checklist.md',
+    ]);
+    expect(commands.slice(0, 5)).toEqual([
+      'git clone --filter=blob:none --no-checkout --branch main git@example.com:company/registry.git ' +
+        temporaryRepository,
+      'git sparse-checkout init --no-cone',
+      'git sparse-checkout set index.json',
+      'git checkout main',
+      'git sparse-checkout set index.json resources/john-doe/skills/typescript-review/1.2.0',
+    ]);
+    await expect(readFile(join(temporaryRepository, 'index.json'), 'utf8')).rejects.toThrow();
+  });
+
+  it('fetches template dependencies in the same temporary checkout', async () => {
+    let temporaryRepository = '';
+
+    const result = await readRemoteResource({
+      repositoryUrl: 'git@example.com:company/registry.git',
+      resourceId: 'john-doe/templates/review-pack',
+      commandRunner: async (command, args) => {
+        if (command === 'git' && args[0] === 'clone') {
+          const destination = args.at(-1);
+
+          if (!destination) throw new Error('Missing clone destination.');
+
+          temporaryRepository = destination;
+          await mkdir(join(destination, 'resources/john-doe/templates/review-pack/1.0.0'), {
+            recursive: true,
+          });
+          await mkdir(join(destination, 'resources/john-doe/skills/typescript-review/1.2.0'), {
+            recursive: true,
+          });
+          await mkdir(join(destination, 'resources/jane-doe/agents/api-reviewer/0.3.0'), {
+            recursive: true,
+          });
+          await writeFile(
+            join(destination, 'index.json'),
+            await readFile(templateIndexPath, 'utf8'),
+            'utf8',
+          );
+          await writeFile(
+            join(destination, 'resources/john-doe/templates/review-pack/1.0.0/TEMPLATE.md'),
+            await readFile(
+              fileURLToPath(
+                new URL('./fixtures/resources/john-doe/templates/review-pack/1.0.0/TEMPLATE.md', import.meta.url),
+              ),
+              'utf8',
+            ),
+            'utf8',
+          );
+          await writeFile(
+            join(destination, 'resources/john-doe/skills/typescript-review/1.2.0/SKILL.md'),
+            '# Remote skill\n',
+            'utf8',
+          );
+          await writeFile(
+            join(destination, 'resources/jane-doe/agents/api-reviewer/0.3.0/AGENT.md'),
+            '# Remote agent\n',
+            'utf8',
+          );
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    expect(result.resource.resource.type).toBe('templates');
+    expect(result.resources.map((resource) => resource.resource.type)).toEqual([
+      'skills',
+      'agents',
+    ]);
+    await expect(readFile(join(temporaryRepository, 'index.json'), 'utf8')).rejects.toThrow();
   });
 
   it('loads a template manifest and its referenced resources', async () => {

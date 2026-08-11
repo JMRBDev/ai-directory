@@ -38,6 +38,19 @@ export type ResourceVersion = {
   files: ResourceFile[];
 };
 
+export type RemoteResourceOptions = {
+  repositoryUrl: string;
+  resourceId: string;
+  version?: string;
+  baseBranch?: string;
+  commandRunner?: CommandRunner;
+};
+
+export type RemoteResourceResult = {
+  resource: ResourceVersion;
+  resources: ResourceVersion[];
+};
+
 export type RegistryValidationResult = {
   resourceCount: number;
   issues: string[];
@@ -215,6 +228,58 @@ export async function readResourceVersion(
   }
 
   return { resource, version, files };
+}
+
+export async function readRemoteResource(
+  options: RemoteResourceOptions,
+): Promise<RemoteResourceResult> {
+  const temporaryRepository = await mkdtemp(join(tmpdir(), 'ai-directory-read-'));
+  const runner = options.commandRunner ?? runCommand;
+
+  try {
+    await clonePartialRepository(
+      runner,
+      options.repositoryUrl,
+      temporaryRepository,
+      options.baseBranch ?? 'main',
+    );
+
+    const indexPath = join(temporaryRepository, 'index.json');
+    const target = await findResourceVersion(indexPath, options.resourceId, options.version);
+    const targetPattern = resourcePackagePath(target.resource, target.version);
+
+    await setSparseCheckout(runner, temporaryRepository, ['index.json', targetPattern]);
+    const resource = await readResourceVersion(indexPath, options.resourceId, target.version);
+
+    if (resource.resource.type !== 'templates') {
+      return { resource, resources: [resource] };
+    }
+
+    const manifest = readTemplateManifest(resource);
+    const dependencies = await Promise.all(
+      manifest.resources.map((dependency) =>
+        findResourceVersion(indexPath, dependency.id, dependency.version),
+      ),
+    );
+
+    await setSparseCheckout(runner, temporaryRepository, [
+      'index.json',
+      targetPattern,
+      ...dependencies.map((dependency) =>
+        resourcePackagePath(dependency.resource, dependency.version),
+      ),
+    ]);
+
+    const resources = await Promise.all(
+      dependencies.map((dependency) =>
+        readResourceVersion(indexPath, resourceKey(dependency.resource), dependency.version),
+      ),
+    );
+
+    return { resource, resources };
+  } finally {
+    await rm(temporaryRepository, { recursive: true, force: true });
+  }
 }
 
 export async function publishResource(
@@ -457,8 +522,41 @@ async function clonePartialRepository(
     dirname(destination),
   );
   await executeCommand(runner, 'git', ['sparse-checkout', 'init', '--no-cone'], destination);
-  await executeCommand(runner, 'git', ['sparse-checkout', 'set', 'index.json'], destination);
+  await setSparseCheckout(runner, destination, ['index.json']);
   await executeCommand(runner, 'git', ['checkout', baseBranch], destination);
+}
+
+async function setSparseCheckout(
+  runner: CommandRunner,
+  destination: string,
+  patterns: string[],
+): Promise<void> {
+  await executeCommand(runner, 'git', ['sparse-checkout', 'set', ...patterns], destination);
+}
+
+async function findResourceVersion(
+  indexPath: string,
+  requestedResourceId: string,
+  requestedVersion?: string,
+): Promise<{ resource: ResourceSummary; version: string }> {
+  if (!resourceIdSchema.safeParse(requestedResourceId).success) {
+    throw new Error(`Invalid resource ID: ${requestedResourceId}`);
+  }
+
+  const index = await readRegistryIndex(indexPath);
+  const resource = index.resources.find((candidate) => resourceKey(candidate) === requestedResourceId);
+
+  if (!resource) {
+    throw new Error(`Resource not found: ${requestedResourceId}`);
+  }
+
+  const version = requestedVersion ?? resource.latestVersion;
+
+  if (!resourceVersionSchema.safeParse(version).success) {
+    throw new Error(`Invalid resource version: ${version}`);
+  }
+
+  return { resource, version };
 }
 
 export function readTemplateManifest(resource: ResourceVersion): TemplateManifest {
@@ -569,14 +667,14 @@ function resourceDirectory(
   resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>,
   version: string,
 ): string {
-  return join(
-    registryRoot,
-    'resources',
-    resource.owner,
-    resource.type,
-    resource.name,
-    version,
-  );
+  return join(registryRoot, resourcePackagePath(resource, version));
+}
+
+function resourcePackagePath(
+  resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>,
+  version: string,
+): string {
+  return join('resources', resource.owner, resource.type, resource.name, version);
 }
 
 function parseResourceId(resourceId: string): Pick<ResourceSummary, 'owner' | 'type' | 'name'> {
