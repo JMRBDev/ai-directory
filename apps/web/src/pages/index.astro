@@ -1,5 +1,23 @@
 ---
-const title = 'AI Directory';
+import type { ResourceSummary } from '@ai-directory/contracts';
+import { loadLocalRegistry, resourceId } from '../lib/registry';
+import '../styles/catalog.css';
+
+const registry = await loadLocalRegistry();
+const resources = (registry.index?.resources ?? [])
+  .filter((resource) => resource.lifecycleStatus === 'active')
+  .sort((left, right) => resourceId(left).localeCompare(resourceId(right)));
+const reviewedCount = resources.filter((resource) => resource.reviewStatus === 'reviewed').length;
+const resourceTypes = new Set(resources.map((resource) => resource.type)).size;
+const title = 'AI Directory | Internal resource registry';
+
+function detailPath(resource: ResourceSummary): string {
+  return `/resources/${resource.owner}/${resource.type}/${resource.name}/`;
+}
+
+function statusLabel(resource: ResourceSummary): string {
+  return resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed';
+}
 ---
 
 <!doctype html>
@@ -7,12 +25,171 @@ const title = 'AI Directory';
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
+    <meta
+      name="description"
+      content="Internal catalog of reusable AI development resources."
+    />
     <title>{title}</title>
   </head>
   <body>
-    <main>
-      <h1>{title}</h1>
-      <p>Website scaffold. Catalog features will be added in a vertical slice.</p>
+    <a class="skip-link" href="#catalog">Skip to catalog</a>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
+        <span class="header-state">
+          {registry.index ? 'Local production index' : 'Registry unavailable'}
+        </span>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">Internal developer tooling</p>
+        <h1 id="page-title">Find the resource for the work in front of you.</h1>
+        <p class="intro-copy">
+          Skills, agents, rules, and templates shared by the company. Read the source, check its
+          review status, then install it with the local CLI.
+        </p>
+        <div class="stats" aria-label="Registry summary">
+          <div class="stat">
+            <strong class="stat-value">{resources.length}</strong>
+            <span class="stat-label">active resources</span>
+          </div>
+          <div class="stat">
+            <strong class="stat-value">{reviewedCount}</strong>
+            <span class="stat-label">reviewed resources</span>
+          </div>
+          <div class="stat">
+            <strong class="stat-value">{resourceTypes}</strong>
+            <span class="stat-label">resource types</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="catalog" class="catalog-panel" aria-labelledby="catalog-title">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Catalog</p>
+            <h2 id="catalog-title">Available resources</h2>
+          </div>
+          <p class="source-note">Source: local production index</p>
+        </div>
+
+        {registry.error ? (
+          <div class="error-state" role="alert">
+            <strong>Could not load the local registry.</strong>
+            <p>{registry.error}</p>
+            <p>Set AI_DIRECTORY_REGISTRY_INDEX or create the local registry checkout.</p>
+          </div>
+        ) : resources.length === 0 ? (
+          <div class="empty-state">
+            <strong>No active resources yet.</strong>
+            <p>Submit the first resource with the CLI, then refresh this local site.</p>
+          </div>
+        ) : (
+          <>
+            <div class="filters" role="search">
+              <div class="filter-field">
+                <label class="filter-label" for="resource-search">Search</label>
+                <input
+                  id="resource-search"
+                  type="search"
+                  placeholder="Search by name, owner, or description"
+                  autocomplete="off"
+                />
+              </div>
+              <div class="filter-field">
+                <label class="filter-label" for="resource-type">Type</label>
+                <select id="resource-type">
+                  <option value="all">All types</option>
+                  <option value="skills">Skills</option>
+                  <option value="agents">Agents</option>
+                  <option value="rules">Rules</option>
+                  <option value="templates">Templates</option>
+                </select>
+              </div>
+              <p class="result-count" aria-live="polite" data-result-count>
+                {resources.length} results
+              </p>
+            </div>
+
+            <div class="resource-grid" data-resource-grid>
+              {resources.map((resource) => (
+                <article
+                  class="resource-card"
+                  data-resource
+                  data-type={resource.type}
+                  data-search={`${resourceId(resource)} ${resource.description}`.toLowerCase()}
+                >
+                  <div class="resource-card-top">
+                    <span class="resource-type">{resource.type}</span>
+                    <span
+                      class:list={[
+                        'resource-status',
+                        resource.reviewStatus === 'unreviewed' && 'unreviewed',
+                      ]}
+                    >
+                      {statusLabel(resource)}
+                    </span>
+                  </div>
+                  <a class="resource-link" href={detailPath(resource)}>
+                    {resource.name}
+                  </a>
+                  <p class="resource-description">{resource.description}</p>
+                  <div class="resource-card-bottom">
+                    <span>{resource.owner} / v{resource.latestVersion}</span>
+                    <a href={detailPath(resource)}>View resource</a>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div class="empty-state" data-no-results hidden>
+              <strong>No matching resources.</strong>
+              <p>Change the search text or select a different resource type.</p>
+            </div>
+          </>
+        )}
+      </section>
+
+      <section class="help-strip" aria-label="Submit a resource">
+        <div>
+          <p class="help-label">Share a resource</p>
+          <p>Prepare its entry file and submit a pull request for review.</p>
+        </div>
+        <code>aid submit ./resource --id owner/skills/name --version 1.0.0</code>
+      </section>
     </main>
+
+    <footer class="site-footer">
+      <p>AI Directory is backed by the production branch of the resources repository.</p>
+      <p>Local-first prototype</p>
+    </footer>
+
+    <script>
+      const search = document.querySelector('#resource-search');
+      const type = document.querySelector('#resource-type');
+      const count = document.querySelector('[data-result-count]');
+      const noResults = document.querySelector('[data-no-results]');
+      const resources = Array.from(document.querySelectorAll('[data-resource]'));
+
+      function updateResults() {
+        const query = search?.value.toLowerCase().trim() ?? '';
+        const selectedType = type?.value ?? 'all';
+        let visible = 0;
+
+        for (const resource of resources) {
+          const matchesQuery = resource.dataset.search?.includes(query) ?? false;
+          const matchesType = selectedType === 'all' || resource.dataset.type === selectedType;
+          resource.hidden = !(matchesQuery && matchesType);
+          if (!resource.hidden) visible += 1;
+        }
+
+        if (count) count.textContent = `${visible} result${visible === 1 ? '' : 's'}`;
+        if (noResults) noResults.hidden = visible !== 0;
+      }
+
+      search?.addEventListener('input', updateResults);
+      type?.addEventListener('change', updateResults);
+    </script>
   </body>
 </html>

@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { defineCommand, runMain } from 'citty';
 import { resourceKey } from '@ai-directory/domain';
 import { installClaudeCodeResources } from '@ai-directory/installers';
@@ -15,6 +17,18 @@ import {
 const defaultIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX ?? '.ai-directory/registry/index.json';
 const defaultIndexUrl = process.env.AI_DIRECTORY_REGISTRY_INDEX_URL;
 const defaultRepositoryUrl = process.env.AI_DIRECTORY_REGISTRY_REPOSITORY;
+
+function findWorkspaceRoot(startDirectory: string): string | null {
+  let directory = resolve(startDirectory);
+
+  while (true) {
+    if (existsSync(join(directory, 'pnpm-workspace.yaml'))) return directory;
+
+    const parent = dirname(directory);
+    if (parent === directory) return null;
+    directory = parent;
+  }
+}
 
 const list = defineCommand({
   meta: {
@@ -362,13 +376,90 @@ const install = defineCommand({
   },
 });
 
+const web = defineCommand({
+  meta: {
+    name: 'web',
+    description: 'Start the local AI Directory website',
+  },
+  args: {
+    index: {
+      type: 'string',
+      alias: 'i',
+      default: defaultIndexPath,
+      description: 'Path to a local registry index JSON file',
+    },
+    host: {
+      type: 'string',
+      default: '127.0.0.1',
+      description: 'Host for the local website',
+    },
+    port: {
+      type: 'string',
+      default: '4321',
+      description: 'Port for the local website',
+    },
+    open: {
+      type: 'boolean',
+      description: 'Open the website in the default browser',
+    },
+  },
+  async run({ args }) {
+    const workspaceRoot = findWorkspaceRoot(process.cwd());
+
+    if (!workspaceRoot) {
+      console.error('Could not find the AI Directory workspace from the current directory.');
+      process.exitCode = 1;
+      return;
+    }
+
+    const webDirectory = join(workspaceRoot, 'apps', 'web');
+
+    if (!existsSync(webDirectory)) {
+      console.error(`Website directory not found: ${webDirectory}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const indexPath = resolve(workspaceRoot, args.index ?? defaultIndexPath);
+    const command = [
+      'pnpm',
+      'dev',
+      '--host',
+      args.host ?? '127.0.0.1',
+      '--port',
+      args.port ?? '4321',
+      ...(args.open ? ['--open'] : []),
+    ];
+
+    console.log(`Starting the local AI Directory website at http://${args.host}:${args.port}`);
+    console.log(`Registry index: ${indexPath}`);
+
+    const child = Bun.spawn(command, {
+      cwd: webDirectory,
+      env: {
+        ...process.env,
+        AI_DIRECTORY_REGISTRY_INDEX: indexPath,
+      },
+      stderr: 'inherit',
+      stdout: 'inherit',
+    });
+
+    const exitCode = await child.exited;
+
+    if (exitCode !== 0) {
+      console.error(`Local website exited with code ${exitCode}.`);
+      process.exitCode = exitCode;
+    }
+  },
+});
+
 const main = defineCommand({
   meta: {
     name: 'aid',
     version: '0.0.0',
     description: 'AI Directory resource registry',
   },
-  subCommands: { list, show, check, submit, install },
+  subCommands: { list, show, check, submit, install, web },
 });
 
 runMain(main);

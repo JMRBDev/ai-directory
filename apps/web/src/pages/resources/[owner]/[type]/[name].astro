@@ -1,0 +1,147 @@
+---
+import type { ResourceSummary } from '@ai-directory/contracts';
+import { loadLocalRegistry, loadLocalResource, resourceId } from '../../../../lib/registry';
+import '../../../../styles/catalog.css';
+
+type Props = {
+  resource: ResourceSummary;
+  version: Awaited<ReturnType<typeof loadLocalResource>>['version'];
+  fileError?: string;
+};
+
+export async function getStaticPaths() {
+  const registry = await loadLocalRegistry();
+
+  if (!registry.index) return [];
+
+  return Promise.all(
+    registry.index.resources
+      .filter((resource) => resource.lifecycleStatus === 'active')
+      .map(async (resource) => {
+        const result = await loadLocalResource(registry.indexPath, resource);
+
+        return {
+          params: {
+            owner: resource.owner,
+            type: resource.type,
+            name: resource.name,
+          },
+          props: {
+            resource,
+            version: result.version,
+            ...(result.error ? { fileError: result.error } : {}),
+          },
+        };
+      }),
+  );
+}
+
+const { resource, version, fileError } = Astro.props as Props;
+const title = `${resource.name} | AI Directory`;
+const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={resource.description} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
+        <span class="header-state">Local production index</span>
+      </div>
+    </header>
+
+    <main class="page-shell detail-shell">
+      <a class="back-link" href="/">Back to catalog</a>
+
+      <section class="detail-heading" aria-labelledby="resource-title">
+        <div class="resource-card-top">
+          <span class="resource-type">{resource.type}</span>
+          <span
+            class:list={[
+              'resource-status',
+              resource.reviewStatus === 'unreviewed' && 'unreviewed',
+            ]}
+          >
+            {resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed'}
+          </span>
+        </div>
+        <h1 id="resource-title">{resource.name}</h1>
+        <p>{resource.description}</p>
+      </section>
+
+      <div class="detail-meta" aria-label="Resource metadata">
+        <div class="detail-meta-item">
+          <span class="meta-label">Resource ID</span>
+          <span class="meta-value">{resourceId(resource)}</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="meta-label">Latest version</span>
+          <span class="meta-value">v{resource.latestVersion}</span>
+        </div>
+        <div class="detail-meta-item">
+          <span class="meta-label">Owner</span>
+          <span class="meta-value">{resource.owner}</span>
+        </div>
+      </div>
+
+      {resource.reviewStatus === 'unreviewed' && (
+        <div class="warning" role="status">
+          This resource is unreviewed. You can install it, but inspect its contents before using
+          it in a project.
+        </div>
+      )}
+
+      <section class="detail-section" aria-labelledby="install-title">
+        <p class="section-kicker">Install</p>
+        <h2 id="install-title">Use it with Claude Code</h2>
+        <div class="commands">
+          <div class="command">
+            <label for="project-command">Project scope</label>
+            <code id="project-command">{installBase} --scope project</code>
+          </div>
+          <div class="command">
+            <label for="global-command">Global scope</label>
+            <code id="global-command">{installBase} --scope global</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="detail-section" aria-labelledby="files-title">
+        <p class="section-kicker">Source</p>
+        <h2 id="files-title">Files in v{version?.version ?? resource.latestVersion}</h2>
+        {fileError ? (
+          <div class="error-state" role="alert">
+            <strong>Resource files are not available in this checkout.</strong>
+            <p>{fileError}</p>
+          </div>
+        ) : version ? (
+          <div class="file-list">
+            {version.files.map((file, index) => (
+              <details open={index === 0}>
+                <summary>{file.path}</summary>
+                <pre><code>{file.content}</code></pre>
+              </details>
+            ))}
+          </div>
+        ) : (
+          <div class="empty-state">
+            <strong>No files found.</strong>
+            <p>The registry index points to a package with no readable files.</p>
+          </div>
+        )}
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>AI Directory is backed by the production branch of the resources repository.</p>
+      <a class="back-link" href="/">Return to catalog</a>
+    </footer>
+  </body>
+</html>
