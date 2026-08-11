@@ -2,9 +2,10 @@
 
 import { defineCommand, runMain } from 'citty';
 import { resourceKey } from '@ai-directory/domain';
-import { readRegistryIndex } from '@ai-directory/registry';
+import { fetchRegistryIndex, readRegistryIndex } from '@ai-directory/registry';
 
 const defaultIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX ?? '.ai-directory/registry/index.json';
+const defaultIndexUrl = process.env.AI_DIRECTORY_REGISTRY_INDEX_URL;
 
 const list = defineCommand({
   meta: {
@@ -17,6 +18,12 @@ const list = defineCommand({
       alias: 'i',
       default: defaultIndexPath,
       description: 'Path to a registry index JSON file',
+    },
+    remote: {
+      type: 'string',
+      alias: 'r',
+      default: defaultIndexUrl,
+      description: 'URL of a registry index JSON file',
     },
     type: {
       type: 'enum',
@@ -35,7 +42,9 @@ const list = defineCommand({
   },
   async run({ args }) {
     try {
-      const index = await readRegistryIndex(args.index);
+      const index = args.remote
+        ? await fetchRegistryIndex(args.remote)
+        : await readRegistryIndex(args.index);
       const resources = index.resources
         .filter((resource) => !args.type || resource.type === args.type)
         .filter((resource) => args['include-retired'] || resource.lifecycleStatus === 'active')
