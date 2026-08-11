@@ -4,9 +4,12 @@ import {
   fetchRegistryIndex,
   readRegistryIndex,
   readResourceVersion,
+  validateRegistry,
 } from '../src/index.js';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/index.json', import.meta.url));
+const invalidIndexPath = fileURLToPath(new URL('./fixtures/invalid-index.json', import.meta.url));
+const duplicateIndexPath = fileURLToPath(new URL('./fixtures/duplicate-index.json', import.meta.url));
 
 describe('readRegistryIndex', () => {
   it('loads a valid index', async () => {
@@ -57,5 +60,23 @@ describe('readRegistryIndex', () => {
     await expect(readResourceVersion(fixturePath, 'john-doe/skills/missing')).rejects.toThrow(
       'Resource not found: john-doe/skills/missing',
     );
+  });
+
+  it('validates required resource entry files', async () => {
+    const result = await validateRegistry(fixturePath);
+
+    expect(result).toEqual({ resourceCount: 3, issues: [] });
+  });
+
+  it('reports missing resource packages', async () => {
+    const result = await validateRegistry(invalidIndexPath);
+
+    expect(result.issues).toEqual(['Resource version not found: john-doe/skills/missing-package@1.0.0']);
+  });
+
+  it('reports duplicate resource IDs', async () => {
+    const result = await validateRegistry(duplicateIndexPath);
+
+    expect(result.issues).toContain('Duplicate resource ID: john-doe/skills/typescript-review');
   });
 });

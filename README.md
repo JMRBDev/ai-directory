@@ -64,6 +64,12 @@ apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review
 
 Use `--version` to inspect a specific version or `--json` for machine-readable output.
 
+Validate the linked registry before using it:
+
+```sh
+apps/cli/dist/aid check
+```
+
 ## Checks
 
 ```sh
