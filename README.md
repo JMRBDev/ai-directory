@@ -58,6 +58,19 @@ apps/cli/dist/aid uninstall
 
 The guided flows search resources, select the installation scope, and allow one or more harnesses. Existing flags remain available. Commands do not prompt when stdin or stdout is not a terminal; provide the required positional arguments and options for scripts or CI.
 
+Create a resource locally before submitting it:
+
+```sh
+apps/cli/dist/aid create
+apps/cli/dist/aid create my-skill \
+  --type skills \
+  --owner jose-rosendo \
+  --description "Review TypeScript changes." \
+  --output ./my-skill
+```
+
+The command creates the required entry file (`SKILL.md`, `AGENT.md`, `RULE.md`, or `TEMPLATE.md`). Add supporting files as needed, then use the printed `aid submit` command. Templates can contain existing resources with `--resources owner/type/name@version,...`.
+
 ## Resource discovery
 
 After setup, normal commands read the production branch of the configured Git registry:

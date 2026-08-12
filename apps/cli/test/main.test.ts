@@ -85,6 +85,70 @@ describe('CLI', () => {
     expect(result.stdout).toContain('john-doe/skills/typescript-review');
   });
 
+  it('creates a skill scaffold', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-create-'));
+
+    try {
+      const result = runAid(
+        [
+          'create',
+          'my-skill',
+          '--type',
+          'skills',
+          '--owner',
+          'jane-doe',
+          '--description',
+          'Review TypeScript changes.',
+          '--output',
+          'created',
+        ],
+        cwd,
+      );
+      const entry = readFileSync(join(cwd, 'created', 'SKILL.md'), 'utf8');
+
+      expect(result.code).toBe(0);
+      expect(entry).toContain('name: my-skill');
+      expect(entry).toContain('description: "Review TypeScript changes."');
+      expect(entry).toContain('# My Skill');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('creates a template scaffold with explicit components', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-template-create-'));
+
+    try {
+      const result = runAid(
+        [
+          'create',
+          'review-pack',
+          '--type',
+          'templates',
+          '--owner',
+          'jane-doe',
+          '--description',
+          'A review pack.',
+          '--resources',
+          'john-doe/skills/typescript-review@1.2.0,jane-doe/agents/api-reviewer@0.3.0',
+          '--output',
+          'pack',
+        ],
+        cwd,
+      );
+      const entry = readFileSync(join(cwd, 'pack', 'TEMPLATE.md'), 'utf8');
+
+      expect(result.code).toBe(0);
+      expect(entry).toContain('name: review-pack');
+      expect(entry).toContain('id: john-doe/skills/typescript-review');
+      expect(entry).toContain('version: 1.2.0');
+      expect(entry).toContain('id: jane-doe/agents/api-reviewer');
+      expect(entry).toContain('version: 0.3.0');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('reports missing arguments without prompting without a terminal', () => {
     const result = runAid(['install']);
 
