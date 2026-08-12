@@ -181,6 +181,8 @@ apps/cli/dist/aid submit ./my-resource \
 
 The command uses a temporary partial checkout. It does not keep a full registry copy on the employee's computer. The command creates a branch, copies the package, updates `index.json`, commits and pushes the branch, and opens a pull request through the authenticated GitHub CLI. The production branch remains unchanged until reviewers merge the pull request.
 
+In an interactive terminal, `submit` validates the local inputs and asks for confirmation before it creates the branch and pull request.
+
 The same remote checkout mode is available during installation:
 
 ```sh

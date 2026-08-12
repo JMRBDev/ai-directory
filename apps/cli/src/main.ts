@@ -934,7 +934,9 @@ const submit = defineCommand({
       if (!resourceId) throw new Error('Resource ID is required. Pass `--id` in a script.');
 
       const version = args.version.trim() || (
-        interactive ? await promptRequiredText('What version are you publishing?', '1.0.0') : undefined
+        interactive
+          ? await promptRequiredText('What version are you publishing?', '1.0.0', '1.0.0')
+          : undefined
       );
       if (!version) throw new Error('Version is required. Pass `--version` in a script.');
 
@@ -943,10 +945,31 @@ const submit = defineCommand({
       );
       if (!description) throw new Error('Description is required. Pass `--description` in a script.');
 
+      if (!resourceIdSchema.safeParse(resourceId).success) {
+        throw new Error(`Invalid resource ID: ${resourceId}`);
+      }
+      if (!resourceVersionSchema.safeParse(version).success) {
+        throw new Error(`Invalid resource version: ${version}`);
+      }
+
+      const sourcePath = resolve(sourceDirectory);
+      if (!existsSync(sourcePath)) {
+        throw new Error(`Resource directory not found: ${sourcePath}`);
+      }
+
+      if (interactive) {
+        const answer = await confirm({
+          message: `Submit ${resourceId}@${version} as a pull request?`,
+          initialValue: true,
+        });
+
+        if (isCancel(answer) || !answer) return cancelled('Submission cancelled.');
+      }
+
       const source = getRegistrySource(args.index, args.repository, args.base);
       const result = await submitResource({
         ...(source.type === 'local' ? { indexPath: source.indexPath } : {}),
-        sourceDirectory,
+        sourceDirectory: sourcePath,
         resourceId,
         version,
         description,
