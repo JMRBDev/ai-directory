@@ -1,8 +1,9 @@
 ---
 import type { ResourceSummary } from '@ai-directory/contracts';
-import { loadRegistry, resourceId } from '../lib/registry';
+import { loadRegistry, refreshRegistry, resourceId } from '../lib/registry';
 import '../styles/catalog.css';
 
+if (Astro.url.searchParams.get('refresh') === '1') await refreshRegistry();
 const registry = await loadRegistry();
 const resources = (registry.index?.resources ?? [])
   .filter((resource) => resource.lifecycleStatus === 'active')
@@ -45,6 +46,7 @@ function statusLabel(resource: ResourceSummary): string {
             : 'Registry unavailable'}
           </span>
           <a class="header-link" href="/publish/">Publish</a>
+          <a class="header-link" href="/?refresh=1">Refresh registry</a>
           <a class="header-link" href="/settings/">Settings</a>
         </div>
       </div>
@@ -94,7 +96,7 @@ function statusLabel(resource: ResourceSummary): string {
         ) : resources.length === 0 ? (
           <div class="empty-state">
             <strong>No active resources yet.</strong>
-            <p>Submit the first resource with the CLI, then refresh this local site.</p>
+            <p>Submit the first resource with the CLI, then refresh the registry.</p>
           </div>
         ) : (
           <>

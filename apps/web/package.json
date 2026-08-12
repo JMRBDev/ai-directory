@@ -19,6 +19,7 @@
   "dependencies": {
     "@ai-directory/config": "workspace:*",
     "@ai-directory/contracts": "workspace:*",
-    "@ai-directory/registry": "workspace:*"
+    "@ai-directory/registry": "workspace:*",
+    "@astrojs/node": "^11.1.0"
   }
 }
