@@ -1,0 +1,382 @@
+---
+import '../styles/catalog.css';
+
+const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
+---
+
+<!doctype html>
+<html lang="en" data-api-url={apiUrl}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content="Publish an AI Directory resource for review." />
+    <title>Publish | AI Directory</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
+        <div class="header-tools">
+          <span class="header-state">Local publishing</span>
+          <a class="header-link" href="/settings/">Settings</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell publish-shell">
+      <a class="back-link" href="/">Back to catalog</a>
+
+      <section class="settings-heading" aria-labelledby="page-title">
+        <p class="eyebrow">Share a resource</p>
+        <h1 id="page-title">Publish for review.</h1>
+        <p class="intro-copy">
+          Select a resource directory. AI Directory validates it locally, then opens a pull request
+          against the configured production registry.
+        </p>
+      </section>
+
+      <section class="settings-panel" aria-labelledby="publish-title">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Pull request</p>
+            <h2 id="publish-title">Resource details</h2>
+          </div>
+          <span class="settings-source">Local API</span>
+        </div>
+
+        <form class="publish-form" data-publish-form>
+          <div class="publish-grid">
+            <div class="resource-id-field">
+              <div class="resource-id-fields">
+                <label class="filter-field" for="resource-owner">
+                  <span class="filter-label">GitHub user</span>
+                  <input id="resource-owner" type="text" placeholder="Loading…" disabled />
+                </label>
+                <label class="filter-field" for="resource-type">
+                  <span class="filter-label">Type</span>
+                  <select id="resource-type" required>
+                    <option value="skills">Skill</option>
+                    <option value="agents">Agent</option>
+                    <option value="rules">Rule</option>
+                    <option value="templates">Template</option>
+                  </select>
+                </label>
+                <label class="filter-field" for="resource-name">
+                  <span class="filter-label">Name</span>
+                  <input
+                    id="resource-name"
+                    type="text"
+                    placeholder="my-resource"
+                    autocomplete="off"
+                    required
+                  />
+                </label>
+              </div>
+            </div>
+            <label class="filter-field" for="resource-version">
+              <span class="filter-label">Version</span>
+              <input
+                id="resource-version"
+                name="version"
+                type="text"
+                value="1.0.0"
+                autocomplete="off"
+                required
+              />
+            </label>
+          </div>
+
+          <label class="file-picker" for="resource-directory">
+            <span class="filter-label">Resource directory</span>
+            <input id="resource-directory" type="file" data-directory-input multiple required />
+            <span class="file-picker-note" data-file-name>Select a folder containing the resource files.</span>
+          </label>
+
+          <div class="publish-file-summary" aria-live="polite">
+            <strong data-file-count>No files selected</strong>
+            <ul class="publish-file-list" data-file-list></ul>
+          </div>
+
+          <div class="description-editor" data-description-editor hidden>
+            <label class="filter-field" for="description-override">
+              <span class="filter-label">Description</span>
+              <textarea
+                id="description-override"
+                rows="3"
+                placeholder="The resource description will appear here after validation."
+              ></textarea>
+            </label>
+            <span class="form-hint">Inferred from the resource files. Edit if needed.</span>
+          </div>
+
+          <div class="publish-actions">
+            <button type="submit" data-validate-action>Validate resource</button>
+            <button class="secondary-button" type="button" data-submit-action hidden disabled>
+              Submit pull request
+            </button>
+          </div>
+          <p class="form-status" data-publish-status role="status"></p>
+        </form>
+
+        <div class="publish-review" data-publish-review hidden>
+          <p class="section-kicker">Review</p>
+          <h2>Ready to submit</h2>
+          <dl class="publish-review-grid">
+            <div>
+              <dt>Resource</dt>
+              <dd data-review-resource></dd>
+            </div>
+            <div>
+              <dt>Version</dt>
+              <dd data-review-version></dd>
+            </div>
+            <div>
+              <dt>Entry file</dt>
+              <dd data-review-entry></dd>
+            </div>
+            <div>
+              <dt>Files</dt>
+              <dd data-review-files></dd>
+            </div>
+            <div>
+              <dt>Description</dt>
+              <dd data-review-description></dd>
+            </div>
+          </dl>
+          <p class="publish-review-note">
+            The pull request will be unreviewed until the curation team reviews and merges it.
+          </p>
+          <a class="header-link" data-pull-request-link target="_blank" rel="noreferrer" hidden>
+            Open pull request
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>AI Directory is backed by the production branch of the resources repository.</p>
+      <a class="back-link" href="/">Return to catalog</a>
+    </footer>
+
+    <script>
+      type DirectoryFile = File & { webkitRelativePath?: string };
+
+      const apiBase = document.documentElement.dataset.apiUrl ?? 'http://127.0.0.1:4317';
+      const form = document.querySelector<HTMLFormElement>('[data-publish-form]');
+      const resourceOwner = document.querySelector<HTMLInputElement>('#resource-owner');
+      const resourceType = document.querySelector<HTMLSelectElement>('#resource-type');
+      const resourceName = document.querySelector<HTMLInputElement>('#resource-name');
+      const version = document.querySelector<HTMLInputElement>('#resource-version');
+      const directory = document.querySelector<HTMLInputElement>('#resource-directory');
+      const fileName = document.querySelector<HTMLElement>('[data-file-name]');
+      const fileCount = document.querySelector<HTMLElement>('[data-file-count]');
+      const fileList = document.querySelector<HTMLUListElement>('[data-file-list]');
+      const descriptionEditor = document.querySelector<HTMLElement>('[data-description-editor]');
+      const descriptionOverride = document.querySelector<HTMLTextAreaElement>('#description-override');
+      const validate = document.querySelector<HTMLButtonElement>('[data-validate-action]');
+      const submit = document.querySelector<HTMLButtonElement>('[data-submit-action]');
+      const status = document.querySelector<HTMLElement>('[data-publish-status]');
+      const review = document.querySelector<HTMLElement>('[data-publish-review]');
+      const pullRequestLink = document.querySelector<HTMLAnchorElement>('[data-pull-request-link]');
+      let selectedFiles: DirectoryFile[] = [];
+      let validated = false;
+
+      directory?.setAttribute('webkitdirectory', '');
+
+      function pathFor(file: DirectoryFile): string {
+        const path = file.webkitRelativePath || file.name;
+        const parts = path.split('/');
+        return parts.length > 1 ? parts.slice(1).join('/') : path;
+      }
+
+      function showStatus(message: string, isError = false) {
+        if (!status) return;
+        status.textContent = message;
+        status.dataset.error = isError ? 'true' : 'false';
+      }
+
+      function composedResourceId(): string {
+        return [resourceOwner?.value.trim(), resourceType?.value, resourceName?.value.trim()].join('/');
+      }
+
+      function resetValidation() {
+        validated = false;
+        if (review) review.hidden = true;
+        if (descriptionEditor) descriptionEditor.hidden = true;
+        if (submit) {
+          submit.hidden = true;
+          submit.disabled = true;
+        }
+      }
+
+      function renderFiles() {
+        const paths = selectedFiles.map(pathFor).sort();
+        if (fileCount) {
+          fileCount.textContent = paths.length === 0
+            ? 'No files selected'
+            : `${paths.length} file${paths.length === 1 ? '' : 's'} selected`;
+        }
+        if (fileName) {
+          const folder = selectedFiles[0]?.webkitRelativePath?.split('/')[0];
+          fileName.textContent = paths[0]
+            ? `Selected folder: ${folder ?? 'resource files'}`
+            : 'Select a folder containing the resource files.';
+        }
+        if (!fileList) return;
+
+        const visible = paths.slice(0, 12).map((path) => {
+          const item = document.createElement('li');
+          item.textContent = path;
+          return item;
+        });
+        if (paths.length > 12) {
+          const item = document.createElement('li');
+          item.textContent = `…and ${paths.length - 12} more`;
+          visible.push(item);
+        }
+        fileList.replaceChildren(...visible);
+      }
+
+      function formData(): FormData {
+        const data = new FormData();
+        data.set('resourceId', composedResourceId());
+        data.set('version', version?.value.trim() ?? '');
+        if (!descriptionEditor?.hidden && descriptionOverride?.value.trim()) {
+          data.set('description', descriptionOverride.value.trim());
+        }
+        for (const file of selectedFiles) data.append('files[]', file, pathFor(file));
+        return data;
+      }
+
+      async function request(path: string): Promise<Record<string, unknown>> {
+        const response = await fetch(`${apiBase}${path}`, {
+          method: 'POST',
+          body: formData(),
+        });
+        const result = await response.json().catch(() => ({})) as Record<string, unknown>;
+        if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : 'The local API request failed.');
+        return result;
+      }
+
+      async function loadGithubUsername() {
+        try {
+          const response = await fetch(`${apiBase}/api/github-user`);
+          const result = await response.json().catch(() => ({})) as Record<string, unknown>;
+          if (!response.ok || typeof result.username !== 'string') {
+            throw new Error(typeof result.error === 'string' ? result.error : 'Could not determine the GitHub username.');
+          }
+
+          if (resourceOwner) resourceOwner.value = result.username;
+        } catch (error) {
+          if (resourceOwner) resourceOwner.placeholder = 'Unavailable';
+          showStatus(error instanceof Error ? error.message : 'Could not determine the GitHub username.', true);
+        }
+      }
+
+      function setBusy(busy: boolean) {
+        for (const field of [resourceType, resourceName, version, descriptionOverride, directory]) {
+          if (field) field.disabled = busy;
+        }
+        if (validate) validate.disabled = busy;
+        if (submit) submit.disabled = busy || !validated;
+      }
+
+      function showReview(result: Record<string, unknown>) {
+        const files = Array.isArray(result.files)
+          ? result.files.filter((file): file is string => typeof file === 'string')
+          : [];
+        const setText = (selector: string, value: string) => {
+          const element = document.querySelector<HTMLElement>(selector);
+          if (element) element.textContent = value;
+        };
+
+        setText('[data-review-resource]', String(result.resource ?? composedResourceId()));
+        setText('[data-review-version]', String(result.version ?? version?.value ?? ''));
+        setText('[data-review-entry]', String(result.entryFile ?? 'Not found'));
+        setText('[data-review-files]', `${files.length} file${files.length === 1 ? '' : 's'}`);
+        const description = typeof result.description === 'string' ? result.description.trim() : '';
+        setText('[data-review-description]', description || 'Not found');
+        if (review) review.hidden = false;
+        if (descriptionOverride) descriptionOverride.value = description;
+        if (descriptionEditor) descriptionEditor.hidden = selectedFiles.length === 0 || !description;
+        validated = true;
+        if (submit) {
+          submit.hidden = false;
+          submit.disabled = false;
+        }
+      }
+
+      directory?.addEventListener('change', () => {
+        selectedFiles = Array.from(directory.files ?? []) as DirectoryFile[];
+        renderFiles();
+        resetValidation();
+      });
+
+      for (const field of [resourceType, resourceName, version]) {
+        field?.addEventListener('input', resetValidation);
+      }
+
+      resourceType?.addEventListener('change', resetValidation);
+
+      descriptionOverride?.addEventListener('input', () => {
+        const reviewDescription = document.querySelector<HTMLElement>('[data-review-description]');
+        if (reviewDescription) reviewDescription.textContent = descriptionOverride.value.trim() || 'Not found';
+      });
+
+      form?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (selectedFiles.length === 0) {
+          showStatus('Select a resource directory first.', true);
+          return;
+        }
+        if (!resourceOwner?.value.trim()) {
+          showStatus('The authenticated GitHub username is required.', true);
+          return;
+        }
+
+        setBusy(true);
+        showStatus('Validating resource…');
+        try {
+          const result = await request('/api/validate');
+          showReview(result);
+          showStatus('Validation passed. Review the files, then submit the pull request.');
+        } catch (error) {
+          showStatus(error instanceof Error ? error.message : 'Could not validate the resource.', true);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      submit?.addEventListener('click', async () => {
+        if (!validated || !window.confirm('Create this pull request?')) return;
+
+        setBusy(true);
+        showStatus('Creating pull request…');
+        try {
+          const result = await request('/api/submit');
+          const pullRequestUrl = typeof result.pullRequestUrl === 'string'
+            ? result.pullRequestUrl
+            : '';
+          if (pullRequestLink && pullRequestUrl) {
+            pullRequestLink.href = pullRequestUrl;
+            pullRequestLink.hidden = false;
+          }
+          showStatus(
+            pullRequestUrl
+              ? `Pull request created: ${pullRequestUrl}`
+              : 'Pull request created.',
+          );
+          validated = false;
+          submit.hidden = true;
+        } catch (error) {
+          showStatus(error instanceof Error ? error.message : 'Could not create the pull request.', true);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      renderFiles();
+      loadGithubUsername();
+    </script>
+  </body>
+</html>
