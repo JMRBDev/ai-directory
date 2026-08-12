@@ -1,13 +1,24 @@
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
+import {
+  resolveHarnessPaths,
+  type Harness,
+} from './harnesses.js';
+
+export type {
+  Harness,
+  HarnessDefinition,
+  HarnessDetection,
+  HarnessLocation,
+  HarnessPaths,
+  HarnessPathContext,
+  HarnessPathOptions,
+} from './harnesses.js';
 
 export type InstallScope = 'project' | 'global';
-
-export type Harness = 'claude-code' | 'opencode' | 'codex';
 
 export type InstallOptions = {
   scope: InstallScope;
@@ -60,6 +71,10 @@ export function getHarnessAdapter(value: string): HarnessAdapter {
 
   return adapter;
 }
+
+export { getHarnessDefinition, getHarnessDefinitions } from './harnesses.js';
+export { resolveHarnessPaths };
+export { detectHarnesses } from './harnesses.js';
 
 export async function installClaudeCodeResource(
   resource: ResourceVersion,
@@ -365,6 +380,7 @@ type PreparedText = {
 type CodexInstallPaths = {
   root: string;
   codexHome: string;
+  skillsRoot: string;
   guidanceRoot: string;
 };
 
@@ -474,36 +490,21 @@ function destinationForFile(
 }
 
 function claudeCodeInstallRoot(options: InstallOptions): string {
-  if (options.scope === 'project') {
-    return join(options.cwd ?? process.cwd(), '.claude');
-  }
-
-  if (options.homeDirectory) {
-    return join(options.homeDirectory, '.claude');
-  }
-
-  return configuredPath(options, 'CLAUDE_CONFIG_DIR') ?? join(homedir(), '.claude');
+  return resolveHarnessPaths('claude-code', options)[options.scope].config;
 }
 
 function openCodeInstallRoot(options: InstallOptions): string {
-  if (options.scope === 'project') return options.cwd ?? process.cwd();
-
-  return configuredPath(options, 'OPENCODE_CONFIG_DIR')
-    ?? join(options.homeDirectory ?? homedir(), '.config', 'opencode');
+  return resolveHarnessPaths('opencode', options)[options.scope].root;
 }
 
 function codexInstallPaths(options: InstallOptions): CodexInstallPaths {
-  const home = options.homeDirectory ?? homedir();
-  const project = options.cwd ?? process.cwd();
+  const location = resolveHarnessPaths('codex', options)[options.scope];
 
   return {
-    root: options.scope === 'project' ? project : home,
-    codexHome: options.scope === 'project'
-      ? join(project, '.codex')
-      : configuredPath(options, 'CODEX_HOME') ?? join(home, '.codex'),
-    guidanceRoot: options.scope === 'project'
-      ? project
-      : configuredPath(options, 'CODEX_HOME') ?? join(home, '.codex'),
+    root: location.root,
+    codexHome: location.config,
+    skillsRoot: location.skills,
+    guidanceRoot: location.guidance,
   };
 }
 
@@ -586,7 +587,7 @@ function codexDestinationForFile(
 
 function codexResourceDestination(paths: CodexInstallPaths, resource: ResourceVersion): string {
   if (resource.resource.type === 'skills') {
-    return join(paths.root, '.agents', 'skills', resource.resource.name);
+    return join(paths.skillsRoot, resource.resource.name);
   }
 
   if (resource.resource.type === 'agents') {
