@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
 import {
   installClaudeCodeResource,
@@ -11,6 +13,7 @@ import {
   getHarnessAdapter,
   readInstallationManifest,
   removeStaleInstallationFiles,
+  uninstallInstallation,
   updateInstallationManifest,
   type InstallationRecord,
 } from '../src/index.js';
@@ -435,6 +438,63 @@ describe('portable harness installers', () => {
     ).toHaveLength(2);
   });
 
+  it('uninstalls OpenCode rules without removing other instructions', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const configPath = join(projectDirectory, 'opencode.json');
+    await writeFile(configPath, '{"instructions":["README.md"]}\n', 'utf8');
+
+    const [result] = await installOpenCodeResources([ruleResource], {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+    const record = {
+      resource: resourceKey(ruleResource.resource),
+      version: ruleResource.version,
+      harness: 'opencode',
+      scope: 'project',
+      destination: result.destination,
+      files: result.ownedPaths,
+      fileHashes: result.fileHashes,
+      installedAt: new Date().toISOString(),
+    } satisfies InstallationRecord;
+
+    await uninstallInstallation(record, { scope: 'project', cwd: projectDirectory });
+
+    await expect(readFile(result.destination, 'utf8')).rejects.toThrow();
+    await expect(readFile(configPath, 'utf8')).resolves.not.toContain(
+      '.opencode/rules/typescript-quality.md',
+    );
+    await expect(readFile(configPath, 'utf8')).resolves.toContain('README.md');
+  });
+
+  it('uninstalls Codex rules without removing existing guidance', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const agentsPath = join(projectDirectory, 'AGENTS.md');
+    await writeFile(agentsPath, '# Existing guidance\n', 'utf8');
+
+    const [result] = await installCodexResources([ruleResource], {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+    const record = {
+      resource: resourceKey(ruleResource.resource),
+      version: ruleResource.version,
+      harness: 'codex',
+      scope: 'project',
+      destination: result.destination,
+      files: result.ownedPaths,
+      fileHashes: result.fileHashes,
+      installedAt: new Date().toISOString(),
+    } satisfies InstallationRecord;
+
+    await uninstallInstallation(record, { scope: 'project', cwd: projectDirectory });
+
+    await expect(readFile(result.destination, 'utf8')).resolves.toBe('# Existing guidance\n');
+    await expect(
+      readFile(join(projectDirectory, '.ai-directory', 'rules', 'typescript-quality.md'), 'utf8'),
+    ).rejects.toThrow();
+  });
+
   it('uses a Codex AGENTS override file when it exists', async () => {
     const projectDirectory = await createTemporaryDirectory();
     const overridePath = join(projectDirectory, 'AGENTS.override.md');
@@ -538,6 +598,9 @@ describe('installation manifest', () => {
       scope: 'project',
       destination: directory,
       files: [oldFile],
+      fileHashes: {
+        [oldFile]: createHash('sha256').update('old\n').digest('hex'),
+      },
       installedAt: '2026-08-11T10:00:00.000Z',
     } satisfies InstallationRecord;
 

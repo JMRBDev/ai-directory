@@ -19,16 +19,16 @@ import {
 import { cancel, intro, isCancel, outro, select, spinner, text } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
 import {
+  assertInstallationFilesUnchanged,
+  createInstallationRecords,
   detectHarnesses,
   getHarnessAdapter,
   readInstallationManifest,
-  removeStaleInstallationFiles,
-  updateInstallationManifest,
-  type Harness,
+  removeInstallationRecord,
+  saveInstallationRecords,
+  uninstallInstallation,
   type HarnessDetection,
-  type InstallResult,
   type InstallScope,
-  type InstallationRecord,
 } from '@ai-directory/installers';
 import {
   readRemoteRegistryIndex,
@@ -36,7 +36,6 @@ import {
   readRegistrySourceResource,
   resolveRegistrySource,
   submitResource,
-  type ResourceVersion,
   validateRegistrySource,
 } from '@ai-directory/registry';
 
@@ -326,53 +325,6 @@ const submit = defineCommand({
   },
 });
 
-function createInstallationRecords(
-  resources: ResourceVersion[],
-  installations: InstallResult[],
-  scope: InstallScope,
-  harness: Harness,
-): InstallationRecord[] {
-  const installedAt = new Date().toISOString();
-
-  return resources.map((resource, index) => {
-    const installation = installations[index];
-
-    if (!installation) {
-      throw new Error(`Installation result missing for ${resourceKey(resource.resource)}.`);
-    }
-
-    return {
-      resource: resourceKey(resource.resource),
-      version: resource.version,
-      harness,
-      scope,
-      destination: installation.destination,
-      files: installation.paths,
-      installedAt,
-    };
-  });
-}
-
-async function saveInstallationRecords(
-  scope: InstallScope,
-  records: InstallationRecord[],
-): Promise<string> {
-  const path = getInstallManifestPath(scope);
-  const current = await readInstallationManifest(path);
-  const keys = new Set(records.map((record) => `${record.scope}:${record.harness}:${record.resource}`));
-  const previous = current.installations.filter((record) =>
-    keys.has(`${record.scope}:${record.harness}:${record.resource}`),
-  );
-
-  await updateInstallationManifest(path, records);
-  await removeStaleInstallationFiles(
-    previous,
-    records.flatMap((record) => record.files),
-  );
-
-  return path;
-}
-
 const install = defineCommand({
   meta: {
     name: 'install',
@@ -443,7 +395,11 @@ const install = defineCommand({
         force: args.force ?? false,
       });
       const records = createInstallationRecords(resources, installations, args.scope, harness);
-      const manifestPath = await saveInstallationRecords(args.scope, records);
+      const manifestPath = getInstallManifestPath(args.scope);
+      await saveInstallationRecords(manifestPath, records, {
+        scope: args.scope,
+        force: args.force ?? false,
+      });
 
       if (result.resource.type === 'templates') {
         console.log(
@@ -561,6 +517,10 @@ const update = defineCommand({
       default: 'main',
       description: 'Production branch to read from',
     },
+    force: {
+      type: 'boolean',
+      description: 'Continue when managed files were modified',
+    },
   },
   async run({ args }) {
     try {
@@ -582,6 +542,8 @@ const update = defineCommand({
           `${args.resource} is not installed for ${harness} in the ${scope} scope.`,
         );
       }
+
+      await assertInstallationFilesUnchanged(existing, args.force ?? false);
 
       const source = getRegistrySource(args.index, args.repository, args.base);
       const loaded = await readRegistrySourceResource(source, args.resource);
@@ -608,9 +570,74 @@ const update = defineCommand({
         force: true,
       });
       const records = createInstallationRecords(loaded.resources, installations, scope, harness);
-      await saveInstallationRecords(scope, records);
+      await saveInstallationRecords(manifestPath, records, {
+        scope,
+        force: args.force ?? false,
+      });
 
       console.log(`Updated ${args.resource} from ${existing.version} to ${loaded.resource.version}.`);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  },
+});
+
+const uninstall = defineCommand({
+  meta: {
+    name: 'uninstall',
+    description: 'Remove an installed resource',
+  },
+  args: {
+    resource: {
+      type: 'positional',
+      required: true,
+      description: 'Resource ID: owner/type/name',
+    },
+    harness: {
+      type: 'enum',
+      options: ['claude-code', 'opencode', 'codex'],
+      default: 'claude-code',
+      description: 'Coding harness to uninstall from',
+    },
+    scope: {
+      type: 'enum',
+      options: ['project', 'global'],
+      required: true,
+      description: 'Installation scope to change',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Continue when managed files were modified',
+    },
+  },
+  async run({ args }) {
+    try {
+      const installer = getHarnessAdapter(args.harness);
+      const scope = args.scope as InstallScope;
+      const manifestPath = getInstallManifestPath(scope);
+      const manifest = await readInstallationManifest(manifestPath);
+      const existing = manifest.installations.find(
+        (record) =>
+          record.resource === args.resource &&
+          record.harness === installer.harness &&
+          record.scope === scope,
+      );
+
+      if (!existing) {
+        throw new Error(
+          `${args.resource} is not installed for ${installer.harness} in the ${scope} scope.`,
+        );
+      }
+
+      await uninstallInstallation(existing, {
+        scope,
+        force: args.force ?? false,
+      });
+      await removeInstallationRecord(manifestPath, existing);
+
+      console.log(`Uninstalled ${args.resource} for ${installer.harness}.`);
+      console.log(`Updated: ${manifestPath}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -675,6 +702,7 @@ const web = defineCommand({
         ...process.env,
         AI_DIRECTORY_CONFIG_CWD: process.cwd(),
         AI_DIRECTORY_PORT: apiPort,
+        ...(indexPath ? { AI_DIRECTORY_REGISTRY_INDEX: indexPath } : {}),
       },
       stderr: 'inherit',
       stdout: 'inherit',
@@ -1111,6 +1139,7 @@ const main = defineCommand({
     install,
     installed,
     update,
+    uninstall,
     web,
     setup,
     doctor,

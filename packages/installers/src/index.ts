@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { resourceKey } from '@ai-directory/domain';
@@ -34,6 +35,8 @@ export type InstallResult = {
   destination: string;
   files: string[];
   paths: string[];
+  ownedPaths: string[];
+  fileHashes: Record<string, string>;
 };
 
 export type InstallationRecord = {
@@ -43,6 +46,7 @@ export type InstallationRecord = {
   scope: InstallScope;
   destination: string;
   files: string[];
+  fileHashes?: Record<string, string>;
   installedAt: string;
 };
 
@@ -123,6 +127,8 @@ export async function installOpenCodeResources(
     await writeTextAtomic(config.path, config.content);
   }
 
+  const fileHashes = await hashInstallPlans(plans);
+
   return plans.map((plan) => ({
     destination: plan.destination,
     files: plan.resource.files.map((file) => file.path),
@@ -130,6 +136,8 @@ export async function installOpenCodeResources(
       ...plan.files.map((file) => file.destination),
       ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
     ],
+    ownedPaths: plan.files.map((file) => file.destination),
+    fileHashes: hashesForPlan(plan, fileHashes),
   }));
 }
 
@@ -155,6 +163,8 @@ export async function installCodexResources(
     await writeTextAtomic(guidance.path, guidance.content);
   }
 
+  const fileHashes = await hashInstallPlans(plans);
+
   return plans.map((plan) => ({
     destination:
       plan.resource.resource.type === 'rules' && guidance
@@ -165,6 +175,8 @@ export async function installCodexResources(
       ...plan.files.map((file) => file.destination),
       ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
     ],
+    ownedPaths: plan.files.map((file) => file.destination),
+    fileHashes: hashesForPlan(plan, fileHashes),
   }));
 }
 
@@ -190,10 +202,14 @@ async function installResources(
   await assertInstallPlansAvailable(plans, options);
   await writeInstallPlans(plans);
 
+  const fileHashes = await hashInstallPlans(plans);
+
   return plans.map((plan) => ({
     destination: plan.destination,
     files: plan.resource.files.map((file) => file.path),
     paths: plan.files.map((file) => file.destination),
+    ownedPaths: plan.files.map((file) => file.destination),
+    fileHashes: hashesForPlan(plan, fileHashes),
   }));
 }
 
@@ -238,6 +254,45 @@ async function writeInstallPlans(plans: InstallPlan[]): Promise<void> {
       await mkdir(dirname(file.destination), { recursive: true });
       await writeFile(file.destination, file.content, 'utf8');
     }
+  }
+}
+
+async function hashInstallPlans(plans: InstallPlan[]): Promise<Record<string, string>> {
+  const hashes: Record<string, string> = {};
+
+  for (const plan of plans) {
+    for (const file of plan.files) {
+      hashes[file.destination] = hashContent(file.content);
+    }
+  }
+
+  return hashes;
+}
+
+function hashesForPlan(
+  plan: InstallPlan,
+  hashes: Record<string, string>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  for (const file of plan.files) {
+    const hash = hashes[file.destination];
+    if (hash) result[file.destination] = hash;
+  }
+
+  return result;
+}
+
+function hashContent(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+async function hashFile(path: string): Promise<string | null> {
+  try {
+    return hashContent(await readFile(path, 'utf8'));
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
   }
 }
 
@@ -304,13 +359,278 @@ export async function updateInstallationManifest(
   return manifest;
 }
 
+export function createInstallationRecords(
+  resources: ResourceVersion[],
+  installations: InstallResult[],
+  scope: InstallScope,
+  harness: Harness,
+): InstallationRecord[] {
+  const installedAt = new Date().toISOString();
+
+  return resources.map((resource, index) => {
+    const installation = installations[index];
+
+    if (!installation) {
+      throw new Error(`Installation result missing for ${resourceKey(resource.resource)}.`);
+    }
+
+    return {
+      resource: resourceKey(resource.resource),
+      version: resource.version,
+      harness,
+      scope,
+      destination: installation.destination,
+      files: installation.ownedPaths,
+      fileHashes: installation.fileHashes,
+      installedAt,
+    };
+  });
+}
+
+export async function saveInstallationRecords(
+  path: string,
+  records: InstallationRecord[],
+  options: InstallOptions,
+): Promise<InstallationManifest> {
+  const current = await readInstallationManifest(path);
+  const keys = new Set(records.map(installationKey));
+  const previous = current.installations.filter((record) => keys.has(installationKey(record)));
+
+  await removeStaleInstallationFiles(
+    previous,
+    records.flatMap((record) => record.files),
+    options,
+  );
+
+  return updateInstallationManifest(path, records);
+}
+
+export async function removeInstallationRecord(
+  path: string,
+  target: InstallationRecord,
+): Promise<InstallationManifest> {
+  const current = await readInstallationManifest(path);
+  const manifest = {
+    schemaVersion: 1 as const,
+    installations: current.installations.filter(
+      (record) => installationKey(record) !== installationKey(target),
+    ),
+  };
+
+  await writeTextAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  return manifest;
+}
+
+export async function assertInstallationFilesUnchanged(
+  record: InstallationRecord,
+  force = false,
+): Promise<void> {
+  if (force) return;
+
+  if (!record.fileHashes) {
+    throw new Error(
+      `Installation ${record.resource} has no ownership hashes. Reinstall it with --force before updating or uninstalling.`,
+    );
+  }
+
+  const changed: string[] = [];
+
+  for (const path of record.files) {
+    const expected = record.fileHashes[path];
+
+    if (!expected) {
+      changed.push(path);
+      continue;
+    }
+
+    const actual = await hashFile(path);
+    if (actual !== null && actual !== expected) changed.push(path);
+  }
+
+  if (changed.length > 0) {
+    throw new Error(
+      `Installation files were modified: ${changed.join(', ')}. Use --force to continue.`,
+    );
+  }
+}
+
+export async function uninstallInstallation(
+  record: InstallationRecord,
+  options: InstallOptions,
+): Promise<void> {
+  const files = await ownedInstallationFiles(record, options);
+  const normalized: InstallationRecord = {
+    ...record,
+    files,
+    ...(record.fileHashes
+      ? { fileHashes: selectHashes(files, record.fileHashes) }
+      : {}),
+  };
+
+  await assertInstallationFilesUnchanged(normalized, options.force ?? false);
+  await removeSharedConfiguration(record, options);
+  await Promise.all(files.map((path) => rm(path, { force: true })));
+}
+
 export async function removeStaleInstallationFiles(
   previous: InstallationRecord[],
   currentFiles: string[],
+  options?: InstallOptions,
 ): Promise<void> {
   const keep = new Set(currentFiles);
-  const stale = new Set(previous.flatMap((record) => record.files).filter((path) => !keep.has(path)));
-  await Promise.all([...stale].map((path) => rm(path, { force: true })));
+
+  for (const record of previous) {
+    const files = await ownedInstallationFiles(record, options ?? { scope: record.scope });
+    const stale = files.filter((path) => !keep.has(path));
+
+    if (stale.length === 0) continue;
+
+    const staleRecord: InstallationRecord = {
+      ...record,
+      files: stale,
+      ...(record.fileHashes
+        ? { fileHashes: selectHashes(stale, record.fileHashes) }
+        : {}),
+    };
+
+    await assertInstallationFilesUnchanged(staleRecord, options?.force ?? false);
+    await Promise.all(stale.map((path) => rm(path, { force: true })));
+  }
+}
+
+async function ownedInstallationFiles(
+  record: InstallationRecord,
+  options?: InstallOptions,
+): Promise<string[]> {
+  if (record.fileHashes) return record.files;
+
+  const files = new Set(record.files);
+  const type = resourceType(record.resource);
+
+  if (type === 'rules' && record.harness === 'codex') {
+    files.delete(record.destination);
+  }
+
+  if (type === 'rules' && record.harness === 'opencode') {
+    const installOptions = options ?? { scope: record.scope };
+    const root = openCodeInstallRoot(installOptions);
+    const configPath = await openCodeConfigPath(root, record.scope, installOptions);
+    files.delete(configPath);
+  }
+
+  return [...files];
+}
+
+function selectHashes(
+  paths: string[],
+  hashes: Record<string, string>,
+): Record<string, string> {
+  const selected: Record<string, string> = {};
+
+  for (const path of paths) {
+    const hash = hashes[path];
+    if (hash) selected[path] = hash;
+  }
+
+  return selected;
+}
+
+async function removeSharedConfiguration(
+  record: InstallationRecord,
+  options: InstallOptions,
+): Promise<void> {
+  const type = resourceType(record.resource);
+
+  if (type !== 'rules') return;
+
+  if (record.harness === 'opencode') {
+    await removeOpenCodeInstruction(record, options);
+  } else if (record.harness === 'codex') {
+    await removeCodexGuidance(record);
+  }
+}
+
+async function removeOpenCodeInstruction(
+  record: InstallationRecord,
+  options: InstallOptions,
+): Promise<void> {
+  const root = openCodeInstallRoot(options);
+  const path = await openCodeConfigPath(root, record.scope, options);
+  const current = await readOptionalText(path);
+
+  if (current === null) return;
+
+  const errors: Array<{ error: number; offset: number; length: number }> = [];
+  const data = parse(current, errors);
+
+  if (
+    errors.length > 0 ||
+    typeof data !== 'object' ||
+    data === null ||
+    Array.isArray(data)
+  ) {
+    throw new Error(`OpenCode config is not a valid object: ${path}`);
+  }
+
+  const currentInstructions = 'instructions' in data ? data.instructions : undefined;
+
+  if (
+    currentInstructions !== undefined &&
+    (!Array.isArray(currentInstructions) ||
+      currentInstructions.some((entry) => typeof entry !== 'string'))
+  ) {
+    throw new Error(`OpenCode config instructions must be an array of strings: ${path}`);
+  }
+
+  if (!Array.isArray(currentInstructions)) return;
+
+  const entry = toPosixPath(relative(dirname(path), record.destination));
+  if (!currentInstructions.includes(entry)) return;
+
+  await writeTextAtomic(
+    path,
+    applyEdits(
+      current,
+      modify(
+        current,
+        ['instructions'],
+        currentInstructions.filter((value) => value !== entry),
+        { formattingOptions: { insertSpaces: true, tabSize: 2 } },
+      ),
+    ),
+  );
+}
+
+async function removeCodexGuidance(record: InstallationRecord): Promise<void> {
+  const current = await readOptionalText(record.destination);
+
+  if (current === null) return;
+
+  const key = record.resource;
+  const startMarker = `<!-- ai-directory:rule:${key} -->`;
+  const endMarker = `<!-- /ai-directory:rule:${key} -->`;
+  const start = current.indexOf(startMarker);
+  const end = current.indexOf(endMarker);
+
+  if (start === -1 && end === -1) return;
+
+  if ((start === -1) !== (end === -1) || end < start) {
+    throw new Error(`Codex managed rule block is malformed: ${key}`);
+  }
+
+  const before = current.slice(0, start);
+  const after = current.slice(end + endMarker.length);
+  const cleanedBefore = before.endsWith('\n\n') ? before.slice(0, -1) : before;
+  const cleanedAfter = after.startsWith('\n') ? after.slice(1) : after;
+  await writeTextAtomic(record.destination, `${cleanedBefore}${cleanedAfter}`);
+}
+
+function resourceType(resource: string): ResourceKind | undefined {
+  const type = resource.split('/')[1];
+  return type === 'skills' || type === 'agents' || type === 'rules'
+    ? type
+    : undefined;
 }
 
 function installationKey(record: InstallationRecord): string {
@@ -347,6 +667,11 @@ function isInstallationRecord(value: unknown): value is InstallationRecord {
     'files' in value &&
     Array.isArray(value.files) &&
     value.files.every((file) => typeof file === 'string') &&
+    (!('fileHashes' in value) ||
+      (typeof value.fileHashes === 'object' &&
+        value.fileHashes !== null &&
+        !Array.isArray(value.fileHashes) &&
+        Object.values(value.fileHashes).every((hash) => typeof hash === 'string'))) &&
     'installedAt' in value &&
     typeof value.installedAt === 'string'
   );
