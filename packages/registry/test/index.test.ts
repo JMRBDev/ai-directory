@@ -13,6 +13,7 @@ import {
   readTemplateManifest,
   readTemplateResources,
   submitResource,
+  validateResourceDirectory,
   validateRegistry,
   validateRemoteRegistry,
 } from '../src/index.js';
@@ -320,6 +321,28 @@ describe('readRegistryIndex', () => {
     const result = await validateRegistry(duplicateIndexPath);
 
     expect(result.issues).toContain('Duplicate resource ID: john-doe/skills/typescript-review');
+  });
+});
+
+describe('validateResourceDirectory', () => {
+  it('validates a local template manifest without a registry checkout', async () => {
+    const { sourceDirectory } = await createPublishFixture();
+    const templateFile = fileURLToPath(
+      new URL(
+        './fixtures/resources/john-doe/templates/review-pack/1.0.0/TEMPLATE.md',
+        import.meta.url,
+      ),
+    );
+    await writeFile(join(sourceDirectory, 'TEMPLATE.md'), await readFile(templateFile, 'utf8'));
+
+    const result = await validateResourceDirectory({
+      sourceDirectory,
+      resourceId: 'john-doe/templates/review-pack',
+      version: '1.0.0',
+    });
+
+    expect(result.entryFile.path).toBe('TEMPLATE.md');
+    expect(result.files).toHaveLength(1);
   });
 });
 

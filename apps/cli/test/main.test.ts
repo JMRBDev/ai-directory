@@ -110,6 +110,13 @@ describe('CLI', () => {
       expect(entry).toContain('name: my-skill');
       expect(entry).toContain('description: "Review TypeScript changes."');
       expect(entry).toContain('# My Skill');
+
+      const validation = runAid(
+        ['validate', 'created', '--id', 'jane-doe/skills/my-skill'],
+        cwd,
+      );
+      expect(validation.code).toBe(0);
+      expect(validation.stdout).toContain('Valid: jane-doe/skills/my-skill@1.0.0');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -144,6 +151,13 @@ describe('CLI', () => {
       expect(entry).toContain('version: 1.2.0');
       expect(entry).toContain('id: jane-doe/agents/api-reviewer');
       expect(entry).toContain('version: 0.3.0');
+
+      const validation = runAid(
+        ['validate', 'pack', '--id', 'jane-doe/templates/review-pack'],
+        cwd,
+      );
+      expect(validation.code).toBe(0);
+      expect(validation.stdout).toContain('Entry file: TEMPLATE.md');
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
