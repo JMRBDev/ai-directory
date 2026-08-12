@@ -77,12 +77,12 @@ describe('local control API', () => {
     });
   });
 
-  it('installs, lists, and safely uninstalls a resource', async () => {
+  it('installs one resource for multiple harnesses and safely uninstalls it', async () => {
     const cwd = await createTemporaryDirectory();
     const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
     const request = {
       resource: 'john-doe/skills/typescript-review',
-      harness: 'claude-code',
+      harnesses: ['claude-code', 'opencode'],
       scope: 'project',
     };
 
@@ -95,37 +95,44 @@ describe('local control API', () => {
     expect(install.status).toBe(200);
     await expect(install.json()).resolves.toMatchObject({
       resource: { version: '1.2.0' },
-      records: [
+      harnesses: request.harnesses,
+      records: request.harnesses.map(() =>
         expect.objectContaining({
           resource: request.resource,
           fileHashes: expect.any(Object),
         }),
-      ],
+      ),
     });
 
     const skillPath = join(cwd, '.claude', 'skills', 'typescript-review', 'SKILL.md');
+    const openCodeSkillPath = join(cwd, '.opencode', 'skills', 'typescript-review', 'SKILL.md');
     await expect(readFile(skillPath, 'utf8')).resolves.toContain('TypeScript');
+    await expect(readFile(openCodeSkillPath, 'utf8')).resolves.toContain('TypeScript');
 
     const listed = await app.request('/api/installed?scope=project');
     expect(listed.status).toBe(200);
     await expect(listed.json()).resolves.toMatchObject({
-      installations: [expect.objectContaining({ resource: request.resource })],
+      installations: request.harnesses.map((harness) =>
+        expect.objectContaining({ resource: request.resource, harness }),
+      ),
     });
 
     await writeFile(skillPath, '# Local edit\n', 'utf8');
     const blocked = await app.request(
-      `/api/installed?resource=${encodeURIComponent(request.resource)}&harness=claude-code&scope=project`,
+      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}&scope=project`,
       { method: 'DELETE' },
     );
     expect(blocked.status).toBe(400);
     await expect(readFile(skillPath, 'utf8')).resolves.toBe('# Local edit\n');
+    await expect(readFile(openCodeSkillPath, 'utf8')).resolves.toContain('TypeScript');
 
     const forced = await app.request(
-      `/api/installed?resource=${encodeURIComponent(request.resource)}&harness=claude-code&scope=project&force=true`,
+      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}&scope=project&force=true`,
       { method: 'DELETE' },
     );
     expect(forced.status).toBe(200);
     await expect(readFile(skillPath, 'utf8')).rejects.toThrow();
+    await expect(readFile(openCodeSkillPath, 'utf8')).rejects.toThrow();
 
     await expect(app.request('/api/installed?scope=project').then((response) => response.json())).resolves.toEqual({
       installations: [],

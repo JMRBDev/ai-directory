@@ -93,23 +93,23 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
 
     <script>
       const apiBase = document.documentElement.dataset.apiUrl ?? 'http://127.0.0.1:4317';
-      const form = document.querySelector('[data-settings-form]');
-      const repository = document.querySelector('#repository');
-      const source = document.querySelector('[data-source]');
-      const status = document.querySelector('[data-status]');
-      const clear = document.querySelector('[data-clear]');
+      const form = document.querySelector<HTMLFormElement>('[data-settings-form]');
+      const repository = document.querySelector<HTMLInputElement>('#repository');
+      const source = document.querySelector<HTMLElement>('[data-source]');
+      const status = document.querySelector<HTMLElement>('[data-status]');
+      const clear = document.querySelector<HTMLButtonElement>('[data-clear]');
 
-      function selectedScope() {
-        return document.querySelector('input[name="scope"]:checked')?.value ?? 'user';
+      function selectedScope(): string {
+        return document.querySelector<HTMLInputElement>('input[name="scope"]:checked')?.value ?? 'user';
       }
 
-      function selectScope(scope) {
+      function selectScope(scope: string) {
         if (scope !== 'user' && scope !== 'project') return;
-        const input = document.querySelector(`input[name="scope"][value="${scope}"]`);
+        const input = document.querySelector<HTMLInputElement>(`input[name="scope"][value="${scope}"]`);
         if (input) input.checked = true;
       }
 
-      function showStatus(message, isError = false) {
+      function showStatus(message: string, isError = false) {
         if (!status) return;
         status.textContent = message;
         status.dataset.error = isError ? 'true' : 'false';
