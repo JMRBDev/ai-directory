@@ -1,8 +1,15 @@
 #!/usr/bin/env bun
 
 import { existsSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { defineCommand, runCommand, runMain, showUsage } from 'citty';
+import {
+  resourceIdSchema,
+  resourceTypeSchema,
+  resourceVersionSchema,
+  type ResourceType,
+} from '@ai-directory/contracts';
 import {
   CONFIG_OPTIONS,
   clearConfigFile,
@@ -54,6 +61,20 @@ import {
 } from '@ai-directory/registry';
 
 const localIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX;
+
+const resourceTypeOptions = [
+  { value: 'skills' as const, label: 'Skill', hint: 'Reusable instructions and workflows' },
+  { value: 'agents' as const, label: 'Agent', hint: 'A reusable specialist agent' },
+  { value: 'rules' as const, label: 'Rules', hint: 'Guidance applied to coding work' },
+  { value: 'templates' as const, label: 'Template', hint: 'A pack of existing resources' },
+];
+
+const entryFiles: Record<ResourceType, string> = {
+  skills: 'SKILL.md',
+  agents: 'AGENT.md',
+  rules: 'RULE.md',
+  templates: 'TEMPLATE.md',
+};
 
 function getRegistrySource(indexPath?: string, repository?: string, baseBranch?: string) {
   const repositoryUrl = resolveRepository(repository);
@@ -133,16 +154,188 @@ function isInteractiveTerminal(): boolean {
 async function promptRequiredText(
   message: string,
   placeholder: string,
+  initialValue?: string,
 ): Promise<string | undefined> {
   const answer = await text({
     message,
     placeholder,
+    ...(initialValue ? { initialValue } : {}),
     validate(value) {
       if (!value?.trim()) return 'This value is required.';
     },
   });
 
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer.trim();
+}
+
+function isResourceType(value: string): value is ResourceType {
+  return resourceTypeSchema.safeParse(value).success;
+}
+
+function isSlug(value: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+function resourceTitle(name: string): string {
+  return name
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+type TemplateComponent = {
+  id: string;
+  version: string;
+};
+
+function parseTemplateComponents(value: string): TemplateComponent[] {
+  const components = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const separator = item.lastIndexOf('@');
+      const id = separator > 0 ? item.slice(0, separator) : '';
+      const version = separator > 0 ? item.slice(separator + 1) : '';
+
+      if (
+        !resourceIdSchema.safeParse(id).success ||
+        id.includes('/templates/') ||
+        !resourceVersionSchema.safeParse(version).success
+      ) {
+        throw new Error(
+          `Invalid template component: ${item}. Use owner/type/name@version.`,
+        );
+      }
+
+      return { id, version };
+    });
+
+  if (components.length === 0) {
+    throw new Error('A template needs at least one component resource.');
+  }
+
+  const unique = new Map(components.map((component) => [component.id, component]));
+
+  if (unique.size !== components.length) {
+    throw new Error('A template cannot contain the same component resource twice.');
+  }
+
+  return [...unique.values()];
+}
+
+async function promptResourceType(): Promise<ResourceType | undefined> {
+  const answer = await select({
+    message: 'What kind of resource are you creating?',
+    options: resourceTypeOptions,
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+async function promptSlug(message: string, placeholder: string): Promise<string | undefined> {
+  return promptRequiredText(message, placeholder);
+}
+
+async function promptTemplateComponents(
+  source: ReturnType<typeof resolveRegistrySource>,
+): Promise<TemplateComponent[] | undefined> {
+  const index = await readRegistrySourceIndex(source);
+  const resources = index.resources
+    .filter((resource) => resource.type !== 'templates' && resource.lifecycleStatus === 'active')
+    .sort((left, right) => resourceKey(left).localeCompare(resourceKey(right)));
+
+  if (resources.length === 0) {
+    throw new Error('The registry has no active resources available for a template.');
+  }
+
+  const answer = await autocompleteMultiselect({
+    message: 'Which resources should this template contain?',
+    placeholder: 'Type to filter resources',
+    options: resources.map((resource) => ({
+      value: `${resourceKey(resource)}@${resource.latestVersion}`,
+      label: resourceKey(resource),
+      hint: `v${resource.latestVersion} · ${resource.description}`,
+    })),
+    required: true,
+  });
+
+  if (isCancel(answer)) return cancelled('Operation cancelled.');
+  return parseTemplateComponents(answer.join(','));
+}
+
+function scaffoldContent(
+  type: ResourceType,
+  name: string,
+  description: string,
+  components: TemplateComponent[],
+): string {
+  const title = resourceTitle(name);
+  const quotedDescription = JSON.stringify(description);
+
+  if (type === 'templates') {
+    return [
+      '---',
+      `name: ${name}`,
+      `description: ${quotedDescription}`,
+      'resources:',
+      ...components.flatMap((component) => [
+        `  - id: ${component.id}`,
+        `    version: ${component.version}`,
+      ]),
+      '---',
+      '',
+      `# ${title}`,
+      '',
+      description,
+      '',
+    ].join('\n');
+  }
+
+  const frontmatter = type === 'skills' || type === 'agents'
+    ? ['---', `name: ${name}`, `description: ${quotedDescription}`, '---', '']
+    : [];
+
+  return [
+    ...frontmatter,
+    `# ${title}`,
+    '',
+    description,
+    '',
+    '## Instructions',
+    '',
+    'Add the instructions, rules, or workflow for this resource here.',
+    '',
+  ].join('\n');
+}
+
+async function createResourceDirectory(options: {
+  type: ResourceType;
+  owner: string;
+  name: string;
+  description: string;
+  output: string;
+  components: TemplateComponent[];
+}): Promise<string> {
+  const id = `${options.owner}/${options.type}/${options.name}`;
+
+  if (!resourceIdSchema.safeParse(id).success) {
+    throw new Error(`Invalid resource ID: ${id}`);
+  }
+
+  const output = resolve(options.output);
+  if (existsSync(output)) {
+    throw new Error(`Output directory already exists: ${output}`);
+  }
+
+  await mkdir(output, { recursive: true });
+  await writeFile(
+    join(output, entryFiles[options.type]),
+    scaffoldContent(options.type, options.name, options.description, options.components),
+    { encoding: 'utf8', flag: 'wx' },
+  );
+
+  return output;
 }
 
 async function promptResource(source: ReturnType<typeof resolveRegistrySource>): Promise<string | undefined> {
@@ -527,6 +720,135 @@ const check = defineCommand({
         `Registry is valid. Checked ${result.resourceCount} resource(s) ${
           source.type === 'remote' ? 'from the configured remote repository' : `at ${source.indexPath}`
         }.`,
+      );
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  },
+});
+
+const create = defineCommand({
+  meta: {
+    name: 'create',
+    description: 'Create a new resource directory',
+  },
+  args: {
+    name: {
+      type: 'positional',
+      default: '',
+      description: 'Resource name: lowercase words separated by hyphens',
+    },
+    type: {
+      type: 'enum',
+      options: ['skills', 'agents', 'rules', 'templates'],
+      alias: 't',
+      description: 'Resource type',
+    },
+    owner: {
+      type: 'string',
+      default: '',
+      description: 'Resource owner slug',
+    },
+    description: {
+      type: 'string',
+      default: '',
+      description: 'Short description shown in the registry',
+    },
+    output: {
+      type: 'string',
+      alias: 'o',
+      default: '',
+      description: 'Output directory; defaults to ./<name>',
+    },
+    resources: {
+      type: 'string',
+      default: '',
+      description: 'Template components: owner/type/name@version,...',
+    },
+    index: {
+      type: 'string',
+      alias: 'i',
+      description: 'Local registry index for selecting template components',
+    },
+    repository: {
+      type: 'string',
+      description: 'Git repository for selecting template components',
+    },
+    base: {
+      type: 'string',
+      default: 'main',
+      description: 'Production branch for template component selection',
+    },
+  },
+  async run({ args }) {
+    try {
+      const interactive = isInteractiveTerminal();
+      const typeValue = args.type ?? (interactive ? await promptResourceType() : undefined);
+      if (!typeValue) {
+        throw new Error('Resource type is required. Pass --type or run `aid create` in a terminal.');
+      }
+
+      if (!isResourceType(typeValue)) throw new Error(`Unsupported resource type: ${typeValue}`);
+
+      const ownerValue = args.owner.trim() || (
+        interactive ? await promptSlug('Who owns this resource?', 'jane-doe') : undefined
+      );
+      const nameValue = args.name.trim() || (
+        interactive ? await promptSlug('What is the resource name?', 'my-resource') : undefined
+      );
+      const descriptionValue = args.description.trim() || (
+        interactive
+          ? await promptRequiredText('What does this resource do?', 'Short description')
+          : undefined
+      );
+
+      if (!ownerValue || !isSlug(ownerValue)) {
+        throw new Error('Owner is required and must use lowercase words separated by hyphens.');
+      }
+      if (!nameValue || !isSlug(nameValue)) {
+        throw new Error('Resource name is required and must use lowercase words separated by hyphens.');
+      }
+      if (!descriptionValue) throw new Error('Description is required.');
+
+      const outputValue = args.output.trim() || (
+        interactive
+          ? await promptRequiredText('Where should it be created?', `./${nameValue}`, `./${nameValue}`)
+          : `./${nameValue}`
+      );
+      if (!outputValue) throw new Error('Output directory is required.');
+
+      let components: TemplateComponent[] = [];
+      if (typeValue === 'templates') {
+        components = args.resources.trim()
+          ? parseTemplateComponents(args.resources)
+          : interactive
+            ? await promptTemplateComponents(
+                getRegistrySource(args.index, args.repository, args.base),
+              ) ?? []
+            : [];
+
+        if (components.length === 0) {
+          throw new Error(
+            'Template components are required. Pass --resources or run `aid create` in a terminal.',
+          );
+        }
+      }
+
+      const outputDirectory = await createResourceDirectory({
+        type: typeValue,
+        owner: ownerValue,
+        name: nameValue,
+        description: descriptionValue,
+        output: outputValue,
+        components,
+      });
+      const id = `${ownerValue}/${typeValue}/${nameValue}`;
+
+      console.log(`Created ${id} at ${outputDirectory}.`);
+      console.log(`Entry file: ${join(outputDirectory, entryFiles[typeValue])}`);
+      console.log(
+        `Next: aid submit "${outputValue}" --id ${id} --version 1.0.0 --description ${JSON.stringify(descriptionValue)}`,
       );
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
@@ -1627,6 +1949,7 @@ async function runInteractiveMain(): Promise<void> {
       { value: 'install', label: 'Install a resource' },
       { value: 'list', label: 'Browse resources' },
       { value: 'show', label: 'View resource details' },
+      { value: 'create', label: 'Create a resource' },
       { value: 'submit', label: 'Submit a resource' },
       { value: 'update', label: 'Update an installed resource' },
       { value: 'uninstall', label: 'Uninstall a resource' },
@@ -1651,6 +1974,9 @@ async function runInteractiveMain(): Promise<void> {
       break;
     case 'show':
       await runCommand(show, { rawArgs: [] });
+      break;
+    case 'create':
+      await runCommand(create, { rawArgs: [] });
       break;
     case 'submit':
       await runCommand(submit, { rawArgs: [] });
@@ -1683,6 +2009,7 @@ const main = defineCommand({
     list,
     show,
     check,
+    create,
     submit,
     install,
     installed,
