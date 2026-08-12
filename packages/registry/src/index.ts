@@ -80,6 +80,19 @@ export type PublishResourceResult = {
   files: string[];
 };
 
+export type ResourceDirectoryValidationOptions = {
+  sourceDirectory: string;
+  resourceId: string;
+  version: string;
+};
+
+export type ResourceDirectoryValidationResult = {
+  sourceDirectory: string;
+  resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>;
+  entryFile: ResourceFile;
+  files: ResourceFile[];
+};
+
 export type CommandResult = {
   stdout: string;
   stderr: string;
@@ -366,24 +379,16 @@ export function validateRegistrySource(source: RegistrySource): Promise<Registry
 export async function publishResource(
   options: PublishResourceOptions,
 ): Promise<PublishResourceResult> {
-  const resourceId = resourceIdSchema.safeParse(options.resourceId);
-
-  if (!resourceId.success) {
-    throw new Error(`Invalid resource ID: ${options.resourceId}`);
-  }
-
-  if (
-    !resourceVersionSchema.safeParse(options.version).success ||
-    !isValidVersion(options.version)
-  ) {
-    throw new Error(`Invalid resource version: ${options.version}`);
-  }
-
   if (!options.description.trim()) {
     throw new Error('Resource description cannot be empty.');
   }
 
-  const identity = parseResourceId(options.resourceId);
+  const validation = await validateResourceDirectory({
+    sourceDirectory: options.sourceDirectory,
+    resourceId: options.resourceId,
+    version: options.version,
+  });
+  const identity = validation.resource;
   const index = await readRegistryIndex(options.indexPath);
   const current = index.resources.find((resource) => resourceKey(resource) === options.resourceId);
 
@@ -399,20 +404,6 @@ export async function publishResource(
     }
   }
 
-  const sourceDirectory = await resolveDirectory(options.sourceDirectory, 'Resource source directory');
-  const files = await readResourceFiles(sourceDirectory);
-  const entryFile = files.find((file) => file.path === requiredEntryFiles[identity.type]);
-
-  if (!entryFile) {
-    throw new Error(
-      `${options.resourceId}@${options.version} is missing ${requiredEntryFiles[identity.type]}`,
-    );
-  }
-
-  if (!entryFile.content.trim()) {
-    throw new Error(`${options.resourceId}@${options.version} has an empty ${entryFile.path}`);
-  }
-
   const registryIndexPath = await resolveFile(options.indexPath, 'Registry index');
   const packageDirectory = resourceDirectory(
     dirname(registryIndexPath),
@@ -424,7 +415,7 @@ export async function publishResource(
     throw new Error(`Resource version already exists: ${options.resourceId}@${options.version}`);
   }
 
-  await writeResourceFiles(packageDirectory, files);
+  await writeResourceFiles(packageDirectory, validation.files);
 
   const resource: ResourceSummary = current
     ? {
@@ -458,8 +449,56 @@ export async function publishResource(
   return {
     resource,
     packageDirectory,
-    files: files.map((file) => file.path),
+    files: validation.files.map((file) => file.path),
   };
+}
+
+export async function validateResourceDirectory(
+  options: ResourceDirectoryValidationOptions,
+): Promise<ResourceDirectoryValidationResult> {
+  if (!resourceIdSchema.safeParse(options.resourceId).success) {
+    throw new Error(`Invalid resource ID: ${options.resourceId}`);
+  }
+
+  if (
+    !resourceVersionSchema.safeParse(options.version).success ||
+    !isValidVersion(options.version)
+  ) {
+    throw new Error(`Invalid resource version: ${options.version}`);
+  }
+
+  const resource = parseResourceId(options.resourceId);
+  const sourceDirectory = await resolveDirectory(options.sourceDirectory, 'Resource source directory');
+  const files = await readResourceFiles(sourceDirectory);
+  const entryFile = files.find((file) => file.path === requiredEntryFiles[resource.type]);
+
+  if (!entryFile) {
+    throw new Error(
+      `${options.resourceId}@${options.version} is missing ${requiredEntryFiles[resource.type]}`,
+    );
+  }
+
+  if (!entryFile.content.trim()) {
+    throw new Error(`${options.resourceId}@${options.version} has an empty ${entryFile.path}`);
+  }
+
+  if (resource.type === 'templates') {
+    readTemplateManifest({
+      resource: {
+        ...resource,
+        description: 'Local resource validation',
+        latestVersion: options.version,
+        reviewStatus: 'unreviewed',
+        lifecycleStatus: 'active',
+        visibility: 'public',
+        updatedAt: 'local',
+      },
+      version: options.version,
+      files,
+    });
+  }
+
+  return { sourceDirectory, resource, entryFile, files };
 }
 
 export async function submitResource(

@@ -57,6 +57,7 @@ import {
   readRegistrySourceResource,
   resolveRegistrySource,
   submitResource,
+  validateResourceDirectory,
   validateRegistrySource,
 } from '@ai-directory/registry';
 
@@ -850,6 +851,84 @@ const create = defineCommand({
       console.log(
         `Next: aid submit "${outputValue}" --id ${id} --version 1.0.0 --description ${JSON.stringify(descriptionValue)}`,
       );
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  },
+});
+
+const validate = defineCommand({
+  meta: {
+    name: 'validate',
+    description: 'Validate a local resource directory',
+  },
+  args: {
+    source: {
+      type: 'positional',
+      default: '',
+      description: 'Directory containing the resource entry file and supporting files',
+    },
+    id: {
+      type: 'string',
+      default: '',
+      description: 'Resource ID: owner/type/name',
+    },
+    version: {
+      type: 'string',
+      alias: 'v',
+      default: '1.0.0',
+      description: 'Semantic version to validate',
+    },
+    json: {
+      type: 'boolean',
+      description: 'Print JSON instead of formatted output',
+    },
+  },
+  async run({ args }) {
+    try {
+      const interactive = isInteractiveTerminal();
+      const sourceDirectory = args.source.trim() || (
+        interactive
+          ? await promptRequiredText('Where is the resource directory?', './my-resource')
+          : undefined
+      );
+      if (!sourceDirectory) {
+        throw new Error('Resource directory is required. Run `aid validate <source>` in a script.');
+      }
+
+      const resourceId = args.id.trim() || (
+        interactive
+          ? await promptRequiredText('What is the resource ID?', 'owner/skills/my-resource')
+          : undefined
+      );
+      if (!resourceId) throw new Error('Resource ID is required. Pass `--id` in a script.');
+
+      const result = await validateResourceDirectory({
+        sourceDirectory,
+        resourceId,
+        version: args.version.trim(),
+      });
+
+      if (args.json) {
+        console.log(
+          JSON.stringify(
+            {
+              resource: `${result.resource.owner}/${result.resource.type}/${result.resource.name}`,
+              version: args.version,
+              entryFile: result.entryFile.path,
+              files: result.files.map((file) => file.path),
+            },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+
+      console.log(`Valid: ${resourceId}@${args.version}`);
+      console.log(`Entry file: ${result.entryFile.path}`);
+      console.log(`Files: ${result.files.length}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -1973,6 +2052,7 @@ async function runInteractiveMain(): Promise<void> {
       { value: 'list', label: 'Browse resources' },
       { value: 'show', label: 'View resource details' },
       { value: 'create', label: 'Create a resource' },
+      { value: 'validate', label: 'Validate a resource' },
       { value: 'submit', label: 'Submit a resource' },
       { value: 'update', label: 'Update an installed resource' },
       { value: 'uninstall', label: 'Uninstall a resource' },
@@ -2000,6 +2080,9 @@ async function runInteractiveMain(): Promise<void> {
       break;
     case 'create':
       await runCommand(create, { rawArgs: [] });
+      break;
+    case 'validate':
+      await runCommand(validate, { rawArgs: [] });
       break;
     case 'submit':
       await runCommand(submit, { rawArgs: [] });
@@ -2033,6 +2116,7 @@ const main = defineCommand({
     show,
     check,
     create,
+    validate,
     submit,
     install,
     installed,

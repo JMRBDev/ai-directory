@@ -71,6 +71,16 @@ apps/cli/dist/aid create my-skill \
 
 The command creates the required entry file (`SKILL.md`, `AGENT.md`, `RULE.md`, or `TEMPLATE.md`). Add supporting files as needed, then use the printed `aid submit` command. Templates can contain existing resources with `--resources owner/type/name@version,...`.
 
+Validate a resource before submitting it:
+
+```sh
+apps/cli/dist/aid validate ./my-skill \
+  --id jose-rosendo/skills/my-resource \
+  --version 1.0.0
+```
+
+Validation is local and does not require a registry checkout. It checks the resource ID, version, required entry file, non-empty content, and template manifest syntax.
+
 ## Resource discovery
 
 After setup, normal commands read the production branch of the configured Git registry:
