@@ -19,11 +19,13 @@ import {
 import { cancel, intro, isCancel, outro, select, spinner, text } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
 import {
+  detectHarnesses,
   getHarnessAdapter,
   readInstallationManifest,
   removeStaleInstallationFiles,
   updateInstallationManifest,
   type Harness,
+  type HarnessDetection,
   type InstallResult,
   type InstallScope,
   type InstallationRecord,
@@ -42,12 +44,18 @@ const localIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX;
 
 function getRegistrySource(indexPath?: string, repository?: string, baseBranch?: string) {
   const repositoryUrl = resolveRepository(repository);
+  const sourceOptions: {
+    indexPath?: string;
+    repositoryUrl?: string;
+    baseBranch?: string;
+  } = {};
+  const localPath = indexPath ?? (repository?.trim() ? undefined : localIndexPath);
 
-  return resolveRegistrySource({
-    indexPath: indexPath ?? (repository?.trim() ? undefined : localIndexPath),
-    repositoryUrl,
-    baseBranch,
-  });
+  if (localPath) sourceOptions.indexPath = localPath;
+  if (repositoryUrl) sourceOptions.repositoryUrl = repositoryUrl;
+  if (baseBranch) sourceOptions.baseBranch = baseBranch;
+
+  return resolveRegistrySource(sourceOptions);
 }
 
 const list = defineCommand({
@@ -768,7 +776,7 @@ const setup = defineCommand({
           placeholder: 'git@github.com:company/ai-directory-registry.git',
           ...(existing.value ? { initialValue: existing.value } : {}),
           validate(value) {
-            if (!value.trim()) return 'A registry Git URL is required.';
+            if (!value?.trim()) return 'A registry Git URL is required.';
           },
         });
 
@@ -868,12 +876,14 @@ const doctor = defineCommand({
       resourceCount?: number;
       activeCount?: number;
       unreviewedCount?: number;
+      harnesses: HarnessDetection[];
       error?: string;
     } = {
       ok: false,
       repository: setting.value ?? null,
       source: setting.source,
       branch: args.base ?? 'main',
+      harnesses: await detectHarnesses(),
     };
 
     if (!setting.value) {
@@ -903,6 +913,17 @@ const doctor = defineCommand({
       console.log(`Repository: ${diagnostics.repository ?? 'not configured'}`);
       console.log(`Source: ${diagnostics.source}`);
       console.log(`Branch: ${diagnostics.branch}`);
+      console.log('Harnesses:');
+
+      for (const harness of diagnostics.harnesses) {
+        const signals = [
+          harness.executable ? `command=${harness.executable}` : undefined,
+          ...harness.project.paths.map((path) => `project=${path}`),
+          ...harness.global.paths.map((path) => `global=${path}`),
+        ].filter((signal): signal is string => signal !== undefined);
+
+        console.log(`  ${harness.displayName}: ${signals.join(', ') || 'not detected'}`);
+      }
 
       if (diagnostics.ok) {
         console.log(`Registry: reachable (${diagnostics.resourceCount} resource(s))`);
