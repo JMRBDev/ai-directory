@@ -156,6 +156,38 @@ describe('CLI', () => {
     expect(result.stderr).toContain('Resource ID is required.');
   });
 
+  it('validates submit inputs before accessing the registry', () => {
+    const result = runAid([
+      'submit',
+      './missing-resource',
+      '--id',
+      'invalid-id',
+      '--version',
+      '1.0.0',
+      '--description',
+      'A resource.',
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('Invalid resource ID: invalid-id');
+  });
+
+  it('reports a missing submit directory clearly', () => {
+    const result = runAid([
+      'submit',
+      './missing-resource',
+      '--id',
+      'jane-doe/skills/missing-resource',
+      '--version',
+      '1.0.0',
+      '--description',
+      'A resource.',
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('Resource directory not found:');
+  });
+
   it('installs one resource for multiple harnesses', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-'));
 
