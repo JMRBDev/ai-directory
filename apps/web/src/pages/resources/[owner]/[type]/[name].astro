@@ -11,6 +11,7 @@ import '../../../../styles/catalog.css';
 type Props = {
   resource: ResourceSummary;
   version: Awaited<ReturnType<typeof loadResource>>['version'];
+  componentResources: string[];
   source: RegistryView['source'];
   fileError?: string;
 };
@@ -35,6 +36,7 @@ export async function getStaticPaths() {
           props: {
             resource,
             version: result.version,
+            componentResources: result.resources.map((item) => resourceId(item.resource)),
             source: registry.source,
             ...(result.error ? { fileError: result.error } : {}),
           },
@@ -43,7 +45,7 @@ export async function getStaticPaths() {
   );
 }
 
-const { resource, version, source, fileError } = Astro.props as Props;
+const { resource, version, componentResources, source, fileError } = Astro.props as Props;
 const title = `${resource.name} | AI Directory`;
 const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
@@ -115,15 +117,16 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         data-api-url={apiUrl}
         data-resource-id={resourceId(resource)}
         data-resource-type={resource.type}
+        data-resource-components={JSON.stringify(componentResources)}
       >
         <p class="section-kicker">Install</p>
         <h2 id="install-title">Use this resource locally</h2>
-        {resource.type === 'templates' ? (
+        {resource.type === 'templates' && (
           <div class="warning" role="status">
-            Templates install their component resources as a pack. Use the CLI command below to
-            choose a harness and scope.
+            This template installs its component resources as one pack. You can update or uninstall
+            the pack from here later.
           </div>
-        ) : (
+        )}
         <div class="install-form">
           <div class="install-controls">
             <fieldset class="harness-options">
@@ -165,7 +168,6 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
             Checking local installations…
           </p>
         </div>
-        )}
         <div class="commands">
           <div class="command">
             <label for="project-command">Project scope</label>
@@ -221,6 +223,16 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
       const panel = document.querySelector<HTMLElement>('[data-resource-install]');
       const apiBase = panel?.dataset.apiUrl ?? 'http://127.0.0.1:4317';
       const resourceKey = panel?.dataset.resourceId ?? '';
+      let componentKeys: string[] = [];
+      try {
+        const parsed = JSON.parse(panel?.dataset.resourceComponents ?? '[]');
+        if (Array.isArray(parsed)) {
+          componentKeys = parsed.filter((item): item is string => typeof item === 'string');
+        }
+      } catch {
+        componentKeys = [];
+      }
+      const trackedResources = componentKeys.length > 0 ? componentKeys : [resourceKey];
       const harnesses = Array.from(
         document.querySelectorAll<HTMLInputElement>('[data-install-harness]'),
       );
@@ -243,13 +255,17 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         status.dataset.error = isError ? 'true' : 'false';
       }
 
+      function hasCompleteInstallation(records: Installation[], harness: string): boolean {
+        return trackedResources.every((resource) =>
+          records.some((record) => record.resource === resource && record.harness === harness),
+        );
+      }
+
       function render(records: Installation[]) {
         currentRecords = records;
         const selected = selectedHarnesses();
-        const installed = records.filter((record) => selected.includes(record.harness));
-        const missing = selected.filter(
-          (harness) => !installed.some((record) => record.harness === harness),
-        );
+        const installed = selected.filter((harness) => hasCompleteInstallation(records, harness));
+        const missing = selected.filter((harness) => !hasCompleteInstallation(records, harness));
         if (install) install.hidden = selected.length === 0 || missing.length === 0;
         if (update) update.hidden = selected.length === 0 || installed.length === 0;
         if (uninstall) uninstall.hidden = selected.length === 0 || installed.length === 0;
@@ -262,9 +278,9 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         }
 
         const installedText = installed.length > 0
-          ? `Installed for ${installed.map((record) => `${record.harness} v${record.version}`).join(', ')}`
+          ? `Installed for ${installed.join(', ')}`
           : 'Not installed';
-        const missingText = missing.length > 0 ? `Not installed for ${missing.join(', ')}` : '';
+        const missingText = missing.length > 0 ? `Not fully installed for ${missing.join(', ')}` : '';
         showStatus([installedText, missingText].filter(Boolean).join('. ') + '.');
       }
 
@@ -272,14 +288,10 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         const selected = selectedHarnesses();
 
         if (action === 'install') {
-          return selected.filter(
-            (harness) => !currentRecords.some((record) => record.harness === harness),
-          );
+          return selected.filter((harness) => !hasCompleteInstallation(currentRecords, harness));
         }
 
-        return selected.filter((harness) =>
-          currentRecords.some((record) => record.harness === harness),
-        );
+        return selected.filter((harness) => hasCompleteInstallation(currentRecords, harness));
       }
 
       async function request(path: string, init?: RequestInit) {
@@ -303,7 +315,7 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
           const records = Array.isArray(result.installations)
             ? result.installations.filter(
                 (item: Installation) =>
-                  item.resource === resourceKey &&
+                  trackedResources.includes(item.resource) &&
                   selected.includes(item.harness) &&
                   item.scope === scope?.value,
               )

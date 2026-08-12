@@ -67,21 +67,19 @@ export async function loadResource(
   indexPath: string | undefined,
   resource: ResourceSummary,
   repository?: string,
-): Promise<{ version: ResourceVersion | null; error?: string }> {
+): Promise<{ version: ResourceVersion | null; resources: ResourceVersion[]; error?: string }> {
   try {
     const source = resolveRegistrySource({
       ...(indexPath ? { indexPath } : {}),
       ...(repository ? { repositoryUrl: repository } : {}),
     });
 
-    return {
-      version: (
-        await readRegistrySourceResource(source, resourceId(resource), resource.latestVersion)
-      ).resource,
-    };
+    const result = await readRegistrySourceResource(source, resourceId(resource), resource.latestVersion);
+    return { version: result.resource, resources: result.resources };
   } catch (error) {
     return {
       version: null,
+      resources: [],
       error: error instanceof Error ? error.message : String(error),
     };
   }
