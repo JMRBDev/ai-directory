@@ -40,7 +40,10 @@ export async function loadRegistry(): Promise<RegistryView> {
   const repository = getRepositorySetting(undefined, getConfigCwd()).value;
 
   try {
-    const source = resolveRegistrySource({ indexPath, repositoryUrl: repository });
+    const source = resolveRegistrySource({
+      ...(indexPath ? { indexPath } : {}),
+      ...(repository ? { repositoryUrl: repository } : {}),
+    });
 
     return {
       index: await readRegistrySourceIndex(source),
@@ -66,7 +69,10 @@ export async function loadResource(
   repository?: string,
 ): Promise<{ version: ResourceVersion | null; error?: string }> {
   try {
-    const source = resolveRegistrySource({ indexPath, repositoryUrl: repository });
+    const source = resolveRegistrySource({
+      ...(indexPath ? { indexPath } : {}),
+      ...(repository ? { repositoryUrl: repository } : {}),
+    });
 
     return {
       version: (

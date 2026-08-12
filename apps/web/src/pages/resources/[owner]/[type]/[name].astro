@@ -46,6 +46,7 @@ export async function getStaticPaths() {
 const { resource, version, source, fileError } = Astro.props as Props;
 const title = `${resource.name} | AI Directory`;
 const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
+const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
 ---
 
 <!doctype html>
@@ -107,9 +108,64 @@ const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
         </div>
       )}
 
-      <section class="detail-section" aria-labelledby="install-title">
+      <section
+        class="detail-section"
+        aria-labelledby="install-title"
+        data-resource-install
+        data-api-url={apiUrl}
+        data-resource-id={resourceId(resource)}
+        data-resource-type={resource.type}
+      >
         <p class="section-kicker">Install</p>
-        <h2 id="install-title">Use it with Claude Code</h2>
+        <h2 id="install-title">Use this resource locally</h2>
+        {resource.type === 'templates' ? (
+          <div class="warning" role="status">
+            Templates install their component resources as a pack. Use the CLI command below to
+            choose a harness and scope.
+          </div>
+        ) : (
+        <div class="install-form">
+          <div class="install-controls">
+            <fieldset class="harness-options">
+              <legend class="filter-label">Harnesses</legend>
+              <label>
+                <input type="checkbox" value="claude-code" data-install-harness checked />
+                Claude Code
+              </label>
+              <label>
+                <input type="checkbox" value="opencode" data-install-harness />
+                OpenCode
+              </label>
+              <label>
+                <input type="checkbox" value="codex" data-install-harness />
+                Codex
+              </label>
+            </fieldset>
+            <label class="filter-field" for="install-scope">
+              <span class="filter-label">Scope</span>
+              <select id="install-scope" data-install-scope>
+                <option value="project">This project</option>
+                <option value="global">All projects</option>
+              </select>
+            </label>
+          </div>
+          <div class="detail-actions">
+            <button type="button" data-install-action>Install resource</button>
+            <button class="secondary-button" type="button" data-update-action hidden>
+              Update resource
+            </button>
+            <button class="secondary-button" type="button" data-uninstall-action hidden>
+              Uninstall
+            </button>
+            <button class="secondary-button" type="button" data-force-action hidden>
+              Continue with force
+            </button>
+          </div>
+          <p class="form-status" data-install-status role="status">
+            Checking local installations…
+          </p>
+        </div>
+        )}
         <div class="commands">
           <div class="command">
             <label for="project-command">Project scope</label>
@@ -152,5 +208,186 @@ const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
       <p>AI Directory is backed by the production branch of the resources repository.</p>
       <a class="back-link" href="/">Return to catalog</a>
     </footer>
+
+    <script>
+      type Installation = {
+        resource: string;
+        version: string;
+        harness: string;
+        scope: string;
+      };
+      type Action = 'install' | 'update' | 'uninstall';
+
+      const panel = document.querySelector<HTMLElement>('[data-resource-install]');
+      const apiBase = panel?.dataset.apiUrl ?? 'http://127.0.0.1:4317';
+      const resourceKey = panel?.dataset.resourceId ?? '';
+      const harnesses = Array.from(
+        document.querySelectorAll<HTMLInputElement>('[data-install-harness]'),
+      );
+      const scope = document.querySelector<HTMLSelectElement>('[data-install-scope]');
+      const install = document.querySelector<HTMLButtonElement>('[data-install-action]');
+      const update = document.querySelector<HTMLButtonElement>('[data-update-action]');
+      const uninstall = document.querySelector<HTMLButtonElement>('[data-uninstall-action]');
+      const force = document.querySelector<HTMLButtonElement>('[data-force-action]');
+      const status = document.querySelector<HTMLElement>('[data-install-status]');
+      let forceAction: Action | null = null;
+      let currentRecords: Installation[] = [];
+
+      function selectedHarnesses(): string[] {
+        return harnesses.filter((input) => input.checked).map((input) => input.value);
+      }
+
+      function showStatus(message: string, isError = false) {
+        if (!status) return;
+        status.textContent = message;
+        status.dataset.error = isError ? 'true' : 'false';
+      }
+
+      function render(records: Installation[]) {
+        currentRecords = records;
+        const selected = selectedHarnesses();
+        const installed = records.filter((record) => selected.includes(record.harness));
+        const missing = selected.filter(
+          (harness) => !installed.some((record) => record.harness === harness),
+        );
+        if (install) install.hidden = selected.length === 0 || missing.length === 0;
+        if (update) update.hidden = selected.length === 0 || installed.length === 0;
+        if (uninstall) uninstall.hidden = selected.length === 0 || installed.length === 0;
+        if (force) force.hidden = true;
+        forceAction = null;
+
+        if (selected.length === 0) {
+          showStatus('Select at least one harness.');
+          return;
+        }
+
+        const installedText = installed.length > 0
+          ? `Installed for ${installed.map((record) => `${record.harness} v${record.version}`).join(', ')}`
+          : 'Not installed';
+        const missingText = missing.length > 0 ? `Not installed for ${missing.join(', ')}` : '';
+        showStatus([installedText, missingText].filter(Boolean).join('. ') + '.');
+      }
+
+      function targetHarnesses(action: Action): string[] {
+        const selected = selectedHarnesses();
+
+        if (action === 'install') {
+          return selected.filter(
+            (harness) => !currentRecords.some((record) => record.harness === harness),
+          );
+        }
+
+        return selected.filter((harness) =>
+          currentRecords.some((record) => record.harness === harness),
+        );
+      }
+
+      async function request(path: string, init?: RequestInit) {
+        const response = await fetch(`${apiBase}${path}`, init);
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error ?? 'The local API request failed.');
+        return result;
+      }
+
+      async function loadInstallation(): Promise<Installation[]> {
+        if (selectedHarnesses().length === 0) {
+          render([]);
+          return [];
+        }
+
+        try {
+          const result = await request(
+            `/api/installed?scope=${encodeURIComponent(scope?.value ?? 'project')}`,
+          );
+          const selected = selectedHarnesses();
+          const records = Array.isArray(result.installations)
+            ? result.installations.filter(
+                (item: Installation) =>
+                  item.resource === resourceKey &&
+                  selected.includes(item.harness) &&
+                  item.scope === scope?.value,
+              )
+            : [];
+          render(records);
+          return records;
+        } catch (error) {
+          showStatus(error instanceof Error ? error.message : 'Could not reach the local API.', true);
+          return [];
+        }
+      }
+
+      function setBusy(busy: boolean) {
+        for (const button of [install, update, uninstall, force]) {
+          if (button) button.disabled = busy;
+        }
+        for (const harness of harnesses) harness.disabled = busy;
+        if (scope) scope.disabled = busy;
+      }
+
+      async function run(action: Action, useForce = false) {
+        if (useForce && !window.confirm('This may overwrite or remove local changes. Continue?')) {
+          return;
+        }
+
+        setBusy(true);
+        showStatus('Working…');
+
+        try {
+          const targets = targetHarnesses(action);
+
+          if (targets.length === 0) {
+            showStatus(action === 'install' ? 'All selected harnesses are installed.' : 'No selected harness is installed.');
+            return;
+          }
+
+          const body = {
+            resource: resourceKey,
+            harnesses: targets,
+            scope: scope?.value,
+            ...(useForce ? { force: true } : {}),
+          };
+          const result = action === 'uninstall'
+            ? await request(
+                `/api/installed?resource=${encodeURIComponent(resourceKey)}&harnesses=${encodeURIComponent(targets.join(','))}&scope=${encodeURIComponent(scope?.value ?? '')}${useForce ? '&force=true' : ''}`,
+                { method: 'DELETE' },
+              )
+            : await request(`/api/${action}`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+              });
+          const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+          await loadInstallation();
+          if (warnings.length > 0) {
+            showStatus(`Completed with warning. Unreviewed: ${warnings.join(', ')}`);
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'The operation failed.';
+          showStatus(message, true);
+
+          if (action !== 'install' && /modified|ownership hashes/u.test(message)) {
+            forceAction = action;
+            if (force) {
+              force.hidden = false;
+              force.textContent = action === 'update' ? 'Force update' : 'Force uninstall';
+            }
+          }
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      install?.addEventListener('click', () => run('install'));
+      update?.addEventListener('click', () => run('update'));
+      uninstall?.addEventListener('click', () => run('uninstall'));
+      force?.addEventListener('click', () => {
+        if (forceAction) void run(forceAction, true);
+      });
+      for (const harness of harnesses) {
+        harness.addEventListener('change', () => void loadInstallation());
+      }
+      scope?.addEventListener('change', () => void loadInstallation());
+      if (panel?.dataset.resourceType !== 'templates') void loadInstallation();
+    </script>
   </body>
 </html>

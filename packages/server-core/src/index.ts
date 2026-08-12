@@ -21,6 +21,7 @@ import {
   type Harness,
   type InstallOptions,
   type InstallScope,
+  type InstallationRecord,
 } from '@ai-directory/installers';
 import { resourceKey } from '@ai-directory/domain';
 import {
@@ -44,7 +45,7 @@ type ConfigRequest = {
 
 type ResourceRequest = {
   resource: string;
-  harness: Harness;
+  harnesses: Harness[];
   scope: InstallScope;
   version?: string;
   force: boolean;
@@ -60,6 +61,12 @@ function isInstallScope(value: unknown): value is InstallScope {
 
 function isHarness(value: unknown): value is Harness {
   return value === 'claude-code' || value === 'opencode' || value === 'codex';
+}
+
+function harnessValues(value: unknown): string[] {
+  if (typeof value === 'string') return value.split(',').map((item) => item.trim()).filter(Boolean);
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+  return [];
 }
 
 function configResponse(cwd: string) {
@@ -110,8 +117,15 @@ function requestError(body: unknown): string | null {
     return 'resource must be a non-empty string.';
   }
 
-  if (!isHarness(request.harness)) {
-    return 'harness must be claude-code, opencode, or codex.';
+  const rawHarnesses = request.harnesses ?? request.harness;
+  const harnesses = harnessValues(rawHarnesses);
+
+  if (harnesses.length === 0) {
+    return 'harnesses must include one or more of claude-code, opencode, or codex.';
+  }
+
+  if (harnesses.some((harness) => !isHarness(harness))) {
+    return 'harnesses must include only claude-code, opencode, or codex.';
   }
 
   if (!isInstallScope(request.scope)) {
@@ -138,7 +152,7 @@ function parseResourceRequest(body: unknown): ResourceRequest {
 
   return {
     resource: (request.resource as string).trim(),
-    harness: request.harness as Harness,
+    harnesses: [...new Set(harnessValues(request.harnesses ?? request.harness))] as Harness[],
     scope: request.scope as InstallScope,
     ...(request.version !== undefined
       ? { version: (request.version as string).trim() }
@@ -247,20 +261,26 @@ export function createApp(options: ServerOptions = {}) {
         request.resource,
         request.version,
       );
-      const installer = getHarnessAdapter(request.harness);
       const optionsForInstall = installOptions(request.scope, { ...options, cwd }, request.force);
-      const installations = await installer.install(loaded.resources, optionsForInstall);
-      const records = createInstallationRecords(
-        loaded.resources,
-        installations,
-        request.scope,
-        installer.harness,
-      );
-      const manifestPath = getInstallManifestPath(request.scope, cwd);
-      await saveInstallationRecords(manifestPath, records, optionsForInstall);
+      const records: InstallationRecord[] = [];
+
+      for (const harness of request.harnesses) {
+        const installer = getHarnessAdapter(harness);
+        const installations = await installer.install(loaded.resources, optionsForInstall);
+        const nextRecords = createInstallationRecords(
+          loaded.resources,
+          installations,
+          request.scope,
+          installer.harness,
+        );
+        const manifestPath = getInstallManifestPath(request.scope, cwd);
+        await saveInstallationRecords(manifestPath, nextRecords, optionsForInstall);
+        records.push(...nextRecords);
+      }
 
       return context.json({
         resource: loaded.resource,
+        harnesses: request.harnesses,
         records,
         warnings: requestWarnings([loaded.resource, ...loaded.resources]),
       });
@@ -285,20 +305,28 @@ export function createApp(options: ServerOptions = {}) {
       const request = parseResourceRequest(body);
       const manifestPath = getInstallManifestPath(request.scope, cwd);
       const manifest = await readInstallationManifest(manifestPath);
-      const existing = manifest.installations.find(
-        (record) =>
-          record.resource === request.resource &&
-          record.harness === request.harness &&
-          record.scope === request.scope,
+      const existing = request.harnesses.map((harness) =>
+        manifest.installations.find(
+          (record) =>
+            record.resource === request.resource &&
+            record.harness === harness &&
+            record.scope === request.scope,
+        ),
       );
 
-      if (!existing) {
+      if (existing.some((record) => !record)) {
+        const missing = request.harnesses.filter((_, index) => !existing[index]);
         throw new Error(
-          `${request.resource} is not installed for ${request.harness} in the ${request.scope} scope.`,
+          `${request.resource} is not installed for ${missing.join(', ')} in the ${request.scope} scope.`,
         );
       }
 
-      await assertInstallationFilesUnchanged(existing, request.force);
+      const existingRecords = existing.filter(
+        (record): record is NonNullable<typeof record> => record !== undefined,
+      );
+      for (const record of existingRecords) {
+        await assertInstallationFilesUnchanged(record, request.force);
+      }
 
       const loaded = await readRegistrySourceResource(
         registrySource(options, cwd),
@@ -309,28 +337,44 @@ export function createApp(options: ServerOptions = {}) {
         throw new Error('Templates are updated through their installed resources.');
       }
 
-      if (loaded.resource.version === existing.version) {
-        return context.json({ updated: false, record: existing, warnings: [] });
+      const updatedHarnesses = request.harnesses.filter((_, index) => {
+        const record = existing[index];
+        return record !== undefined && loaded.resource.version !== record.version;
+      });
+
+      if (updatedHarnesses.length === 0) {
+        return context.json({
+          updated: false,
+          harnesses: request.harnesses,
+          records: existingRecords,
+          warnings: [],
+        });
       }
 
-      const installer = getHarnessAdapter(request.harness);
+      const records: InstallationRecord[] = [];
       const optionsForInstall = installOptions(request.scope, { ...options, cwd }, true);
-      const installations = await installer.install(loaded.resources, optionsForInstall);
-      const records = createInstallationRecords(
-        loaded.resources,
-        installations,
-        request.scope,
-        installer.harness,
-      );
-      await saveInstallationRecords(
-        manifestPath,
-        records,
-        installOptions(request.scope, { ...options, cwd }, request.force),
-      );
+
+      for (const harness of updatedHarnesses) {
+        const installer = getHarnessAdapter(harness);
+        const installations = await installer.install(loaded.resources, optionsForInstall);
+        const nextRecords = createInstallationRecords(
+          loaded.resources,
+          installations,
+          request.scope,
+          installer.harness,
+        );
+        await saveInstallationRecords(
+          manifestPath,
+          nextRecords,
+          installOptions(request.scope, { ...options, cwd }, request.force),
+        );
+        records.push(...nextRecords);
+      }
 
       return context.json({
         updated: true,
-        record: records.find((record) => record.resource === request.resource) ?? records[0],
+        harnesses: updatedHarnesses,
+        records,
         warnings: requestWarnings([loaded.resource, ...loaded.resources]),
       });
     } catch (caught) {
@@ -341,6 +385,7 @@ export function createApp(options: ServerOptions = {}) {
   app.delete('/api/installed', async (context) => {
     const rawRequest = {
       resource: context.req.query('resource'),
+      harnesses: context.req.query('harnesses'),
       harness: context.req.query('harness'),
       scope: context.req.query('scope'),
       force: queryBoolean(context.req.query('force')),
@@ -353,26 +398,37 @@ export function createApp(options: ServerOptions = {}) {
       const request = parseResourceRequest(rawRequest);
       const manifestPath = getInstallManifestPath(request.scope, cwd);
       const manifest = await readInstallationManifest(manifestPath);
-      const existing = manifest.installations.find(
-        (record) =>
-          record.resource === request.resource &&
-          record.harness === request.harness &&
-          record.scope === request.scope,
+      const existing = request.harnesses.map((harness) =>
+        manifest.installations.find(
+          (record) =>
+            record.resource === request.resource &&
+            record.harness === harness &&
+            record.scope === request.scope,
+        ),
       );
 
-      if (!existing) {
+      if (existing.some((record) => !record)) {
+        const missing = request.harnesses.filter((_, index) => !existing[index]);
         throw new Error(
-          `${request.resource} is not installed for ${request.harness} in the ${request.scope} scope.`,
+          `${request.resource} is not installed for ${missing.join(', ')} in the ${request.scope} scope.`,
         );
       }
 
-      await uninstallInstallation(
-        existing,
-        installOptions(request.scope, { ...options, cwd }, request.force),
+      const existingRecords = existing.filter(
+        (record): record is NonNullable<typeof record> => record !== undefined,
       );
-      await removeInstallationRecord(manifestPath, existing);
+      for (const record of existingRecords) {
+        await assertInstallationFilesUnchanged(record, request.force);
+      }
+      for (const record of existingRecords) {
+        await uninstallInstallation(
+          record,
+          installOptions(request.scope, { ...options, cwd }, request.force),
+        );
+        await removeInstallationRecord(manifestPath, record);
+      }
 
-      return context.json({ removed: existing });
+      return context.json({ removed: existingRecords, harnesses: request.harnesses });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
     }

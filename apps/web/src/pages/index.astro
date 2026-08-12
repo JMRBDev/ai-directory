@@ -55,7 +55,7 @@ function statusLabel(resource: ResourceSummary): string {
         <h1 id="page-title">Find the resource for the work in front of you.</h1>
         <p class="intro-copy">
           Skills, agents, rules, and templates shared by the company. Read the source, check its
-          review status, then install it with the local CLI.
+          review status, then install it with this local site or the CLI.
         </p>
         <div class="stats" aria-label="Registry summary">
           <div class="stat">
@@ -175,11 +175,11 @@ function statusLabel(resource: ResourceSummary): string {
     </footer>
 
     <script>
-      const search = document.querySelector('#resource-search');
-      const type = document.querySelector('#resource-type');
-      const count = document.querySelector('[data-result-count]');
-      const noResults = document.querySelector('[data-no-results]');
-      const resources = Array.from(document.querySelectorAll('[data-resource]'));
+      const search = document.querySelector<HTMLInputElement>('#resource-search');
+      const type = document.querySelector<HTMLSelectElement>('#resource-type');
+      const count = document.querySelector<HTMLElement>('[data-result-count]');
+      const noResults = document.querySelector<HTMLElement>('[data-no-results]');
+      const resources = Array.from(document.querySelectorAll<HTMLElement>('[data-resource]'));
 
       function updateResults() {
         const query = search?.value.toLowerCase().trim() ?? '';

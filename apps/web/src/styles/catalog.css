@@ -634,6 +634,73 @@ button:hover {
   margin-bottom: 16px;
 }
 
+.install-form {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.install-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.install-controls .filter-field {
+  min-width: 160px;
+}
+
+.harness-options {
+  flex: 1 1 320px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.harness-options legend {
+  width: 100%;
+  padding: 0;
+}
+
+.harness-options label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.harness-options input {
+  width: auto;
+  min-height: auto;
+  accent-color: var(--accent);
+}
+
+.install-controls select {
+  min-width: 160px;
+}
+
+.install-form .detail-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.install-form .form-status {
+  margin: 0;
+}
+
+.install-form .form-status[data-error='true'] {
+  color: var(--warning);
+}
+
 .commands {
   display: grid;
   gap: 10px;

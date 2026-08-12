@@ -27,6 +27,7 @@ import {
   removeInstallationRecord,
   saveInstallationRecords,
   uninstallInstallation,
+  type Harness,
   type HarnessDetection,
   type InstallScope,
 } from '@ai-directory/installers';
@@ -55,6 +56,44 @@ function getRegistrySource(indexPath?: string, repository?: string, baseBranch?:
   if (baseBranch) sourceOptions.baseBranch = baseBranch;
 
   return resolveRegistrySource(sourceOptions);
+}
+
+function parseHarnesses(value: string | undefined, rawArgs: string[]): Harness[] {
+  const explicit: string[] = [];
+
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const argument = rawArgs[index];
+
+    if (argument === '--harness') {
+      const next = rawArgs[index + 1];
+      if (next) explicit.push(next);
+      index += 1;
+    } else if (argument?.startsWith('--harness=')) {
+      explicit.push(argument.slice('--harness='.length));
+    }
+  }
+
+  const values = (explicit.length > 0 ? explicit : [value ?? ''])
+    .flatMap((item) => item.split(','))
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const harnesses = [...new Set(values)];
+
+  if (harnesses.length === 0) {
+    throw new Error('Select one or more harnesses with --harness.');
+  }
+
+  if (harnesses.some((harness) => !isHarness(harness))) {
+    throw new Error(
+      `Unsupported harness. Choose one or more of: claude-code, opencode, codex.`,
+    );
+  }
+
+  return harnesses as Harness[];
+}
+
+function isHarness(value: string): value is Harness {
+  return value === 'claude-code' || value === 'opencode' || value === 'codex';
 }
 
 const list = defineCommand({
@@ -328,7 +367,7 @@ const submit = defineCommand({
 const install = defineCommand({
   meta: {
     name: 'install',
-    description: 'Install a resource for a coding harness',
+    description: 'Install a resource for one or more coding harnesses',
   },
   args: {
     resource: {
@@ -337,10 +376,10 @@ const install = defineCommand({
       description: 'Resource ID: owner/type/name',
     },
     harness: {
-      type: 'enum',
-      options: ['claude-code', 'opencode', 'codex'],
+      type: 'string',
       default: 'claude-code',
-      description: 'Coding harness to install for',
+      valueHint: 'harness[,harness...]',
+      description: 'Harnesses to install for; repeat or separate with commas',
     },
     scope: {
       type: 'enum',
@@ -372,13 +411,12 @@ const install = defineCommand({
       description: 'Overwrite files already installed at the destination',
     },
   },
-  async run({ args }) {
+  async run({ args, rawArgs }) {
     try {
+      const harnesses = parseHarnesses(args.harness, rawArgs);
       const source = getRegistrySource(args.index, args.repository, args.base);
       const loaded = await readRegistrySourceResource(source, args.resource, args.version);
       const result = loaded.resource;
-      const installer = getHarnessAdapter(args.harness);
-      const { harness } = installer;
 
       const resources = loaded.resources;
 
@@ -390,38 +428,44 @@ const install = defineCommand({
         }
       }
 
-      const installations = await installer.install(resources, {
-        scope: args.scope,
-        force: args.force ?? false,
-      });
-      const records = createInstallationRecords(resources, installations, args.scope, harness);
       const manifestPath = getInstallManifestPath(args.scope);
-      await saveInstallationRecords(manifestPath, records, {
-        scope: args.scope,
-        force: args.force ?? false,
-      });
+
+      for (const harness of harnesses) {
+        const installer = getHarnessAdapter(harness);
+        const installations = await installer.install(resources, {
+          scope: args.scope,
+          force: args.force ?? false,
+        });
+        const records = createInstallationRecords(resources, installations, args.scope, harness);
+        await saveInstallationRecords(manifestPath, records, {
+          scope: args.scope,
+          force: args.force ?? false,
+        });
+
+        for (const [index, resource] of resources.entries()) {
+          const installation = installations[index];
+
+          if (!installation) {
+            throw new Error(`Installation result missing for ${resourceKey(resource.resource)}.`);
+          }
+
+          console.log(
+            `Location: ${installation.destination} (${resourceKey(resource.resource)}@${resource.version})`,
+          );
+          console.log(`Files: ${installation.files.join(', ')}`);
+        }
+      }
 
       if (result.resource.type === 'templates') {
         console.log(
-          `Installed ${resourceKey(result.resource)}@${result.version} with ${resources.length} resource(s) for ${harness}.`,
+          `Installed ${resourceKey(result.resource)}@${result.version} with ${resources.length} resource(s) for ${harnesses.join(', ')}.`,
         );
       } else {
-        console.log(`Installed ${resourceKey(result.resource)}@${result.version} for ${harness}.`);
+        console.log(
+          `Installed ${resourceKey(result.resource)}@${result.version} for ${harnesses.join(', ')}.`,
+        );
       }
       console.log(`Tracked in: ${manifestPath}`);
-
-      for (const [index, resource] of resources.entries()) {
-        const installation = installations[index];
-
-        if (!installation) {
-          throw new Error(`Installation result missing for ${resourceKey(resource.resource)}.`);
-        }
-
-        console.log(
-          `Location: ${installation.destination} (${resourceKey(resource.resource)}@${resource.version})`,
-        );
-        console.log(`Files: ${installation.files.join(', ')}`);
-      }
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -492,10 +536,10 @@ const update = defineCommand({
       description: 'Resource ID: owner/type/name',
     },
     harness: {
-      type: 'enum',
-      options: ['claude-code', 'opencode', 'codex'],
+      type: 'string',
       default: 'claude-code',
-      description: 'Coding harness to update for',
+      valueHint: 'harness[,harness...]',
+      description: 'Harnesses to update; repeat or separate with commas',
     },
     scope: {
       type: 'enum',
@@ -522,39 +566,41 @@ const update = defineCommand({
       description: 'Continue when managed files were modified',
     },
   },
-  async run({ args }) {
+  async run({ args, rawArgs }) {
     try {
-      const installer = getHarnessAdapter(args.harness);
-      const { harness } = installer;
+      const harnesses = parseHarnesses(args.harness, rawArgs);
 
       const scope = args.scope as InstallScope;
       const manifestPath = getInstallManifestPath(scope);
       const manifest = await readInstallationManifest(manifestPath);
-      const existing = manifest.installations.find(
-        (record) =>
-          record.resource === args.resource &&
-          record.harness === harness &&
-          record.scope === scope,
+      const existing = harnesses.map((harness) =>
+        manifest.installations.find(
+          (record) =>
+            record.resource === args.resource &&
+            record.harness === harness &&
+            record.scope === scope,
+        ),
       );
 
-      if (!existing) {
+      if (existing.some((record) => !record)) {
+        const missing = harnesses.filter((_, index) => !existing[index]);
         throw new Error(
-          `${args.resource} is not installed for ${harness} in the ${scope} scope.`,
+          `${args.resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
         );
       }
 
-      await assertInstallationFilesUnchanged(existing, args.force ?? false);
+      const existingRecords = existing.filter(
+        (record): record is NonNullable<typeof record> => record !== undefined,
+      );
+      for (const record of existingRecords) {
+        await assertInstallationFilesUnchanged(record, args.force ?? false);
+      }
 
       const source = getRegistrySource(args.index, args.repository, args.base);
       const loaded = await readRegistrySourceResource(source, args.resource);
 
       if (loaded.resource.resource.type === 'templates') {
         throw new Error('Templates are updated through their installed resources.');
-      }
-
-      if (loaded.resource.version === existing.version) {
-        console.log(`${args.resource} is already at the latest version (${existing.version}).`);
-        return;
       }
 
       for (const resource of [loaded.resource, ...loaded.resources]) {
@@ -565,17 +611,36 @@ const update = defineCommand({
         }
       }
 
-      const installations = await installer.install(loaded.resources, {
-        scope,
-        force: true,
-      });
-      const records = createInstallationRecords(loaded.resources, installations, scope, harness);
-      await saveInstallationRecords(manifestPath, records, {
-        scope,
-        force: args.force ?? false,
-      });
+      const updatedHarnesses: Harness[] = [];
 
-      console.log(`Updated ${args.resource} from ${existing.version} to ${loaded.resource.version}.`);
+      for (const [index, harness] of harnesses.entries()) {
+        const record = existingRecords[index];
+
+        if (!record) continue;
+
+        if (loaded.resource.version === record.version) {
+          console.log(`${args.resource} is already at the latest version for ${harness} (${record.version}).`);
+          continue;
+        }
+
+        const installer = getHarnessAdapter(harness);
+        const installations = await installer.install(loaded.resources, {
+          scope,
+          force: true,
+        });
+        const records = createInstallationRecords(loaded.resources, installations, scope, harness);
+        await saveInstallationRecords(manifestPath, records, {
+          scope,
+          force: args.force ?? false,
+        });
+        updatedHarnesses.push(harness);
+      }
+
+      if (updatedHarnesses.length > 0) {
+        console.log(
+          `Updated ${args.resource} to ${loaded.resource.version} for ${updatedHarnesses.join(', ')}.`,
+        );
+      }
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -595,10 +660,10 @@ const uninstall = defineCommand({
       description: 'Resource ID: owner/type/name',
     },
     harness: {
-      type: 'enum',
-      options: ['claude-code', 'opencode', 'codex'],
+      type: 'string',
       default: 'claude-code',
-      description: 'Coding harness to uninstall from',
+      valueHint: 'harness[,harness...]',
+      description: 'Harnesses to uninstall from; repeat or separate with commas',
     },
     scope: {
       type: 'enum',
@@ -611,32 +676,43 @@ const uninstall = defineCommand({
       description: 'Continue when managed files were modified',
     },
   },
-  async run({ args }) {
+  async run({ args, rawArgs }) {
     try {
-      const installer = getHarnessAdapter(args.harness);
+      const harnesses = parseHarnesses(args.harness, rawArgs);
       const scope = args.scope as InstallScope;
       const manifestPath = getInstallManifestPath(scope);
       const manifest = await readInstallationManifest(manifestPath);
-      const existing = manifest.installations.find(
-        (record) =>
-          record.resource === args.resource &&
-          record.harness === installer.harness &&
-          record.scope === scope,
+      const existing = harnesses.map((harness) =>
+        manifest.installations.find(
+          (record) =>
+            record.resource === args.resource &&
+            record.harness === harness &&
+            record.scope === scope,
+        ),
       );
 
-      if (!existing) {
+      if (existing.some((record) => !record)) {
+        const missing = harnesses.filter((_, index) => !existing[index]);
         throw new Error(
-          `${args.resource} is not installed for ${installer.harness} in the ${scope} scope.`,
+          `${args.resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
         );
       }
 
-      await uninstallInstallation(existing, {
-        scope,
-        force: args.force ?? false,
-      });
-      await removeInstallationRecord(manifestPath, existing);
+      const existingRecords = existing.filter(
+        (record): record is NonNullable<typeof record> => record !== undefined,
+      );
+      for (const record of existingRecords) {
+        await assertInstallationFilesUnchanged(record, args.force ?? false);
+      }
+      for (const record of existingRecords) {
+        await uninstallInstallation(record, {
+          scope,
+          force: args.force ?? false,
+        });
+        await removeInstallationRecord(manifestPath, record);
+      }
 
-      console.log(`Uninstalled ${args.resource} for ${installer.harness}.`);
+      console.log(`Uninstalled ${args.resource} for ${harnesses.join(', ')}.`);
       console.log(`Updated: ${manifestPath}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
