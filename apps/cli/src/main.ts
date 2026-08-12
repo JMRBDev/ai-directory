@@ -854,34 +854,35 @@ const update = defineCommand({
         async (force) => {
           const manifestPath = getInstallManifestPath(scope);
           const manifest = await readInstallationManifest(manifestPath);
+          const source = getRegistrySource(args.index, args.repository, args.base);
+          const loaded = await readRegistrySourceResource(source, resource);
           const existing = harnesses.map((harness) =>
-            manifest.installations.find(
-              (record) =>
-                record.resource === resource &&
-                record.harness === harness &&
-                record.scope === scope,
+            loaded.resources.map((entry) =>
+              manifest.installations.find(
+                (record) =>
+                  record.resource === resourceKey(entry.resource) &&
+                  record.harness === harness &&
+                  record.scope === scope,
+              ),
             ),
           );
 
-          if (existing.some((record) => !record)) {
-            const missing = harnesses.filter((_, index) => !existing[index]);
+          if (existing.some((records) => records.some((record) => !record))) {
+            const missing = harnesses.filter((_, index) =>
+              existing[index]?.some((record) => !record),
+            );
             throw new Error(
               `${resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
             );
           }
 
-          const existingRecords = existing.filter(
-            (record): record is NonNullable<typeof record> => record !== undefined,
+          const existingRecords = existing.flatMap((records) =>
+            records.filter(
+              (record): record is NonNullable<typeof record> => record !== undefined,
+            ),
           );
           for (const record of existingRecords) {
             await assertInstallationFilesUnchanged(record, force);
-          }
-
-          const source = getRegistrySource(args.index, args.repository, args.base);
-          const loaded = await readRegistrySourceResource(source, resource);
-
-          if (loaded.resource.resource.type === 'templates') {
-            throw new Error('Templates are updated through their installed resources.');
           }
 
           for (const entry of [loaded.resource, ...loaded.resources]) {
@@ -895,12 +896,12 @@ const update = defineCommand({
           const changed: Harness[] = [];
 
           for (const [index, harness] of harnesses.entries()) {
-            const record = existingRecords[index];
+            const installedRecords = existing[index] ?? [];
 
-            if (!record) continue;
-
-            if (loaded.resource.version === record.version) {
-              console.log(`${resource} is already at the latest version for ${harness} (${record.version}).`);
+            if (loaded.resources.every((entry, resourceIndex) =>
+              entry.version === installedRecords[resourceIndex]?.version,
+            )) {
+              console.log(`${resource} is already at the latest version for ${harness} (${loaded.resource.version}).`);
               continue;
             }
 
@@ -909,8 +910,8 @@ const update = defineCommand({
               scope,
               force: true,
             });
-            const records = createInstallationRecords(loaded.resources, installations, scope, harness);
-            await saveInstallationRecords(manifestPath, records, { scope, force });
+            const nextRecords = createInstallationRecords(loaded.resources, installations, scope, harness);
+            await saveInstallationRecords(manifestPath, nextRecords, { scope, force });
             changed.push(harness);
           }
 
@@ -989,24 +990,38 @@ const uninstall = defineCommand({
         async (force) => {
           const manifestPath = getInstallManifestPath(scope);
           const manifest = await readInstallationManifest(manifestPath);
+          const resourceIds = resource.includes('/templates/')
+            ? (
+                await readRegistrySourceResource(
+                  getRegistrySource(),
+                  resource,
+                )
+              ).resources.map((entry) => resourceKey(entry.resource))
+            : [resource];
           const existing = harnesses.map((harness) =>
-            manifest.installations.find(
-              (record) =>
-                record.resource === resource &&
-                record.harness === harness &&
-                record.scope === scope,
+            resourceIds.map((resourceId) =>
+              manifest.installations.find(
+                (record) =>
+                  record.resource === resourceId &&
+                  record.harness === harness &&
+                  record.scope === scope,
+              ),
             ),
           );
 
-          if (existing.some((record) => !record)) {
-            const missing = harnesses.filter((_, index) => !existing[index]);
+          if (existing.some((records) => records.some((record) => !record))) {
+            const missing = harnesses.filter((_, index) =>
+              existing[index]?.some((record) => !record),
+            );
             throw new Error(
               `${resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
             );
           }
 
-          const existingRecords = existing.filter(
-            (record): record is NonNullable<typeof record> => record !== undefined,
+          const existingRecords = existing.flatMap((records) =>
+            records.filter(
+              (record): record is NonNullable<typeof record> => record !== undefined,
+            ),
           );
           for (const record of existingRecords) {
             await assertInstallationFilesUnchanged(record, force);

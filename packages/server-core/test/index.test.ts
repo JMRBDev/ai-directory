@@ -10,6 +10,9 @@ const temporaryDirectories: string[] = [];
 const fixtureIndexPath = fileURLToPath(
   new URL('../../registry/test/fixtures/index.json', import.meta.url),
 );
+const templateIndexPath = fileURLToPath(
+  new URL('../../registry/test/fixtures/template-index.json', import.meta.url),
+);
 
 afterEach(async () => {
   await Promise.all(
@@ -134,6 +137,56 @@ describe('local control API', () => {
     await expect(readFile(skillPath, 'utf8')).rejects.toThrow();
     await expect(readFile(openCodeSkillPath, 'utf8')).rejects.toThrow();
 
+    await expect(app.request('/api/installed?scope=project').then((response) => response.json())).resolves.toEqual({
+      installations: [],
+    });
+  });
+
+  it('installs and uninstalls a template pack by its template ID', async () => {
+    const cwd = await createTemporaryDirectory();
+    const app = createApp({ cwd, registryIndexPath: templateIndexPath });
+    const request = {
+      resource: 'john-doe/templates/review-pack',
+      harnesses: ['codex', 'opencode'],
+      scope: 'project',
+    };
+
+    const install = await app.request('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    expect(install.status).toBe(200);
+    await expect(install.json()).resolves.toMatchObject({
+      resource: { resource: { type: 'templates' } },
+      harnesses: request.harnesses,
+      records: expect.arrayContaining([
+        expect.objectContaining({ resource: 'john-doe/skills/typescript-review', harness: 'codex' }),
+        expect.objectContaining({ resource: 'jane-doe/agents/api-reviewer', harness: 'codex' }),
+        expect.objectContaining({ resource: 'john-doe/skills/typescript-review', harness: 'opencode' }),
+        expect.objectContaining({ resource: 'jane-doe/agents/api-reviewer', harness: 'opencode' }),
+      ]),
+    });
+
+    const update = await app.request('/api/update', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    expect(update.status).toBe(200);
+    await expect(update.json()).resolves.toMatchObject({
+      updated: false,
+      harnesses: request.harnesses,
+    });
+
+    const remove = await app.request(
+      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}&scope=project`,
+      { method: 'DELETE' },
+    );
+
+    expect(remove.status).toBe(200);
     await expect(app.request('/api/installed?scope=project').then((response) => response.json())).resolves.toEqual({
       installations: [],
     });

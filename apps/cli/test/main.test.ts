@@ -17,6 +17,16 @@ const registryIndex = join(
   'fixtures',
   'index.json',
 );
+const templateIndex = join(
+  packageRoot,
+  '..',
+  '..',
+  'packages',
+  'registry',
+  'test',
+  'fixtures',
+  'template-index.json',
+);
 
 type CommandResult = {
   code: number;
@@ -24,8 +34,8 @@ type CommandResult = {
   stderr: string;
 };
 
-function runAid(args: string[], cwd = packageRoot): CommandResult {
-  const environment = { ...process.env, AI_DIRECTORY_REGISTRY_INDEX: registryIndex };
+function runAid(args: string[], cwd = packageRoot, index = registryIndex): CommandResult {
+  const environment = { ...process.env, AI_DIRECTORY_REGISTRY_INDEX: index };
   delete environment.AI_DIRECTORY_REGISTRY_REPOSITORY;
   delete environment.CLAUDE_CONFIG_DIR;
   delete environment.CODEX_HOME;
@@ -116,6 +126,20 @@ describe('CLI', () => {
           }),
         ]),
       );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('updates and uninstalls a template pack by its template ID', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-template-'));
+    const resource = 'john-doe/templates/review-pack';
+    const harnessArguments = ['--scope', 'project', '--harness', 'codex,opencode'];
+
+    try {
+      expect(runAid(['install', resource, ...harnessArguments], cwd, templateIndex).code).toBe(0);
+      expect(runAid(['update', resource, ...harnessArguments], cwd, templateIndex).code).toBe(0);
+      expect(runAid(['uninstall', resource, ...harnessArguments], cwd, templateIndex).code).toBe(0);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

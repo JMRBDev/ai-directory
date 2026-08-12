@@ -161,6 +161,16 @@ function parseResourceRequest(body: unknown): ResourceRequest {
   };
 }
 
+async function installationResourceIds(
+  resource: string,
+  source: RegistrySource,
+): Promise<string[]> {
+  if (!resource.includes('/templates/')) return [resource];
+
+  const loaded = await readRegistrySourceResource(source, resource);
+  return loaded.resources.map((item) => resourceKey(item.resource));
+}
+
 function requestWarnings(resources: ResourceVersion[]): string[] {
   return [...new Set(resources
     .filter((resource) => resource.resource.reviewStatus === 'unreviewed')
@@ -305,42 +315,45 @@ export function createApp(options: ServerOptions = {}) {
       const request = parseResourceRequest(body);
       const manifestPath = getInstallManifestPath(request.scope, cwd);
       const manifest = await readInstallationManifest(manifestPath);
+      const loaded = await readRegistrySourceResource(
+        registrySource(options, cwd),
+        request.resource,
+      );
       const existing = request.harnesses.map((harness) =>
-        manifest.installations.find(
-          (record) =>
-            record.resource === request.resource &&
-            record.harness === harness &&
-            record.scope === request.scope,
+        loaded.resources.map((resource) =>
+          manifest.installations.find(
+            (record) =>
+              record.resource === resourceKey(resource.resource) &&
+              record.harness === harness &&
+              record.scope === request.scope,
+          ),
         ),
       );
 
-      if (existing.some((record) => !record)) {
-        const missing = request.harnesses.filter((_, index) => !existing[index]);
+      if (existing.some((records) => records.some((record) => !record))) {
+        const missing = request.harnesses.filter((_, index) =>
+          existing[index]?.some((record) => !record),
+        );
         throw new Error(
           `${request.resource} is not installed for ${missing.join(', ')} in the ${request.scope} scope.`,
         );
       }
 
-      const existingRecords = existing.filter(
-        (record): record is NonNullable<typeof record> => record !== undefined,
+      const existingRecords = existing.flatMap((records) =>
+        records.filter(
+          (record): record is NonNullable<typeof record> => record !== undefined,
+        ),
       );
       for (const record of existingRecords) {
         await assertInstallationFilesUnchanged(record, request.force);
       }
 
-      const loaded = await readRegistrySourceResource(
-        registrySource(options, cwd),
-        request.resource,
+      const updatedHarnesses = request.harnesses.filter((_, index) =>
+        loaded.resources.some(
+          (resource, resourceIndex) =>
+            resource.version !== existing[index]?.[resourceIndex]?.version,
+        ),
       );
-
-      if (loaded.resource.resource.type === 'templates') {
-        throw new Error('Templates are updated through their installed resources.');
-      }
-
-      const updatedHarnesses = request.harnesses.filter((_, index) => {
-        const record = existing[index];
-        return record !== undefined && loaded.resource.version !== record.version;
-      });
 
       if (updatedHarnesses.length === 0) {
         return context.json({
@@ -398,24 +411,34 @@ export function createApp(options: ServerOptions = {}) {
       const request = parseResourceRequest(rawRequest);
       const manifestPath = getInstallManifestPath(request.scope, cwd);
       const manifest = await readInstallationManifest(manifestPath);
+      const resourceIds = await installationResourceIds(
+        request.resource,
+        registrySource(options, cwd),
+      );
       const existing = request.harnesses.map((harness) =>
-        manifest.installations.find(
-          (record) =>
-            record.resource === request.resource &&
-            record.harness === harness &&
-            record.scope === request.scope,
+        resourceIds.map((resource) =>
+          manifest.installations.find(
+            (record) =>
+              record.resource === resource &&
+              record.harness === harness &&
+              record.scope === request.scope,
+          ),
         ),
       );
 
-      if (existing.some((record) => !record)) {
-        const missing = request.harnesses.filter((_, index) => !existing[index]);
+      if (existing.some((records) => records.some((record) => !record))) {
+        const missing = request.harnesses.filter((_, index) =>
+          existing[index]?.some((record) => !record),
+        );
         throw new Error(
           `${request.resource} is not installed for ${missing.join(', ')} in the ${request.scope} scope.`,
         );
       }
 
-      const existingRecords = existing.filter(
-        (record): record is NonNullable<typeof record> => record !== undefined,
+      const existingRecords = existing.flatMap((records) =>
+        records.filter(
+          (record): record is NonNullable<typeof record> => record !== undefined,
+        ),
       );
       for (const record of existingRecords) {
         await assertInstallationFilesUnchanged(record, request.force);
