@@ -203,37 +203,87 @@ async function readInstalledRecords(): Promise<InstallationRecord[]> {
   ).flat();
 }
 
+type InstalledResourceChoice = {
+  resource: string;
+  resources: string[];
+};
+
+async function resolveResourceMembers(
+  resource: string,
+  source?: ReturnType<typeof resolveRegistrySource>,
+): Promise<string[]> {
+  if (!resource.includes('/templates/')) return [resource];
+  if (!source) throw new Error('A registry source is required to inspect this template.');
+
+  const loaded = await readRegistrySourceResource(source, resource);
+  return loaded.resources.map((entry) => resourceKey(entry.resource));
+}
+
 async function promptInstalledResource(
   records: InstallationRecord[],
-): Promise<string | undefined> {
-  const resources = [...new Set(records.map((record) => record.resource))].sort();
+  source?: ReturnType<typeof resolveRegistrySource>,
+): Promise<InstalledResourceChoice | undefined> {
+  const choices: InstalledResourceChoice[] = [...new Set(records.map((record) => record.resource))]
+    .sort()
+    .map((resource) => ({ resource, resources: [resource] }));
 
-  if (resources.length === 0) {
+  if (source) {
+    const index = await readRegistrySourceIndex(source);
+    const templates = await Promise.all(
+      index.resources
+        .filter((resource) => resource.type === 'templates' && resource.lifecycleStatus === 'active')
+        .map(async (resource) => {
+          const id = resourceKey(resource);
+          const resources = await resolveResourceMembers(id, source);
+          const installed = records.some((record) =>
+            resources.every((member) =>
+              records.some(
+                (candidate) =>
+                  candidate.resource === member &&
+                  candidate.harness === record.harness &&
+                  candidate.scope === record.scope,
+              ),
+            ),
+          );
+
+          return installed ? { resource: id, resources } : undefined;
+        }),
+    );
+
+    choices.push(...templates.filter((choice): choice is InstalledResourceChoice => choice !== undefined));
+  }
+
+  choices.sort((left, right) => left.resource.localeCompare(right.resource));
+
+  if (choices.length === 0) {
     throw new Error('No installed resources found. Install a resource first.');
   }
 
   const answer = await select({
     message: 'Which installed resource do you want to use?',
-    options: resources.map((resource) => ({
-      value: resource,
-      label: resource,
-      hint: records
-        .filter((record) => record.resource === resource)
-        .map((record) => `${record.harness}/${record.scope} · v${record.version}`)
+    options: choices.map((choice) => ({
+      value: choice.resource,
+      label: choice.resource,
+      hint: choice.resources.length > 1
+        ? `${choice.resources.length} component resources`
+        : records
+          .filter((record) => record.resource === choice.resource)
+          .map((record) => `${record.harness}/${record.scope} · v${record.version}`)
         .join(', '),
     })),
   });
 
-  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+  if (isCancel(answer)) return cancelled('Operation cancelled.');
+  return choices.find((choice) => choice.resource === answer);
 }
 
 async function promptInstalledScope(
   records: InstallationRecord[],
-  resource: string,
+  resources: string[],
 ): Promise<InstallScope | undefined> {
   const scopes = [...new Set(
     records
-      .filter((record) => record.resource === resource)
+      .filter((record) => resources.includes(record.resource))
       .map((record) => record.scope),
   )];
 
@@ -252,14 +302,21 @@ async function promptInstalledScope(
 
 async function promptInstalledHarnesses(
   records: InstallationRecord[],
-  resource: string,
+  resources: string[],
   scope: InstallScope,
 ): Promise<Harness[] | undefined> {
-  const available = [...new Set(
-    records
-      .filter((record) => record.resource === resource && record.scope === scope)
-      .map((record) => record.harness),
-  )];
+  const available = harnessOptions
+    .map((option) => option.value)
+    .filter((harness) =>
+      resources.every((resource) =>
+        records.some(
+          (record) =>
+            record.resource === resource &&
+            record.harness === harness &&
+            record.scope === scope,
+        ),
+      ),
+    );
   const answer = await autocompleteMultiselect({
     message: 'Which installed harnesses should be changed?',
     placeholder: 'Type to filter harnesses',
@@ -828,21 +885,31 @@ const update = defineCommand({
       const interactiveTerminal = isInteractiveTerminal();
       const resourceArgument = args.resource.trim();
       const explicitHarnesses = hasHarnessArgument(rawArgs);
+      const source = getRegistrySource(args.index, args.repository, args.base);
       const installedRecords = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses)
         ? await readInstalledRecords()
         : [];
-      const resource = resourceArgument || (
-        interactiveTerminal ? await promptInstalledResource(installedRecords) : undefined
-      );
-      if (!resource) throw new Error('Resource ID is required. Pass it as the positional argument.');
+      const choice = resourceArgument
+        ? {
+            resource: resourceArgument,
+            resources: await resolveResourceMembers(resourceArgument, source),
+          }
+        : (
+            interactiveTerminal
+              ? await promptInstalledResource(installedRecords, source)
+              : undefined
+          );
+      if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
+      const resource = choice.resource;
+      const resourceIds = choice.resources;
       const scope = args.scope ?? (
-        interactiveTerminal ? await promptInstalledScope(installedRecords, resource) : undefined
+        interactiveTerminal ? await promptInstalledScope(installedRecords, resourceIds) : undefined
       );
       if (!scope) throw new Error('Installation scope is required. Pass `--scope project|global`.');
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
         : interactiveTerminal
-          ? await promptInstalledHarnesses(installedRecords, resource, scope)
+          ? await promptInstalledHarnesses(installedRecords, resourceIds, scope)
           : parseHarnesses(args.harness, rawArgs);
 
       if (!harnesses) throw new Error('Select at least one harness.');
@@ -854,7 +921,6 @@ const update = defineCommand({
         async (force) => {
           const manifestPath = getInstallManifestPath(scope);
           const manifest = await readInstallationManifest(manifestPath);
-          const source = getRegistrySource(args.index, args.repository, args.base);
           const loaded = await readRegistrySourceResource(source, resource);
           const existing = harnesses.map((harness) =>
             loaded.resources.map((entry) =>
@@ -954,6 +1020,20 @@ const uninstall = defineCommand({
       options: ['project', 'global'],
       description: 'Installation scope to change',
     },
+    index: {
+      type: 'string',
+      alias: 'i',
+      description: 'Local registry index path for template resources',
+    },
+    repository: {
+      type: 'string',
+      description: 'Git repository URL for template resources',
+    },
+    base: {
+      type: 'string',
+      default: 'main',
+      description: 'Production branch to read from',
+    },
     force: {
       type: 'boolean',
       description: 'Continue when managed files were modified',
@@ -964,21 +1044,37 @@ const uninstall = defineCommand({
       const interactiveTerminal = isInteractiveTerminal();
       const resourceArgument = args.resource.trim();
       const explicitHarnesses = hasHarnessArgument(rawArgs);
+      const source = (() => {
+        try {
+          return getRegistrySource(args.index, args.repository, args.base);
+        } catch {
+          return undefined;
+        }
+      })();
       const installedRecords = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses)
         ? await readInstalledRecords()
         : [];
-      const resource = resourceArgument || (
-        interactiveTerminal ? await promptInstalledResource(installedRecords) : undefined
-      );
-      if (!resource) throw new Error('Resource ID is required. Pass it as the positional argument.');
+      const choice = resourceArgument
+        ? {
+            resource: resourceArgument,
+            resources: await resolveResourceMembers(resourceArgument, source),
+          }
+        : (
+            interactiveTerminal
+              ? await promptInstalledResource(installedRecords, source)
+              : undefined
+          );
+      if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
+      const resource = choice.resource;
+      const resourceIds = choice.resources;
       const scope = args.scope ?? (
-        interactiveTerminal ? await promptInstalledScope(installedRecords, resource) : undefined
+        interactiveTerminal ? await promptInstalledScope(installedRecords, resourceIds) : undefined
       );
       if (!scope) throw new Error('Installation scope is required. Pass `--scope project|global`.');
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
         : interactiveTerminal
-          ? await promptInstalledHarnesses(installedRecords, resource, scope)
+          ? await promptInstalledHarnesses(installedRecords, resourceIds, scope)
           : parseHarnesses(args.harness, rawArgs);
 
       if (!harnesses) throw new Error('Select at least one harness.');
@@ -990,14 +1086,6 @@ const uninstall = defineCommand({
         async (force) => {
           const manifestPath = getInstallManifestPath(scope);
           const manifest = await readInstallationManifest(manifestPath);
-          const resourceIds = resource.includes('/templates/')
-            ? (
-                await readRegistrySourceResource(
-                  getRegistrySource(),
-                  resource,
-                )
-              ).resources.map((entry) => resourceKey(entry.resource))
-            : [resource];
           const existing = harnesses.map((harness) =>
             resourceIds.map((resourceId) =>
               manifest.installations.find(
