@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  createRegistrySnapshot,
   publishResource,
   readRemoteRegistryIndex,
   readRemoteResource,
@@ -98,6 +99,45 @@ describe('readRegistryIndex', () => {
 
     expect(index.resources).toEqual([]);
     expect(commands).toContain('git sparse-checkout set index.json');
+    await expect(readFile(join(temporaryRepository, 'index.json'), 'utf8')).rejects.toThrow();
+  });
+
+  it('reuses one temporary checkout across index and resource reads', async () => {
+    const commands: string[] = [];
+    let temporaryRepository = '';
+    const fixtureDirectory = fileURLToPath(new URL('./fixtures', import.meta.url));
+    const snapshot = await createRegistrySnapshot(
+      {
+        type: 'remote',
+        repositoryUrl: 'git@example.com:company/registry.git',
+        baseBranch: 'main',
+      },
+      async (command, args) => {
+        commands.push(`${command} ${args.join(' ')}`);
+
+        if (command === 'git' && args[0] === 'clone') {
+          const destination = args.at(-1);
+
+          if (!destination) throw new Error('Missing clone destination.');
+
+          temporaryRepository = destination;
+          await cp(fixtureDirectory, destination, { recursive: true });
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    );
+
+    expect((await snapshot.readIndex()).resources).toHaveLength(3);
+    expect(
+      (await snapshot.readResource('john-doe/skills/typescript-review')).resource.version,
+    ).toBe('1.2.0');
+    expect(
+      (await snapshot.readResource('jane-doe/agents/api-reviewer')).resource.version,
+    ).toBe('0.3.0');
+    expect(commands.filter((command) => command.startsWith('git clone '))).toHaveLength(1);
+
+    await snapshot.close();
     await expect(readFile(join(temporaryRepository, 'index.json'), 'utf8')).rejects.toThrow();
   });
 

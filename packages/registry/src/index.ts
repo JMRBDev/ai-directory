@@ -56,6 +56,14 @@ export type RegistrySource =
   | { type: 'local'; indexPath: string }
   | { type: 'remote'; repositoryUrl: string; baseBranch: string };
 
+export type RegistrySnapshot = {
+  source: RegistrySource;
+  indexPath: string;
+  readIndex(): Promise<RegistryIndex>;
+  readResource(resourceId: string, version?: string): Promise<RemoteResourceResult>;
+  close(): Promise<void>;
+};
+
 export type RemoteResourceResult = {
   resource: ResourceVersion;
   resources: ResourceVersion[];
@@ -260,20 +268,19 @@ export async function readResourceVersion(
 export async function readRemoteRegistryIndex(
   options: RemoteRegistryOptions,
 ): Promise<RegistryIndex> {
-  const temporaryRepository = await mkdtemp(join(tmpdir(), 'ai-directory-index-'));
-  const runner = options.commandRunner ?? runCommand;
+  const snapshot = await createRegistrySnapshot(
+    {
+      type: 'remote',
+      repositoryUrl: options.repositoryUrl,
+      baseBranch: options.baseBranch ?? 'main',
+    },
+    options.commandRunner,
+  );
 
   try {
-    await clonePartialRepository(
-      runner,
-      options.repositoryUrl,
-      temporaryRepository,
-      options.baseBranch ?? 'main',
-    );
-
-    return readRegistryIndex(join(temporaryRepository, 'index.json'));
+    return await snapshot.readIndex();
   } finally {
-    await rm(temporaryRepository, { recursive: true, force: true });
+    await snapshot.close();
   }
 }
 
@@ -298,23 +305,91 @@ export async function validateRemoteRegistry(
 export async function readRemoteResource(
   options: RemoteResourceOptions,
 ): Promise<RemoteResourceResult> {
-  const temporaryRepository = await mkdtemp(join(tmpdir(), 'ai-directory-read-'));
-  const runner = options.commandRunner ?? runCommand;
+  const snapshot = await createRegistrySnapshot(
+    {
+      type: 'remote',
+      repositoryUrl: options.repositoryUrl,
+      baseBranch: options.baseBranch ?? 'main',
+    },
+    options.commandRunner,
+  );
+
+  try {
+    return await snapshot.readResource(options.resourceId, options.version);
+  } finally {
+    await snapshot.close();
+  }
+}
+
+export async function createRegistrySnapshot(
+  source: RegistrySource,
+  commandRunner = runCommand,
+): Promise<RegistrySnapshot> {
+  if (source.type === 'local') {
+    return {
+      source,
+      indexPath: source.indexPath,
+      readIndex: () => readRegistryIndex(source.indexPath),
+      readResource: async (resourceId, version) => {
+        const resource = await readResourceVersion(source.indexPath, resourceId, version);
+
+        return {
+          resource,
+          resources:
+            resource.resource.type === 'templates'
+              ? await readTemplateResources(source.indexPath, resource)
+              : [resource],
+        };
+      },
+      close: async () => undefined,
+    };
+  }
+
+  const temporaryRepository = await mkdtemp(join(tmpdir(), 'ai-directory-snapshot-'));
 
   try {
     await clonePartialRepository(
-      runner,
-      options.repositoryUrl,
+      commandRunner,
+      source.repositoryUrl,
       temporaryRepository,
-      options.baseBranch ?? 'main',
+      source.baseBranch,
     );
 
-    const indexPath = join(temporaryRepository, 'index.json');
-    const target = await findResourceVersion(indexPath, options.resourceId, options.version);
+    return createRemoteRegistrySnapshot(source, temporaryRepository, commandRunner);
+  } catch (error) {
+    await rm(temporaryRepository, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function createRemoteRegistrySnapshot(
+  source: Extract<RegistrySource, { type: 'remote' }>,
+  repositoryRoot: string,
+  runner: CommandRunner,
+): RegistrySnapshot {
+  const indexPath = join(repositoryRoot, 'index.json');
+  const patterns = new Set(['index.json']);
+  let sparseUpdate = Promise.resolve();
+  let closed = false;
+  let closePromise: Promise<void> | undefined;
+
+  async function ensurePaths(paths: string[]): Promise<void> {
+    if (closed) throw new Error('Registry snapshot is closed.');
+
+    for (const path of paths) patterns.add(path);
+
+    sparseUpdate = sparseUpdate.then(() =>
+      setSparseCheckout(runner, repositoryRoot, [...patterns]),
+    );
+    await sparseUpdate;
+  }
+
+  async function readResource(resourceId: string, version?: string): Promise<RemoteResourceResult> {
+    const target = await findResourceVersion(indexPath, resourceId, version);
     const targetPattern = resourcePackagePath(target.resource, target.version);
 
-    await setSparseCheckout(runner, temporaryRepository, ['index.json', targetPattern]);
-    const resource = await readResourceVersion(indexPath, options.resourceId, target.version);
+    await ensurePaths([targetPattern]);
+    const resource = await readResourceVersion(indexPath, resourceId, target.version);
 
     if (resource.resource.type !== 'templates') {
       return { resource, resources: [resource] };
@@ -327,13 +402,11 @@ export async function readRemoteResource(
       ),
     );
 
-    await setSparseCheckout(runner, temporaryRepository, [
-      'index.json',
-      targetPattern,
-      ...dependencies.map((dependency) =>
+    await ensurePaths(
+      dependencies.map((dependency) =>
         resourcePackagePath(dependency.resource, dependency.version),
       ),
-    ]);
+    );
 
     const resources = await Promise.all(
       dependencies.map((dependency) =>
@@ -342,9 +415,23 @@ export async function readRemoteResource(
     );
 
     return { resource, resources };
-  } finally {
-    await rm(temporaryRepository, { recursive: true, force: true });
   }
+
+  return {
+    source,
+    indexPath,
+    readIndex: () => readRegistryIndex(indexPath),
+    readResource,
+    close: async () => {
+      if (closePromise) return closePromise;
+
+      closed = true;
+      closePromise = sparseUpdate
+        .catch(() => undefined)
+        .then(() => rm(repositoryRoot, { recursive: true, force: true }));
+      return closePromise;
+    },
+  };
 }
 
 export function resolveRegistrySource(options: {
