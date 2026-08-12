@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -6,6 +7,9 @@ import { readConfigFile } from '@ai-directory/config';
 import { createApp } from '../src/index.js';
 
 const temporaryDirectories: string[] = [];
+const fixtureIndexPath = fileURLToPath(
+  new URL('../../registry/test/fixtures/index.json', import.meta.url),
+);
 
 afterEach(async () => {
   await Promise.all(
@@ -70,6 +74,61 @@ describe('local control API', () => {
     expect(objectResponse.status).toBe(400);
     await expect(objectResponse.json()).resolves.toEqual({
       error: 'Request body must be a JSON object.',
+    });
+  });
+
+  it('installs, lists, and safely uninstalls a resource', async () => {
+    const cwd = await createTemporaryDirectory();
+    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const request = {
+      resource: 'john-doe/skills/typescript-review',
+      harness: 'claude-code',
+      scope: 'project',
+    };
+
+    const install = await app.request('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    expect(install.status).toBe(200);
+    await expect(install.json()).resolves.toMatchObject({
+      resource: { version: '1.2.0' },
+      records: [
+        expect.objectContaining({
+          resource: request.resource,
+          fileHashes: expect.any(Object),
+        }),
+      ],
+    });
+
+    const skillPath = join(cwd, '.claude', 'skills', 'typescript-review', 'SKILL.md');
+    await expect(readFile(skillPath, 'utf8')).resolves.toContain('TypeScript');
+
+    const listed = await app.request('/api/installed?scope=project');
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toMatchObject({
+      installations: [expect.objectContaining({ resource: request.resource })],
+    });
+
+    await writeFile(skillPath, '# Local edit\n', 'utf8');
+    const blocked = await app.request(
+      `/api/installed?resource=${encodeURIComponent(request.resource)}&harness=claude-code&scope=project`,
+      { method: 'DELETE' },
+    );
+    expect(blocked.status).toBe(400);
+    await expect(readFile(skillPath, 'utf8')).resolves.toBe('# Local edit\n');
+
+    const forced = await app.request(
+      `/api/installed?resource=${encodeURIComponent(request.resource)}&harness=claude-code&scope=project&force=true`,
+      { method: 'DELETE' },
+    );
+    expect(forced.status).toBe(200);
+    await expect(readFile(skillPath, 'utf8')).rejects.toThrow();
+
+    await expect(app.request('/api/installed?scope=project').then((response) => response.json())).resolves.toEqual({
+      installations: [],
     });
   });
 });
