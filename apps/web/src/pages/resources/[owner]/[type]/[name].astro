@@ -16,36 +16,23 @@ type Props = {
   fileError?: string;
 };
 
-export async function getStaticPaths() {
-  const registry = await loadRegistry();
+const requestedResourceId = [Astro.params.owner, Astro.params.type, Astro.params.name].join('/');
+const registry = await loadRegistry();
+const resource = registry.index?.resources.find(
+  (candidate) =>
+    candidate.lifecycleStatus === 'active' && resourceId(candidate) === requestedResourceId,
+);
 
-  if (!registry.index) return [];
+if (!resource) return Astro.redirect('/');
 
-  return Promise.all(
-    registry.index.resources
-      .filter((resource) => resource.lifecycleStatus === 'active')
-      .map(async (resource) => {
-        const result = await loadResource(registry.indexPath, resource, registry.repository);
-
-        return {
-          params: {
-            owner: resource.owner,
-            type: resource.type,
-            name: resource.name,
-          },
-          props: {
-            resource,
-            version: result.version,
-            componentResources: result.resources.map((item) => resourceId(item.resource)),
-            source: registry.source,
-            ...(result.error ? { fileError: result.error } : {}),
-          },
-        };
-      }),
-  );
-}
-
-const { resource, version, componentResources, source, fileError } = Astro.props as Props;
+const result = await loadResource(registry.indexPath, resource, registry.repository);
+const { version, componentResources, source, fileError } = {
+  resource,
+  version: result.version,
+  componentResources: result.resources.map((item) => resourceId(item.resource)),
+  source: registry.source,
+  ...(result.error ? { fileError: result.error } : {}),
+} satisfies Props;
 const title = `${resource.name} | AI Directory`;
 const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
