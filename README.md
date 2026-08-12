@@ -38,7 +38,7 @@ pnpm install
 pnpm dev
 ```
 
-The root `dev` command starts the long-running API and website. The CLI is command-driven and is not part of that process; run it directly with `apps/cli/dist/aid ...` after `pnpm build`. The workspace contains the first discovery slices. Product behavior will continue to be added in small vertical slices.
+The root `dev` command starts the long-running API and website. The CLI is interactive or command-driven and is not part of that process; run it directly with `apps/cli/dist/aid ...` after `pnpm build`. The workspace contains the first discovery slices. Product behavior will continue to be added in small vertical slices.
 
 Run the development CLI without building its compiled binary:
 
@@ -46,6 +46,17 @@ Run the development CLI without building its compiled binary:
 pnpm --filter @ai-directory/cli dev -- list
 pnpm --filter @ai-directory/cli dev -- --help
 ```
+
+Use the guided CLI when you do not want to remember arguments:
+
+```sh
+apps/cli/dist/aid
+apps/cli/dist/aid install
+apps/cli/dist/aid update
+apps/cli/dist/aid uninstall
+```
+
+The guided flows search resources, select the installation scope, and allow one or more harnesses. Existing flags remain available. Commands do not prompt when stdin or stdout is not a terminal; provide the required positional arguments and options for scripts or CI.
 
 ## Resource discovery
 
@@ -161,7 +172,7 @@ The same remote checkout mode is available during installation:
 
 ```sh
 apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
-  --scope project
+  --scope project --harness claude-code
 ```
 
 Select the target harness when needed:

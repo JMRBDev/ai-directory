@@ -126,6 +126,10 @@ function cancelled(message: string): undefined {
   return undefined;
 }
 
+function isInteractiveTerminal(): boolean {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
 async function promptRequiredText(
   message: string,
   placeholder: string,
@@ -392,8 +396,10 @@ const show = defineCommand({
   async run({ args }) {
     try {
       const source = getRegistrySource(args.index, args.repository, args.base);
-      const resource = args.resource.trim() || await promptResource(source);
-      if (!resource) return;
+      const resource = args.resource.trim() || (
+        isInteractiveTerminal() ? await promptResource(source) : undefined
+      );
+      if (!resource) throw new Error('Resource ID is required. Run `aid show <resource>` in a script.');
       const result = (
         await readRegistrySourceResource(source, resource, args.version)
       ).resource;
@@ -533,29 +539,30 @@ const submit = defineCommand({
   },
   async run({ args }) {
     try {
-      const sourceDirectory = args.source.trim() || await promptRequiredText(
-        'Where is the resource directory?',
-        './resources/my-resource',
+      const interactive = isInteractiveTerminal();
+      const sourceDirectory = args.source.trim() || (
+        interactive
+          ? await promptRequiredText('Where is the resource directory?', './resources/my-resource')
+          : undefined
       );
-      if (!sourceDirectory) return;
+      if (!sourceDirectory) throw new Error('Resource directory is required. Run `aid submit <source>` in a script.');
 
-      const resourceId = args.id.trim() || await promptRequiredText(
-        'What is the resource ID?',
-        'owner/skills/my-resource',
+      const resourceId = args.id.trim() || (
+        interactive
+          ? await promptRequiredText('What is the resource ID?', 'owner/skills/my-resource')
+          : undefined
       );
-      if (!resourceId) return;
+      if (!resourceId) throw new Error('Resource ID is required. Pass `--id` in a script.');
 
-      const version = args.version.trim() || await promptRequiredText(
-        'What version are you publishing?',
-        '1.0.0',
+      const version = args.version.trim() || (
+        interactive ? await promptRequiredText('What version are you publishing?', '1.0.0') : undefined
       );
-      if (!version) return;
+      if (!version) throw new Error('Version is required. Pass `--version` in a script.');
 
-      const description = args.description.trim() || await promptRequiredText(
-        'What does this resource do?',
-        'Short description',
+      const description = args.description.trim() || (
+        interactive ? await promptRequiredText('What does this resource do?', 'Short description') : undefined
       );
-      if (!description) return;
+      if (!description) throw new Error('Description is required. Pass `--description` in a script.');
 
       const source = getRegistrySource(args.index, args.repository, args.base);
       const result = await submitResource({
@@ -634,18 +641,23 @@ const install = defineCommand({
   },
   async run({ args, rawArgs }) {
     try {
+      const interactiveTerminal = isInteractiveTerminal();
       const source = getRegistrySource(args.index, args.repository, args.base);
       const resourceArgument = args.resource.trim();
-      const resource = resourceArgument || await promptResource(source);
-      if (!resource) return;
-      const scope = args.scope ?? await promptScope();
-      if (!scope) return;
+      const resource = resourceArgument || (
+        interactiveTerminal ? await promptResource(source) : undefined
+      );
+      if (!resource) throw new Error('Resource ID is required. Pass it as the positional argument.');
+      const scope = args.scope ?? (interactiveTerminal ? await promptScope() : undefined);
+      if (!scope) throw new Error('Installation scope is required. Pass `--scope project|global`.');
       const explicitHarnesses = hasHarnessArgument(rawArgs);
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
-        : await promptHarnesses();
+        : interactiveTerminal
+          ? await promptHarnesses()
+          : parseHarnesses(args.harness, rawArgs);
 
-      if (!harnesses) return;
+      if (!harnesses) throw new Error('Select at least one harness.');
 
       const loaded = await readRegistrySourceResource(source, resource, args.version);
       const result = loaded.resource;
@@ -661,7 +673,7 @@ const install = defineCommand({
       }
 
       const manifestPath = getInstallManifestPath(scope);
-      const interactive = !resourceArgument || !args.scope || !explicitHarnesses;
+      const interactive = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses);
 
       const installationsByHarness = await withInteractiveForce(
         interactive,
@@ -813,22 +825,29 @@ const update = defineCommand({
   },
   async run({ args, rawArgs }) {
     try {
+      const interactiveTerminal = isInteractiveTerminal();
       const resourceArgument = args.resource.trim();
       const explicitHarnesses = hasHarnessArgument(rawArgs);
-      const installedRecords = !resourceArgument || !args.scope || !explicitHarnesses
+      const installedRecords = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses)
         ? await readInstalledRecords()
         : [];
-      const resource = resourceArgument || await promptInstalledResource(installedRecords);
-      if (!resource) return;
-      const scope = args.scope ?? await promptInstalledScope(installedRecords, resource);
-      if (!scope) return;
+      const resource = resourceArgument || (
+        interactiveTerminal ? await promptInstalledResource(installedRecords) : undefined
+      );
+      if (!resource) throw new Error('Resource ID is required. Pass it as the positional argument.');
+      const scope = args.scope ?? (
+        interactiveTerminal ? await promptInstalledScope(installedRecords, resource) : undefined
+      );
+      if (!scope) throw new Error('Installation scope is required. Pass `--scope project|global`.');
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
-        : await promptInstalledHarnesses(installedRecords, resource, scope);
+        : interactiveTerminal
+          ? await promptInstalledHarnesses(installedRecords, resource, scope)
+          : parseHarnesses(args.harness, rawArgs);
 
-      if (!harnesses) return;
+      if (!harnesses) throw new Error('Select at least one harness.');
 
-      const interactive = !resourceArgument || !args.scope || !explicitHarnesses;
+      const interactive = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses);
       const updatedHarnesses = await withInteractiveForce(
         interactive,
         args.force ?? false,
@@ -941,22 +960,29 @@ const uninstall = defineCommand({
   },
   async run({ args, rawArgs }) {
     try {
+      const interactiveTerminal = isInteractiveTerminal();
       const resourceArgument = args.resource.trim();
       const explicitHarnesses = hasHarnessArgument(rawArgs);
-      const installedRecords = !resourceArgument || !args.scope || !explicitHarnesses
+      const installedRecords = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses)
         ? await readInstalledRecords()
         : [];
-      const resource = resourceArgument || await promptInstalledResource(installedRecords);
-      if (!resource) return;
-      const scope = args.scope ?? await promptInstalledScope(installedRecords, resource);
-      if (!scope) return;
+      const resource = resourceArgument || (
+        interactiveTerminal ? await promptInstalledResource(installedRecords) : undefined
+      );
+      if (!resource) throw new Error('Resource ID is required. Pass it as the positional argument.');
+      const scope = args.scope ?? (
+        interactiveTerminal ? await promptInstalledScope(installedRecords, resource) : undefined
+      );
+      if (!scope) throw new Error('Installation scope is required. Pass `--scope project|global`.');
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
-        : await promptInstalledHarnesses(installedRecords, resource, scope);
+        : interactiveTerminal
+          ? await promptInstalledHarnesses(installedRecords, resource, scope)
+          : parseHarnesses(args.harness, rawArgs);
 
-      if (!harnesses) return;
+      if (!harnesses) throw new Error('Select at least one harness.');
 
-      const interactive = !resourceArgument || !args.scope || !explicitHarnesses;
+      const interactive = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses);
       const result = await withInteractiveForce(
         interactive,
         args.force ?? false,
@@ -1149,7 +1175,7 @@ const setup = defineCommand({
     },
   },
   async run({ args }) {
-    const nonInteractive = args['non-interactive'] ?? false;
+    const nonInteractive = args['non-interactive'] ?? !isInteractiveTerminal();
     const existing = getRepositorySetting();
 
     try {
@@ -1205,15 +1231,20 @@ const setup = defineCommand({
       }
 
       if (!args['skip-check']) {
-        const progress = spinner();
-        progress.start('Checking Git access and reading the production registry');
-
-        try {
+        if (nonInteractive) {
           const index = await readRemoteRegistryIndex({ repositoryUrl: repository });
-          progress.stop(`Connected. Found ${index.resources.length} resource(s).`);
-        } catch (error) {
-          progress.stop('Could not read the registry.');
-          throw error;
+          console.log(`Connected. Found ${index.resources.length} resource(s).`);
+        } else {
+          const progress = spinner();
+          progress.start('Checking Git access and reading the production registry');
+
+          try {
+            const index = await readRemoteRegistryIndex({ repositoryUrl: repository });
+            progress.stop(`Connected. Found ${index.resources.length} resource(s).`);
+          } catch (error) {
+            progress.stop('Could not read the registry.');
+            throw error;
+          }
         }
       }
 
@@ -1560,7 +1591,10 @@ const main = defineCommand({
     config,
   },
   async run({ rawArgs }) {
-    if (rawArgs.length === 0) await runInteractiveMain();
+    if (rawArgs.length === 0) {
+      if (isInteractiveTerminal()) await runInteractiveMain();
+      else await showUsage(main);
+    }
   },
 });
 
