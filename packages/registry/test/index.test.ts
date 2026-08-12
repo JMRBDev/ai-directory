@@ -342,7 +342,22 @@ describe('validateResourceDirectory', () => {
     });
 
     expect(result.entryFile.path).toBe('TEMPLATE.md');
+    expect(result.description).toBe('A review pack for TypeScript API changes.');
     expect(result.files).toHaveLength(1);
+  });
+
+  it('accepts an explicit description when the entry file has no usable text', async () => {
+    const { sourceDirectory } = await createPublishFixture();
+    await writeFile(join(sourceDirectory, 'SKILL.md'), '#\n', 'utf8');
+
+    const result = await validateResourceDirectory({
+      sourceDirectory,
+      resourceId: 'jane-doe/skills/web-review',
+      version: '1.0.0',
+      description: 'Review web changes.',
+    });
+
+    expect(result.description).toBe('Review web changes.');
   });
 });
 

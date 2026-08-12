@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { readConfigFile } from '@ai-directory/config';
+import { getConfigPath, readConfigFile, writeConfigFile } from '@ai-directory/config';
 import { createApp } from '../src/index.js';
 
 const temporaryDirectories: string[] = [];
@@ -78,6 +78,96 @@ describe('local control API', () => {
     await expect(objectResponse.json()).resolves.toEqual({
       error: 'Request body must be a JSON object.',
     });
+  });
+
+  it('returns the authenticated GitHub username for resource IDs', async () => {
+    const app = createApp({
+      cwd: await createTemporaryDirectory(),
+      commandRunner: async (command, args) => {
+        expect([command, ...args]).toEqual(['gh', 'api', 'user', '--jq', '.login']);
+        return { stdout: 'JMRBDev\n', stderr: '' };
+      },
+    });
+
+    const response = await app.request('/api/github-user');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ username: 'jmrbdev' });
+  });
+
+  it('validates an uploaded resource without touching Git', async () => {
+    const app = createApp({ cwd: await createTemporaryDirectory() });
+    const form = resourceForm({
+      resourceId: 'jane-doe/skills/web-review',
+    });
+
+    const response = await app.request('/api/validate', {
+      method: 'POST',
+      body: form,
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      resource: 'jane-doe/skills/web-review',
+      version: '1.0.0',
+      description: 'Web review',
+      entryFile: 'SKILL.md',
+      files: ['SKILL.md'],
+    });
+  });
+
+  it('submits an uploaded resource through the configured Git registry', async () => {
+    const cwd = await createTemporaryDirectory();
+    await writeConfigFile(getConfigPath('project', cwd), {
+      repository: 'git@example.com:company/registry.git',
+    });
+    const commands: string[] = [];
+    const app = createApp({
+      cwd,
+      commandRunner: async (command, args) => {
+        commands.push(`${command} ${args.join(' ')}`);
+
+        if (command === 'git' && args[0] === 'clone') {
+          const destination = args.at(-1);
+          if (!destination) throw new Error('Missing clone destination.');
+          await writeFile(
+            join(destination, 'index.json'),
+            JSON.stringify({ schemaVersion: 1, resources: [] }),
+            'utf8',
+          );
+        }
+
+        if (command === 'git' && args[0] === 'branch') return { stdout: 'main\n', stderr: '' };
+        if (command === 'git' && args[0] === 'rev-parse') return { stdout: 'abc123\n', stderr: '' };
+        if (command === 'gh' && args[0] === 'pr') {
+          return { stdout: 'https://github.com/example/registry/pull/42\n', stderr: '' };
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    });
+    const form = resourceForm({
+      resourceId: 'jane-doe/skills/web-review',
+    });
+
+    const response = await app.request('/api/submit', {
+      method: 'POST',
+      body: form,
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      resource: {
+        owner: 'jane-doe',
+        type: 'skills',
+        name: 'web-review',
+        latestVersion: '1.0.0',
+        reviewStatus: 'unreviewed',
+        description: 'Web review',
+      },
+      pullRequestUrl: 'https://github.com/example/registry/pull/42',
+    });
+    expect(commands).toContain('gh auth status');
   });
 
   it('installs one resource for multiple harnesses and safely uninstalls it', async () => {
@@ -197,4 +287,17 @@ async function createTemporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'ai-directory-server-'));
   temporaryDirectories.push(directory);
   return directory;
+}
+
+function resourceForm(options: {
+  resourceId: string;
+  description?: string;
+  version?: string;
+}): FormData {
+  const form = new FormData();
+  form.set('resourceId', options.resourceId);
+  form.set('version', options.version ?? '1.0.0');
+  if (options.description) form.set('description', options.description);
+  form.append('files[]', new File(['# Web review\n'], 'SKILL.md', { type: 'text/markdown' }));
+  return form;
 }

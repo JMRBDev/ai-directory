@@ -42,8 +42,9 @@ function statusLabel(resource: ResourceSummary): string {
               ? registry.source === 'remote'
                 ? 'Configured Git registry'
                 : 'Explicit local index'
-              : 'Registry unavailable'}
+            : 'Registry unavailable'}
           </span>
+          <a class="header-link" href="/publish/">Publish</a>
           <a class="header-link" href="/settings/">Settings</a>
         </div>
       </div>
@@ -165,7 +166,10 @@ function statusLabel(resource: ResourceSummary): string {
           <p class="help-label">Share a resource</p>
           <p>Prepare its entry file and submit a pull request for review.</p>
         </div>
-        <code>aid submit ./resource --id owner/skills/name --version 1.0.0</code>
+        <div class="help-actions">
+          <a class="button-link" href="/publish/">Publish from website</a>
+          <code>aid submit ./resource --id owner/skills/name --version 1.0.0</code>
+        </div>
       </section>
     </main>
 

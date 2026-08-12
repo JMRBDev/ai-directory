@@ -1019,10 +1019,7 @@ const submit = defineCommand({
       );
       if (!version) throw new Error('Version is required. Pass `--version` in a script.');
 
-      const description = args.description.trim() || (
-        interactive ? await promptRequiredText('What does this resource do?', 'Short description') : undefined
-      );
-      if (!description) throw new Error('Description is required. Pass `--description` in a script.');
+      const description = args.description.trim();
 
       if (!resourceIdSchema.safeParse(resourceId).success) {
         throw new Error(`Invalid resource ID: ${resourceId}`);
@@ -1051,7 +1048,7 @@ const submit = defineCommand({
         sourceDirectory: sourcePath,
         resourceId,
         version,
-        description,
+        ...(description ? { description } : {}),
         baseBranch: args.base,
         remote: args.remote,
         ...(source.type === 'remote' ? { repositoryUrl: source.repositoryUrl } : {}),

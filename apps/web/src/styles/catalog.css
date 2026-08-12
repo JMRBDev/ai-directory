@@ -41,6 +41,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   min-width: 320px;
   background: var(--page);
@@ -60,7 +64,8 @@ a {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -264,7 +269,8 @@ h2 {
 }
 
 input,
-select {
+select,
+textarea {
   min-height: 40px;
   border: 1px solid var(--line-strong);
   border-radius: 7px;
@@ -278,6 +284,13 @@ input {
   padding: 0 12px;
 }
 
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 select {
   min-width: 148px;
   padding: 0 32px 0 10px;
@@ -285,6 +298,7 @@ select {
 
 input:focus,
 select:focus,
+textarea:focus,
 a:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent) 42%, transparent);
   outline-offset: 2px;
@@ -447,6 +461,31 @@ a:focus-visible {
   white-space: nowrap;
 }
 
+.help-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.button-link {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 15px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 7px;
+  background: var(--accent);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.button-link:hover {
+  background: var(--accent-strong);
+}
+
 .site-footer {
   display: flex;
   justify-content: space-between;
@@ -501,6 +540,158 @@ a:focus-visible {
   display: grid;
   gap: 24px;
   padding: 26px;
+}
+
+.publish-form {
+  display: grid;
+  gap: 24px;
+  padding: 26px;
+}
+
+.publish-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(150px, 1fr);
+  gap: 16px;
+}
+
+.resource-id-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.resource-id-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(120px, 0.9fr) minmax(0, 1.4fr);
+  gap: 8px;
+}
+
+.resource-id-fields input:disabled {
+  color: var(--ink);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.form-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.form-hint[data-error='true'] {
+  color: var(--warning);
+}
+
+.file-picker {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 84%, var(--page));
+}
+
+.file-picker input {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.file-picker-note,
+.publish-file-summary,
+.publish-review-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.publish-file-summary {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.publish-file-summary strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.publish-file-list {
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.publish-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.publish-review {
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent-wash) 42%, var(--surface));
+}
+
+.publish-review h2 {
+  margin: 0;
+}
+
+.publish-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+
+.publish-review-grid div {
+  display: grid;
+  gap: 5px;
+}
+
+.publish-review-grid dt {
+  color: var(--muted);
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.description-editor {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 84%, var(--page));
+}
+
+.publish-review-grid dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.publish-review-note {
+  margin: 0;
 }
 
 .scope-options {
@@ -788,6 +979,16 @@ button:hover {
 
   .result-count {
     margin-bottom: 0;
+  }
+
+  .help-actions {
+    justify-items: stretch;
+  }
+
+  .publish-grid,
+  .publish-review-grid,
+  .resource-id-fields {
+    grid-template-columns: 1fr;
   }
 
   .resource-grid {

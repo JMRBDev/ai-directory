@@ -1,4 +1,8 @@
-import { resolve } from 'node:path';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
+import { promisify } from 'node:util';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import {
@@ -27,15 +31,21 @@ import { resourceKey } from '@ai-directory/domain';
 import {
   readRegistrySourceResource,
   resolveRegistrySource,
+  submitResource,
+  type CommandRunner,
   type RegistrySource,
   type ResourceVersion,
+  validateResourceDirectory,
 } from '@ai-directory/registry';
+
+const execFileAsync = promisify(execFile);
 
 export type ServerOptions = {
   cwd?: string;
   homeDirectory?: string;
   registryIndexPath?: string;
   environment?: NodeJS.ProcessEnv;
+  commandRunner?: CommandRunner;
 };
 
 type ConfigRequest = {
@@ -51,6 +61,18 @@ type ResourceRequest = {
   force: boolean;
 };
 
+type ResourceUpload = {
+  resourceId: string;
+  version: string;
+  description?: string;
+  files: File[];
+};
+
+type UploadResult = {
+  sourceDirectory: string;
+  files: string[];
+};
+
 function isConfigScope(value: unknown): value is ConfigScope {
   return value === 'user' || value === 'project';
 }
@@ -61,6 +83,97 @@ function isInstallScope(value: unknown): value is InstallScope {
 
 function isHarness(value: unknown): value is Harness {
   return value === 'claude-code' || value === 'opencode' || value === 'codex';
+}
+
+function isFile(value: unknown): value is File {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'arrayBuffer' in value &&
+    typeof value.arrayBuffer === 'function' &&
+    'name' in value &&
+    typeof value.name === 'string'
+  );
+}
+
+function uploadFiles(value: unknown): File[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values.filter(isFile);
+}
+
+function uploadText(body: Record<string, unknown>, key: string): string {
+  const value = body[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function parseResourceUpload(body: Record<string, unknown>): ResourceUpload | string {
+  const resourceId = uploadText(body, 'resourceId');
+  const version = uploadText(body, 'version');
+  const description = uploadText(body, 'description');
+  const files = uploadFiles(body['files[]'] ?? body.files);
+
+  if (!resourceId) return 'resourceId must be a non-empty string.';
+  if (!version) return 'version must be a non-empty string.';
+  if (files.length === 0) return 'files must include a resource directory.';
+
+  return {
+    resourceId,
+    version,
+    files,
+    ...(description ? { description } : {}),
+  };
+}
+
+function uploadPath(file: File): string[] {
+  const name = file.name.replaceAll('\\', '/');
+  if (name.startsWith('/')) throw new Error(`Uploaded file path must be relative: ${file.name}`);
+
+  const parts = name.split('/').filter((part) => part && part !== '.');
+  if (parts.length === 0 || parts.some((part) => part === '..')) {
+    throw new Error(`Invalid uploaded file path: ${file.name}`);
+  }
+
+  return parts;
+}
+
+async function writeUpload(files: File[]): Promise<UploadResult> {
+  const sourceDirectory = await mkdtemp(join(tmpdir(), 'ai-directory-web-submit-'));
+  const root = resolve(sourceDirectory);
+
+  try {
+    for (const file of files) {
+      const parts = uploadPath(file);
+      const destination = resolve(root, ...parts);
+
+      if (destination !== root && !destination.startsWith(`${root}${sep}`)) {
+        throw new Error(`Uploaded file path escapes the temporary directory: ${file.name}`);
+      }
+
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, Buffer.from(await file.arrayBuffer()));
+    }
+
+    return {
+      sourceDirectory,
+      files: files.map((file) => uploadPath(file).join('/')),
+    };
+  } catch (error) {
+    await rm(sourceDirectory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function withResourceUpload<T>(
+  upload: ResourceUpload,
+  action: (sourceDirectory: string) => Promise<T>,
+): Promise<T> {
+  const written = await writeUpload(upload.files);
+
+  try {
+    return await action(written.sourceDirectory);
+  } finally {
+    await rm(written.sourceDirectory, { recursive: true, force: true });
+  }
 }
 
 function harnessValues(value: unknown): string[] {
@@ -90,6 +203,19 @@ function registrySource(options: ServerOptions, cwd: string): RegistrySource {
       ? { repositoryUrl: getRepositorySetting(undefined, cwd).value }
       : {}),
   });
+}
+
+async function githubUsername(options: ServerOptions, cwd: string): Promise<string> {
+  const result = options.commandRunner
+    ? await options.commandRunner('gh', ['api', 'user', '--jq', '.login'], cwd)
+    : await execFileAsync('gh', ['api', 'user', '--jq', '.login'], { cwd, encoding: 'utf8' });
+  const username = result.stdout.trim().toLowerCase();
+
+  if (!/^[a-z0-9-]+$/.test(username)) {
+    throw new Error('GitHub CLI did not return a valid username.');
+  }
+
+  return username;
 }
 
 function installOptions(
@@ -188,6 +314,14 @@ export function createApp(options: ServerOptions = {}) {
   app.get('/health', (context) => context.json({ ok: true }));
   app.use('/api/*', cors({ origin: '*' }));
 
+  app.get('/api/github-user', async (context) => {
+    try {
+      return context.json({ username: await githubUsername(options, cwd) });
+    } catch (caught) {
+      return context.json({ error: errorMessage(caught) }, 503);
+    }
+  });
+
   app.get('/api/config', (context) => context.json(configResponse(cwd)));
 
   app.put('/api/config', async (context) => {
@@ -229,6 +363,79 @@ export function createApp(options: ServerOptions = {}) {
 
     await clearConfigFile(getConfigPath(scope, cwd));
     return context.json({ ...configResponse(cwd), clearedScope: scope });
+  });
+
+  app.post('/api/validate', async (context) => {
+    let body: Record<string, unknown>;
+
+    try {
+      body = await context.req.parseBody({ all: true }) as Record<string, unknown>;
+    } catch {
+      return context.json({ error: 'Request body must be a valid multipart form.' }, 400);
+    }
+
+    const upload = parseResourceUpload(body);
+    if (typeof upload === 'string') return context.json({ error: upload }, 400);
+
+    try {
+      const result = await withResourceUpload(upload, (sourceDirectory) =>
+        validateResourceDirectory({
+          sourceDirectory,
+          resourceId: upload.resourceId,
+          version: upload.version,
+          ...(upload.description ? { description: upload.description } : {}),
+        }),
+      );
+
+      return context.json({
+        resource: `${result.resource.owner}/${result.resource.type}/${result.resource.name}`,
+        version: upload.version,
+        description: result.description,
+        entryFile: result.entryFile.path,
+        files: result.files.map((file) => file.path),
+      });
+    } catch (caught) {
+      return context.json({ error: errorMessage(caught) }, 400);
+    }
+  });
+
+  app.post('/api/submit', async (context) => {
+    let body: Record<string, unknown>;
+
+    try {
+      body = await context.req.parseBody({ all: true }) as Record<string, unknown>;
+    } catch {
+      return context.json({ error: 'Request body must be a valid multipart form.' }, 400);
+    }
+
+    const upload = parseResourceUpload(body);
+    if (typeof upload === 'string') return context.json({ error: upload }, 400);
+
+    try {
+      const source = registrySource(options, cwd);
+      if (source.type !== 'remote') {
+        return context.json(
+          { error: 'Website publishing requires a configured Git registry, not a local index.' },
+          400,
+        );
+      }
+
+      const result = await withResourceUpload(upload, (sourceDirectory) =>
+        submitResource({
+          repositoryUrl: source.repositoryUrl,
+          baseBranch: source.baseBranch,
+          sourceDirectory,
+          resourceId: upload.resourceId,
+          version: upload.version,
+          ...(upload.description ? { description: upload.description } : {}),
+          ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+        }),
+      );
+
+      return context.json(result);
+    } catch (caught) {
+      return context.json({ error: errorMessage(caught) }, 400);
+    }
   });
 
   app.get('/api/installed', async (context) => {

@@ -71,7 +71,7 @@ export type PublishResourceOptions = {
   sourceDirectory: string;
   resourceId: string;
   version: string;
-  description: string;
+  description?: string;
 };
 
 export type PublishResourceResult = {
@@ -84,6 +84,7 @@ export type ResourceDirectoryValidationOptions = {
   sourceDirectory: string;
   resourceId: string;
   version: string;
+  description?: string;
 };
 
 export type ResourceDirectoryValidationResult = {
@@ -91,6 +92,7 @@ export type ResourceDirectoryValidationResult = {
   resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>;
   entryFile: ResourceFile;
   files: ResourceFile[];
+  description: string;
 };
 
 export type CommandResult = {
@@ -131,6 +133,36 @@ const requiredEntryFiles: Record<ResourceType, string> = {
   rules: 'RULE.md',
   templates: 'TEMPLATE.md',
 };
+
+function oneLine(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim();
+}
+
+export function inferResourceDescription(content: string): string | undefined {
+  const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+
+  if (frontmatter) {
+    try {
+      const metadata = parseYaml(frontmatter[1] ?? '') as { description?: unknown };
+      if (typeof metadata.description === 'string' && metadata.description.trim()) {
+        return oneLine(metadata.description);
+      }
+    } catch {
+      // The resource validator reports malformed template frontmatter separately.
+    }
+  }
+
+  const body = frontmatter ? content.slice(frontmatter[0].length) : content;
+  const blocks = body
+    .split(/\n\s*\n/u)
+    .map((block) => oneLine(block))
+    .filter((block) => block && !block.startsWith('#') && !block.startsWith('```'));
+
+  if (blocks[0]) return blocks[0];
+
+  const heading = body.match(/^\s*#{1,6}\s+(.+)$/mu)?.[1];
+  return heading ? oneLine(heading) : undefined;
+}
 
 function parseRegistryIndex(data: unknown, source: string): RegistryIndex {
   const result = registryIndexSchema.safeParse(data);
@@ -379,16 +411,14 @@ export function validateRegistrySource(source: RegistrySource): Promise<Registry
 export async function publishResource(
   options: PublishResourceOptions,
 ): Promise<PublishResourceResult> {
-  if (!options.description.trim()) {
-    throw new Error('Resource description cannot be empty.');
-  }
-
   const validation = await validateResourceDirectory({
     sourceDirectory: options.sourceDirectory,
     resourceId: options.resourceId,
     version: options.version,
+    ...(options.description ? { description: options.description } : {}),
   });
   const identity = validation.resource;
+  const description = validation.description;
   const index = await readRegistryIndex(options.indexPath);
   const current = index.resources.find((resource) => resourceKey(resource) === options.resourceId);
 
@@ -420,14 +450,14 @@ export async function publishResource(
   const resource: ResourceSummary = current
     ? {
         ...current,
-        description: options.description,
+        description,
         latestVersion: options.version,
         reviewStatus: 'unreviewed',
         updatedAt: new Date().toISOString(),
       }
     : {
         ...identity,
-        description: options.description,
+        description,
         latestVersion: options.version,
         reviewStatus: 'unreviewed',
         lifecycleStatus: 'active',
@@ -482,6 +512,13 @@ export async function validateResourceDirectory(
     throw new Error(`${options.resourceId}@${options.version} has an empty ${entryFile.path}`);
   }
 
+  const description = options.description?.trim() || inferResourceDescription(entryFile.content);
+  if (!description) {
+    throw new Error(
+      `${options.resourceId}@${options.version} has no usable description. Add a description to ${entryFile.path} or pass one explicitly.`,
+    );
+  }
+
   if (resource.type === 'templates') {
     readTemplateManifest({
       resource: {
@@ -498,7 +535,7 @@ export async function validateResourceDirectory(
     });
   }
 
-  return { sourceDirectory, resource, entryFile, files };
+  return { sourceDirectory, resource, entryFile, files, description };
 }
 
 export async function submitResource(
