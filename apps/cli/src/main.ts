@@ -2,7 +2,7 @@
 
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { defineCommand, runMain, showUsage } from 'citty';
+import { defineCommand, runCommand, runMain, showUsage } from 'citty';
 import {
   CONFIG_OPTIONS,
   clearConfigFile,
@@ -16,7 +16,18 @@ import {
   type ConfigKey,
   type ConfigScope,
 } from '@ai-directory/config';
-import { cancel, intro, isCancel, outro, select, spinner, text } from '@clack/prompts';
+import {
+  autocomplete,
+  autocompleteMultiselect,
+  cancel,
+  confirm,
+  intro,
+  isCancel,
+  outro,
+  select,
+  spinner,
+  text,
+} from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
 import {
   assertInstallationFilesUnchanged,
@@ -30,6 +41,8 @@ import {
   type Harness,
   type HarnessDetection,
   type InstallScope,
+  type InstallResult,
+  type InstallationRecord,
 } from '@ai-directory/installers';
 import {
   readRemoteRegistryIndex,
@@ -92,8 +105,191 @@ function parseHarnesses(value: string | undefined, rawArgs: string[]): Harness[]
   return harnesses as Harness[];
 }
 
+function hasHarnessArgument(rawArgs: string[]): boolean {
+  return rawArgs.some(
+    (argument) => argument === '--harness' || argument.startsWith('--harness='),
+  );
+}
+
 function isHarness(value: string): value is Harness {
   return value === 'claude-code' || value === 'opencode' || value === 'codex';
+}
+
+const harnessOptions = [
+  { value: 'claude-code' as const, label: 'Claude Code', hint: 'Anthropic coding harness' },
+  { value: 'opencode' as const, label: 'OpenCode', hint: 'OpenCode agent harness' },
+  { value: 'codex' as const, label: 'Codex', hint: 'OpenAI coding agent' },
+];
+
+function cancelled(message: string): undefined {
+  cancel(message);
+  return undefined;
+}
+
+async function promptRequiredText(
+  message: string,
+  placeholder: string,
+): Promise<string | undefined> {
+  const answer = await text({
+    message,
+    placeholder,
+    validate(value) {
+      if (!value?.trim()) return 'This value is required.';
+    },
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer.trim();
+}
+
+async function promptResource(source: ReturnType<typeof resolveRegistrySource>): Promise<string | undefined> {
+  const index = await readRegistrySourceIndex(source);
+  const resources = index.resources
+    .filter((resource) => resource.lifecycleStatus === 'active')
+    .sort((left, right) => resourceKey(left).localeCompare(resourceKey(right)));
+
+  if (resources.length === 0) throw new Error('The registry has no active resources.');
+
+  const answer = await autocomplete({
+    message: 'Which resource do you want to use?',
+    placeholder: 'Type to search by name, owner, or description',
+    maxItems: 8,
+    options: resources.map((resource) => ({
+      value: resourceKey(resource),
+      label: resourceKey(resource),
+      hint: `${resource.description} · ${resource.reviewStatus}`,
+    })),
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+async function promptHarnesses(initialValues?: Harness[]): Promise<Harness[] | undefined> {
+  const answer = await autocompleteMultiselect({
+    message: 'Which coding harnesses should be configured?',
+    placeholder: 'Type to filter harnesses',
+    options: harnessOptions,
+    ...(initialValues ? { initialValues } : {}),
+    required: true,
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+async function promptScope(initialValue?: InstallScope): Promise<InstallScope | undefined> {
+  const answer = await select({
+    message: 'Where should this resource be installed?',
+    options: [
+      { value: 'project' as const, label: 'This project', hint: 'Available in the current project' },
+      { value: 'global' as const, label: 'All projects', hint: 'Available in your user setup' },
+    ],
+    ...(initialValue ? { initialValue } : {}),
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+async function readInstalledRecords(): Promise<InstallationRecord[]> {
+  const scopes: InstallScope[] = ['project', 'global'];
+  return (
+    await Promise.all(
+      scopes.map(async (scope) =>
+        (await readInstallationManifest(getInstallManifestPath(scope))).installations,
+      ),
+    )
+  ).flat();
+}
+
+async function promptInstalledResource(
+  records: InstallationRecord[],
+): Promise<string | undefined> {
+  const resources = [...new Set(records.map((record) => record.resource))].sort();
+
+  if (resources.length === 0) {
+    throw new Error('No installed resources found. Install a resource first.');
+  }
+
+  const answer = await select({
+    message: 'Which installed resource do you want to use?',
+    options: resources.map((resource) => ({
+      value: resource,
+      label: resource,
+      hint: records
+        .filter((record) => record.resource === resource)
+        .map((record) => `${record.harness}/${record.scope} · v${record.version}`)
+        .join(', '),
+    })),
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+async function promptInstalledScope(
+  records: InstallationRecord[],
+  resource: string,
+): Promise<InstallScope | undefined> {
+  const scopes = [...new Set(
+    records
+      .filter((record) => record.resource === resource)
+      .map((record) => record.scope),
+  )];
+
+  if (scopes.length === 1) return scopes[0];
+
+  const answer = await select({
+    message: 'Which installation scope should be changed?',
+    options: scopes.map((scope) => ({
+      value: scope,
+      label: scope === 'project' ? 'This project' : 'All projects',
+    })),
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+async function promptInstalledHarnesses(
+  records: InstallationRecord[],
+  resource: string,
+  scope: InstallScope,
+): Promise<Harness[] | undefined> {
+  const available = [...new Set(
+    records
+      .filter((record) => record.resource === resource && record.scope === scope)
+      .map((record) => record.harness),
+  )];
+  const answer = await autocompleteMultiselect({
+    message: 'Which installed harnesses should be changed?',
+    placeholder: 'Type to filter harnesses',
+    options: harnessOptions.filter((option) => available.includes(option.value)),
+    initialValues: available,
+    required: true,
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+function isForceableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Use --force|modified|ownership hashes/u.test(message);
+}
+
+async function withInteractiveForce<T>(
+  interactive: boolean,
+  force: boolean,
+  action: (force: boolean) => Promise<T>,
+): Promise<T | undefined> {
+  try {
+    return await action(force);
+  } catch (error) {
+    if (!interactive || force || !isForceableError(error)) throw error;
+
+    const answer = await confirm({
+      message: 'Some managed files already exist or changed locally. Continue with force?',
+      initialValue: false,
+    });
+
+    if (isCancel(answer) || !answer) return cancelled('Operation cancelled.');
+    return action(true);
+  }
 }
 
 const list = defineCommand({
@@ -166,7 +362,7 @@ const show = defineCommand({
   args: {
     resource: {
       type: 'positional',
-      required: true,
+      default: '',
       description: 'Resource ID: owner/type/name',
     },
     index: {
@@ -196,8 +392,10 @@ const show = defineCommand({
   async run({ args }) {
     try {
       const source = getRegistrySource(args.index, args.repository, args.base);
+      const resource = args.resource.trim() || await promptResource(source);
+      if (!resource) return;
       const result = (
-        await readRegistrySourceResource(source, args.resource, args.version)
+        await readRegistrySourceResource(source, resource, args.version)
       ).resource;
 
       if (args.json) {
@@ -282,23 +480,23 @@ const submit = defineCommand({
   args: {
     source: {
       type: 'positional',
-      required: true,
+      default: '',
       description: 'Directory containing the resource entry file and supporting files',
     },
     id: {
       type: 'string',
-      required: true,
+      default: '',
       description: 'Resource ID: owner/type/name',
     },
     version: {
       type: 'string',
       alias: 'v',
-      required: true,
+      default: '',
       description: 'New semantic version to publish',
     },
     description: {
       type: 'string',
-      required: true,
+      default: '',
       description: 'Short description shown in the registry',
     },
     index: {
@@ -335,13 +533,37 @@ const submit = defineCommand({
   },
   async run({ args }) {
     try {
+      const sourceDirectory = args.source.trim() || await promptRequiredText(
+        'Where is the resource directory?',
+        './resources/my-resource',
+      );
+      if (!sourceDirectory) return;
+
+      const resourceId = args.id.trim() || await promptRequiredText(
+        'What is the resource ID?',
+        'owner/skills/my-resource',
+      );
+      if (!resourceId) return;
+
+      const version = args.version.trim() || await promptRequiredText(
+        'What version are you publishing?',
+        '1.0.0',
+      );
+      if (!version) return;
+
+      const description = args.description.trim() || await promptRequiredText(
+        'What does this resource do?',
+        'Short description',
+      );
+      if (!description) return;
+
       const source = getRegistrySource(args.index, args.repository, args.base);
       const result = await submitResource({
         ...(source.type === 'local' ? { indexPath: source.indexPath } : {}),
-        sourceDirectory: args.source,
-        resourceId: args.id,
-        version: args.version,
-        description: args.description,
+        sourceDirectory,
+        resourceId,
+        version,
+        description,
         baseBranch: args.base,
         remote: args.remote,
         ...(source.type === 'remote' ? { repositoryUrl: source.repositoryUrl } : {}),
@@ -372,7 +594,7 @@ const install = defineCommand({
   args: {
     resource: {
       type: 'positional',
-      required: true,
+      default: '',
       description: 'Resource ID: owner/type/name',
     },
     harness: {
@@ -384,7 +606,6 @@ const install = defineCommand({
     scope: {
       type: 'enum',
       options: ['project', 'global'],
-      required: true,
       description: 'Install for the current project or user',
     },
     index: {
@@ -413,9 +634,20 @@ const install = defineCommand({
   },
   async run({ args, rawArgs }) {
     try {
-      const harnesses = parseHarnesses(args.harness, rawArgs);
       const source = getRegistrySource(args.index, args.repository, args.base);
-      const loaded = await readRegistrySourceResource(source, args.resource, args.version);
+      const resourceArgument = args.resource.trim();
+      const resource = resourceArgument || await promptResource(source);
+      if (!resource) return;
+      const scope = args.scope ?? await promptScope();
+      if (!scope) return;
+      const explicitHarnesses = hasHarnessArgument(rawArgs);
+      const harnesses = explicitHarnesses
+        ? parseHarnesses(args.harness, rawArgs)
+        : await promptHarnesses();
+
+      if (!harnesses) return;
+
+      const loaded = await readRegistrySourceResource(source, resource, args.version);
       const result = loaded.resource;
 
       const resources = loaded.resources;
@@ -428,29 +660,43 @@ const install = defineCommand({
         }
       }
 
-      const manifestPath = getInstallManifestPath(args.scope);
+      const manifestPath = getInstallManifestPath(scope);
+      const interactive = !resourceArgument || !args.scope || !explicitHarnesses;
+
+      const installationsByHarness = await withInteractiveForce(
+        interactive,
+        args.force ?? false,
+        async (force) => {
+          const resultByHarness: Record<string, InstallResult[]> = {};
+
+          for (const harness of harnesses) {
+            const installer = getHarnessAdapter(harness);
+            const installations = await installer.install(resources, { scope, force });
+            const records = createInstallationRecords(resources, installations, scope, harness);
+            await saveInstallationRecords(manifestPath, records, { scope, force });
+            resultByHarness[harness] = installations;
+          }
+
+          return resultByHarness;
+        },
+      );
+
+      if (!installationsByHarness) return;
 
       for (const harness of harnesses) {
-        const installer = getHarnessAdapter(harness);
-        const installations = await installer.install(resources, {
-          scope: args.scope,
-          force: args.force ?? false,
-        });
-        const records = createInstallationRecords(resources, installations, args.scope, harness);
-        await saveInstallationRecords(manifestPath, records, {
-          scope: args.scope,
-          force: args.force ?? false,
-        });
+        const installations = installationsByHarness[harness];
 
-        for (const [index, resource] of resources.entries()) {
+        if (!installations) continue;
+
+        for (const [index, installedResource] of resources.entries()) {
           const installation = installations[index];
 
           if (!installation) {
-            throw new Error(`Installation result missing for ${resourceKey(resource.resource)}.`);
+            throw new Error(`Installation result missing for ${resourceKey(installedResource.resource)}.`);
           }
 
           console.log(
-            `Location: ${installation.destination} (${resourceKey(resource.resource)}@${resource.version})`,
+            `Location: ${installation.destination} (${resourceKey(installedResource.resource)}@${installedResource.version}, ${harness})`,
           );
           console.log(`Files: ${installation.files.join(', ')}`);
         }
@@ -532,7 +778,7 @@ const update = defineCommand({
   args: {
     resource: {
       type: 'positional',
-      required: true,
+      default: '',
       description: 'Resource ID: owner/type/name',
     },
     harness: {
@@ -544,7 +790,6 @@ const update = defineCommand({
     scope: {
       type: 'enum',
       options: ['project', 'global'],
-      required: true,
       description: 'Installation scope to update',
     },
     index: {
@@ -568,77 +813,96 @@ const update = defineCommand({
   },
   async run({ args, rawArgs }) {
     try {
-      const harnesses = parseHarnesses(args.harness, rawArgs);
+      const resourceArgument = args.resource.trim();
+      const explicitHarnesses = hasHarnessArgument(rawArgs);
+      const installedRecords = !resourceArgument || !args.scope || !explicitHarnesses
+        ? await readInstalledRecords()
+        : [];
+      const resource = resourceArgument || await promptInstalledResource(installedRecords);
+      if (!resource) return;
+      const scope = args.scope ?? await promptInstalledScope(installedRecords, resource);
+      if (!scope) return;
+      const harnesses = explicitHarnesses
+        ? parseHarnesses(args.harness, rawArgs)
+        : await promptInstalledHarnesses(installedRecords, resource, scope);
 
-      const scope = args.scope as InstallScope;
-      const manifestPath = getInstallManifestPath(scope);
-      const manifest = await readInstallationManifest(manifestPath);
-      const existing = harnesses.map((harness) =>
-        manifest.installations.find(
-          (record) =>
-            record.resource === args.resource &&
-            record.harness === harness &&
-            record.scope === scope,
-        ),
-      );
+      if (!harnesses) return;
 
-      if (existing.some((record) => !record)) {
-        const missing = harnesses.filter((_, index) => !existing[index]);
-        throw new Error(
-          `${args.resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
-        );
-      }
-
-      const existingRecords = existing.filter(
-        (record): record is NonNullable<typeof record> => record !== undefined,
-      );
-      for (const record of existingRecords) {
-        await assertInstallationFilesUnchanged(record, args.force ?? false);
-      }
-
-      const source = getRegistrySource(args.index, args.repository, args.base);
-      const loaded = await readRegistrySourceResource(source, args.resource);
-
-      if (loaded.resource.resource.type === 'templates') {
-        throw new Error('Templates are updated through their installed resources.');
-      }
-
-      for (const resource of [loaded.resource, ...loaded.resources]) {
-        if (resource.resource.reviewStatus === 'unreviewed') {
-          console.warn(
-            `Warning: ${resourceKey(resource.resource)}@${resource.version} has not been reviewed.`,
+      const interactive = !resourceArgument || !args.scope || !explicitHarnesses;
+      const updatedHarnesses = await withInteractiveForce(
+        interactive,
+        args.force ?? false,
+        async (force) => {
+          const manifestPath = getInstallManifestPath(scope);
+          const manifest = await readInstallationManifest(manifestPath);
+          const existing = harnesses.map((harness) =>
+            manifest.installations.find(
+              (record) =>
+                record.resource === resource &&
+                record.harness === harness &&
+                record.scope === scope,
+            ),
           );
-        }
-      }
 
-      const updatedHarnesses: Harness[] = [];
+          if (existing.some((record) => !record)) {
+            const missing = harnesses.filter((_, index) => !existing[index]);
+            throw new Error(
+              `${resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
+            );
+          }
 
-      for (const [index, harness] of harnesses.entries()) {
-        const record = existingRecords[index];
+          const existingRecords = existing.filter(
+            (record): record is NonNullable<typeof record> => record !== undefined,
+          );
+          for (const record of existingRecords) {
+            await assertInstallationFilesUnchanged(record, force);
+          }
 
-        if (!record) continue;
+          const source = getRegistrySource(args.index, args.repository, args.base);
+          const loaded = await readRegistrySourceResource(source, resource);
 
-        if (loaded.resource.version === record.version) {
-          console.log(`${args.resource} is already at the latest version for ${harness} (${record.version}).`);
-          continue;
-        }
+          if (loaded.resource.resource.type === 'templates') {
+            throw new Error('Templates are updated through their installed resources.');
+          }
 
-        const installer = getHarnessAdapter(harness);
-        const installations = await installer.install(loaded.resources, {
-          scope,
-          force: true,
-        });
-        const records = createInstallationRecords(loaded.resources, installations, scope, harness);
-        await saveInstallationRecords(manifestPath, records, {
-          scope,
-          force: args.force ?? false,
-        });
-        updatedHarnesses.push(harness);
-      }
+          for (const entry of [loaded.resource, ...loaded.resources]) {
+            if (entry.resource.reviewStatus === 'unreviewed') {
+              console.warn(
+                `Warning: ${resourceKey(entry.resource)}@${entry.version} has not been reviewed.`,
+              );
+            }
+          }
 
-      if (updatedHarnesses.length > 0) {
+          const changed: Harness[] = [];
+
+          for (const [index, harness] of harnesses.entries()) {
+            const record = existingRecords[index];
+
+            if (!record) continue;
+
+            if (loaded.resource.version === record.version) {
+              console.log(`${resource} is already at the latest version for ${harness} (${record.version}).`);
+              continue;
+            }
+
+            const installer = getHarnessAdapter(harness);
+            const installations = await installer.install(loaded.resources, {
+              scope,
+              force: true,
+            });
+            const records = createInstallationRecords(loaded.resources, installations, scope, harness);
+            await saveInstallationRecords(manifestPath, records, { scope, force });
+            changed.push(harness);
+          }
+
+          return { changed, manifestPath, version: loaded.resource.version };
+        },
+      );
+
+      if (!updatedHarnesses) return;
+      if (updatedHarnesses.changed.length > 0) {
         console.log(
-          `Updated ${args.resource} to ${loaded.resource.version} for ${updatedHarnesses.join(', ')}.`,
+          `Updated ${resource} to ${updatedHarnesses.version} for ${updatedHarnesses.changed.join(', ')}.`,
         );
       }
     } catch (error) {
@@ -656,7 +920,7 @@ const uninstall = defineCommand({
   args: {
     resource: {
       type: 'positional',
-      required: true,
+      default: '',
       description: 'Resource ID: owner/type/name',
     },
     harness: {
@@ -668,7 +932,6 @@ const uninstall = defineCommand({
     scope: {
       type: 'enum',
       options: ['project', 'global'],
-      required: true,
       description: 'Installation scope to change',
     },
     force: {
@@ -678,42 +941,62 @@ const uninstall = defineCommand({
   },
   async run({ args, rawArgs }) {
     try {
-      const harnesses = parseHarnesses(args.harness, rawArgs);
-      const scope = args.scope as InstallScope;
-      const manifestPath = getInstallManifestPath(scope);
-      const manifest = await readInstallationManifest(manifestPath);
-      const existing = harnesses.map((harness) =>
-        manifest.installations.find(
-          (record) =>
-            record.resource === args.resource &&
-            record.harness === harness &&
-            record.scope === scope,
-        ),
+      const resourceArgument = args.resource.trim();
+      const explicitHarnesses = hasHarnessArgument(rawArgs);
+      const installedRecords = !resourceArgument || !args.scope || !explicitHarnesses
+        ? await readInstalledRecords()
+        : [];
+      const resource = resourceArgument || await promptInstalledResource(installedRecords);
+      if (!resource) return;
+      const scope = args.scope ?? await promptInstalledScope(installedRecords, resource);
+      if (!scope) return;
+      const harnesses = explicitHarnesses
+        ? parseHarnesses(args.harness, rawArgs)
+        : await promptInstalledHarnesses(installedRecords, resource, scope);
+
+      if (!harnesses) return;
+
+      const interactive = !resourceArgument || !args.scope || !explicitHarnesses;
+      const result = await withInteractiveForce(
+        interactive,
+        args.force ?? false,
+        async (force) => {
+          const manifestPath = getInstallManifestPath(scope);
+          const manifest = await readInstallationManifest(manifestPath);
+          const existing = harnesses.map((harness) =>
+            manifest.installations.find(
+              (record) =>
+                record.resource === resource &&
+                record.harness === harness &&
+                record.scope === scope,
+            ),
+          );
+
+          if (existing.some((record) => !record)) {
+            const missing = harnesses.filter((_, index) => !existing[index]);
+            throw new Error(
+              `${resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
+            );
+          }
+
+          const existingRecords = existing.filter(
+            (record): record is NonNullable<typeof record> => record !== undefined,
+          );
+          for (const record of existingRecords) {
+            await assertInstallationFilesUnchanged(record, force);
+          }
+          for (const record of existingRecords) {
+            await uninstallInstallation(record, { scope, force });
+            await removeInstallationRecord(manifestPath, record);
+          }
+
+          return manifestPath;
+        },
       );
 
-      if (existing.some((record) => !record)) {
-        const missing = harnesses.filter((_, index) => !existing[index]);
-        throw new Error(
-          `${args.resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
-        );
-      }
-
-      const existingRecords = existing.filter(
-        (record): record is NonNullable<typeof record> => record !== undefined,
-      );
-      for (const record of existingRecords) {
-        await assertInstallationFilesUnchanged(record, args.force ?? false);
-      }
-      for (const record of existingRecords) {
-        await uninstallInstallation(record, {
-          scope,
-          force: args.force ?? false,
-        });
-        await removeInstallationRecord(manifestPath, record);
-      }
-
-      console.log(`Uninstalled ${args.resource} for ${harnesses.join(', ')}.`);
-      console.log(`Updated: ${manifestPath}`);
+      if (!result) return;
+      console.log(`Uninstalled ${resource} for ${harnesses.join(', ')}.`);
+      console.log(`Updated: ${result}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -1201,6 +1484,61 @@ const config = defineCommand({
   },
 });
 
+async function runInteractiveMain(): Promise<void> {
+  intro('AI Directory');
+
+  const answer = await select({
+    message: 'What do you want to do?',
+    options: [
+      { value: 'install', label: 'Install a resource' },
+      { value: 'list', label: 'Browse resources' },
+      { value: 'show', label: 'View resource details' },
+      { value: 'submit', label: 'Submit a resource' },
+      { value: 'update', label: 'Update an installed resource' },
+      { value: 'uninstall', label: 'Uninstall a resource' },
+      { value: 'installed', label: 'List installed resources' },
+      { value: 'setup', label: 'Configure the registry' },
+      { value: 'doctor', label: 'Check the setup' },
+      { value: 'exit', label: 'Exit' },
+    ],
+  });
+
+  if (isCancel(answer) || answer === 'exit') {
+    cancel('Operation cancelled.');
+    return;
+  }
+
+  switch (answer) {
+    case 'install':
+      await runCommand(install, { rawArgs: [] });
+      break;
+    case 'list':
+      await runCommand(list, { rawArgs: [] });
+      break;
+    case 'show':
+      await runCommand(show, { rawArgs: [] });
+      break;
+    case 'submit':
+      await runCommand(submit, { rawArgs: [] });
+      break;
+    case 'update':
+      await runCommand(update, { rawArgs: [] });
+      break;
+    case 'uninstall':
+      await runCommand(uninstall, { rawArgs: [] });
+      break;
+    case 'installed':
+      await runCommand(installed, { rawArgs: [] });
+      break;
+    case 'setup':
+      await runCommand(setup, { rawArgs: [] });
+      break;
+    case 'doctor':
+      await runCommand(doctor, { rawArgs: [] });
+      break;
+  }
+}
+
 const main = defineCommand({
   meta: {
     name: 'aid',
@@ -1220,6 +1558,9 @@ const main = defineCommand({
     setup,
     doctor,
     config,
+  },
+  async run({ rawArgs }) {
+    if (rawArgs.length === 0) await runInteractiveMain();
   },
 });
 
