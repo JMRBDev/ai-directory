@@ -6,7 +6,9 @@ import {
   resourceId,
   type RegistryView,
 } from '../../../../lib/registry';
-import '../../../../styles/catalog.css';
+import ThemeInit from '../../../../components/ThemeInit.astro';
+import ThemeToggle from '../../../../components/ThemeToggle.astro';
+import '../../../../styles/global.css';
 
 type Props = {
   resource: ResourceSummary;
@@ -44,61 +46,69 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={resource.description} />
+    <ThemeInit />
     <title>{title}</title>
   </head>
-  <body>
-    <header class="site-header">
-      <div class="header-inner">
-        <a class="wordmark" href="/">AI DIRECTORY <span>RESOURCE REGISTRY</span></a>
-        <span class="header-state">
+  <body class="min-h-screen bg-canvas font-sans text-ink antialiased dark:bg-zinc-950 dark:text-zinc-100">
+    <header class="border-b border-line bg-canvas/95 dark:border-zinc-800 dark:bg-zinc-950/95">
+      <div class="mx-auto flex min-h-16 max-w-6xl items-center justify-between gap-4 px-5 py-3 sm:px-8">
+        <a class="text-sm font-semibold tracking-[0.12em] text-ink dark:text-zinc-100" href="/">
+          AI DIRECTORY <span class="ml-2 hidden text-[10px] font-medium tracking-[0.16em] text-muted sm:inline">RESOURCE REGISTRY</span>
+        </a>
+        <div class="flex items-center gap-4">
+          <ThemeToggle />
+        <span class="hidden rounded-full border border-line px-2.5 py-1 text-xs font-medium text-muted dark:border-zinc-700 dark:text-zinc-400 sm:inline">
           {source === 'remote' ? 'Configured Git registry' : 'Explicit local index'}
         </span>
+        </div>
       </div>
     </header>
 
-    <main class="page-shell detail-shell">
-      <a class="back-link" href="/">Back to catalog</a>
+    <main class="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 lg:py-12">
+      <a class="text-sm font-medium text-muted transition-colors hover:text-accent dark:text-zinc-400 dark:hover:text-orange-300" href="/">Back to catalog</a>
 
-      <section class="detail-heading" aria-labelledby="resource-title">
-        <div class="resource-card-top">
-          <span class="resource-type">{resource.type}</span>
+      <section class="mt-10 max-w-3xl" aria-labelledby="resource-title">
+        <div class="flex items-center gap-3 text-xs">
+          <span class="font-semibold uppercase tracking-[0.12em] text-accent">{resource.type}</span>
           <span
             class:list={[
-              'resource-status',
-              resource.reviewStatus === 'unreviewed' && 'unreviewed',
+              'rounded-full border px-2 py-0.5 font-medium',
+              resource.reviewStatus === 'unreviewed'
+                ? 'border-amber-200 bg-warning-soft text-warning dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                : 'border-line text-muted dark:border-zinc-700 dark:text-zinc-400',
             ]}
           >
             {resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed'}
           </span>
         </div>
-        <h1 id="resource-title">{resource.name}</h1>
-        <p>{resource.description}</p>
+        <h1 id="resource-title" class="mt-4 text-3xl font-semibold tracking-tight text-ink sm:text-4xl dark:text-zinc-100">{resource.name}</h1>
+        <p class="mt-4 text-base leading-7 text-muted dark:text-zinc-400">{resource.description}</p>
       </section>
 
-      <div class="detail-meta" aria-label="Resource metadata">
-        <div class="detail-meta-item">
-          <span class="meta-label">Resource ID</span>
-          <span class="meta-value">{resourceId(resource)}</span>
+      <div class="mt-8 grid w-full gap-4 border-y border-line py-5 sm:grid-cols-3 dark:border-zinc-800" aria-label="Resource metadata">
+        <div>
+          <span class="block text-xs font-semibold text-muted dark:text-zinc-500">Resource ID</span>
+          <span class="mt-1 block break-all font-mono text-xs text-ink dark:text-zinc-300">{resourceId(resource)}</span>
         </div>
-        <div class="detail-meta-item">
-          <span class="meta-label">Latest version</span>
-          <span class="meta-value">v{resource.latestVersion}</span>
+        <div>
+          <span class="block text-xs font-semibold text-muted dark:text-zinc-500">Latest version</span>
+          <span class="mt-1 block text-sm text-ink dark:text-zinc-300">v{resource.latestVersion}</span>
         </div>
-        <div class="detail-meta-item">
-          <span class="meta-label">Owner</span>
-          <span class="meta-value">{resource.owner}</span>
+        <div>
+          <span class="block text-xs font-semibold text-muted dark:text-zinc-500">Owner</span>
+          <span class="mt-1 block text-sm text-ink dark:text-zinc-300">{resource.owner}</span>
         </div>
       </div>
 
       {resource.reviewStatus === 'unreviewed' && (
-        <div class="warning" role="status">
+        <div class="mt-6 max-w-3xl rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-warning dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" role="status">
           This resource is unreviewed. You can install it, but inspect its contents before using
           it in a project.
         </div>
       )}
 
       <section
-        class="detail-section"
+        class="mt-14 w-full border-t border-line pt-8 dark:border-zinc-800"
         aria-labelledby="install-title"
         data-resource-install
         data-api-url={apiUrl}
@@ -106,96 +116,98 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         data-resource-type={resource.type}
         data-resource-components={JSON.stringify(componentResources)}
       >
-        <p class="section-kicker">Install</p>
-        <h2 id="install-title">Use this resource locally</h2>
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Install</p>
+        <h2 id="install-title" class="mt-2 text-xl font-semibold tracking-tight text-ink dark:text-zinc-100">Use this resource locally</h2>
         {resource.type === 'templates' && (
-          <div class="warning" role="status">
+          <div class="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-warning dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" role="status">
             This template installs its component resources as one pack. You can update or uninstall
             the pack from here later.
           </div>
         )}
-        <div class="install-form">
-          <div class="install-controls">
-            <fieldset class="harness-options">
-              <legend class="filter-label">Harnesses</legend>
-              <label>
-                <input type="checkbox" value="claude-code" data-install-harness checked />
-                Claude Code
-              </label>
-              <label>
-                <input type="checkbox" value="opencode" data-install-harness />
-                OpenCode
-              </label>
-              <label>
-                <input type="checkbox" value="codex" data-install-harness />
-                Codex
-              </label>
+        <div class="mt-6 rounded-lg border border-line bg-panel p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          <div class="grid gap-6 md:grid-cols-[minmax(0,1fr)_12rem]">
+            <fieldset>
+              <legend class="mb-3 text-xs font-semibold text-muted dark:text-zinc-400">Harnesses</legend>
+              <div class="grid gap-3 sm:grid-cols-3">
+                <label class="flex items-center gap-2 text-sm text-ink dark:text-zinc-200">
+                  <input class="size-4 accent-accent" type="checkbox" value="claude-code" data-install-harness checked />
+                  Claude Code
+                </label>
+                <label class="flex items-center gap-2 text-sm text-ink dark:text-zinc-200">
+                  <input class="size-4 accent-accent" type="checkbox" value="opencode" data-install-harness />
+                  OpenCode
+                </label>
+                <label class="flex items-center gap-2 text-sm text-ink dark:text-zinc-200">
+                  <input class="size-4 accent-accent" type="checkbox" value="codex" data-install-harness />
+                  Codex
+                </label>
+              </div>
             </fieldset>
-            <label class="filter-field" for="install-scope">
-              <span class="filter-label">Scope</span>
-              <select id="install-scope" data-install-scope>
+            <label class="block" for="install-scope">
+              <span class="mb-3 block text-xs font-semibold text-muted dark:text-zinc-400">Scope</span>
+              <select class="block min-h-10 w-full rounded-md border border-line bg-canvas px-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100" id="install-scope" data-install-scope>
                 <option value="project">This project</option>
                 <option value="global">All projects</option>
               </select>
             </label>
           </div>
-          <div class="detail-actions">
-            <button type="button" data-install-action>Install resource</button>
-            <button class="secondary-button" type="button" data-update-action hidden>
+          <div class="mt-6 flex flex-wrap gap-3">
+            <button class="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" type="button" data-install-action>Install resource</button>
+            <button class="hidden min-h-10 items-center rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300" type="button" data-update-action hidden>
               Update resource
             </button>
-            <button class="secondary-button" type="button" data-uninstall-action hidden>
+            <button class="hidden min-h-10 items-center rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300" type="button" data-uninstall-action hidden>
               Uninstall
             </button>
-            <button class="secondary-button" type="button" data-force-action hidden>
+            <button class="hidden min-h-10 items-center rounded-md border border-amber-300 px-4 py-2 text-sm font-semibold text-warning transition-colors hover:bg-warning-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/40" type="button" data-force-action hidden>
               Continue with force
             </button>
           </div>
-          <p class="form-status" data-install-status role="status">
+          <p class="mt-4 text-sm text-muted dark:text-zinc-400" data-install-status role="status">
             Checking local installations…
           </p>
         </div>
-        <div class="commands">
-          <div class="command">
-            <label for="project-command">Project scope</label>
-            <code id="project-command">{installBase} --scope project</code>
+        <div class="mt-5 grid gap-3 sm:grid-cols-2">
+          <div class="rounded-md bg-ink p-4 dark:bg-zinc-900">
+            <label class="block text-xs font-semibold text-zinc-300" for="project-command">Project scope</label>
+            <code class="mt-2 block break-all font-mono text-xs leading-5 text-zinc-100" id="project-command">{installBase} --scope project</code>
           </div>
-          <div class="command">
-            <label for="global-command">Global scope</label>
-            <code id="global-command">{installBase} --scope global</code>
+          <div class="rounded-md bg-ink p-4 dark:bg-zinc-900">
+            <label class="block text-xs font-semibold text-zinc-300" for="global-command">Global scope</label>
+            <code class="mt-2 block break-all font-mono text-xs leading-5 text-zinc-100" id="global-command">{installBase} --scope global</code>
           </div>
         </div>
       </section>
 
-      <section class="detail-section" aria-labelledby="files-title">
-        <p class="section-kicker">Source</p>
-        <h2 id="files-title">Files in v{version?.version ?? resource.latestVersion}</h2>
+      <section class="mt-14 w-full border-t border-line pt-8 dark:border-zinc-800" aria-labelledby="files-title">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Source</p>
+        <h2 id="files-title" class="mt-2 text-xl font-semibold tracking-tight text-ink dark:text-zinc-100">Files in v{version?.version ?? resource.latestVersion}</h2>
         {fileError ? (
-          <div class="error-state" role="alert">
-            <strong>Resource files are not available in this checkout.</strong>
-            <p>{fileError}</p>
+          <div class="mt-5 rounded-lg border border-red-200 bg-red-50 p-5 text-sm dark:border-red-900/70 dark:bg-red-950/30" role="alert">
+            <strong class="font-semibold text-red-900 dark:text-red-200">Resource files are not available in this checkout.</strong>
+            <p class="mt-2 text-red-800 dark:text-red-300">{fileError}</p>
           </div>
         ) : version ? (
-          <div class="file-list">
+          <div class="mt-5 divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
             {version.files.map((file, index) => (
-              <details open={index === 0}>
-                <summary>{file.path}</summary>
-                <pre><code>{file.content}</code></pre>
+              <details class="group" open={index === 0}>
+                <summary class="cursor-pointer list-none px-4 py-3 text-sm font-medium text-ink marker:hidden group-open:text-accent dark:text-zinc-200 dark:group-open:text-orange-300">{file.path}</summary>
+                <pre class="overflow-x-auto border-t border-line bg-canvas p-4 text-xs leading-6 text-ink dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"><code>{file.content}</code></pre>
               </details>
             ))}
           </div>
         ) : (
-          <div class="empty-state">
-            <strong>No files found.</strong>
-            <p>The registry index points to a package with no readable files.</p>
+          <div class="mt-5 rounded-lg border border-line bg-panel p-6 dark:border-zinc-800 dark:bg-zinc-900">
+            <strong class="font-semibold text-ink dark:text-zinc-100">No files found.</strong>
+            <p class="mt-2 text-sm text-muted dark:text-zinc-400">The registry index points to a package with no readable files.</p>
           </div>
         )}
       </section>
     </main>
 
-    <footer class="site-footer">
-      <p>AI Directory is backed by the production branch of the resources repository.</p>
-      <a class="back-link" href="/">Return to catalog</a>
+    <footer class="mx-auto flex w-full max-w-6xl flex-col gap-2 border-t border-line px-5 py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-8 dark:border-zinc-800 dark:text-zinc-500">
+      <p>Backed by the production branch of the resources repository.</p>
+      <a class="font-medium hover:text-accent dark:hover:text-orange-300" href="/">Return to catalog</a>
     </footer>
 
     <script>
@@ -232,6 +244,12 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
       let forceAction: Action | null = null;
       let currentRecords: Installation[] = [];
 
+      function setHidden(element: HTMLElement | null, hidden: boolean) {
+        if (!element) return;
+        element.hidden = hidden;
+        element.classList.toggle('hidden', hidden);
+      }
+
       function selectedHarnesses(): string[] {
         return harnesses.filter((input) => input.checked).map((input) => input.value);
       }
@@ -253,10 +271,10 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         const selected = selectedHarnesses();
         const installed = selected.filter((harness) => hasCompleteInstallation(records, harness));
         const missing = selected.filter((harness) => !hasCompleteInstallation(records, harness));
-        if (install) install.hidden = selected.length === 0 || missing.length === 0;
-        if (update) update.hidden = selected.length === 0 || installed.length === 0;
-        if (uninstall) uninstall.hidden = selected.length === 0 || installed.length === 0;
-        if (force) force.hidden = true;
+        setHidden(install, selected.length === 0 || missing.length === 0);
+        setHidden(update, selected.length === 0 || installed.length === 0);
+        setHidden(uninstall, selected.length === 0 || installed.length === 0);
+        setHidden(force, true);
         forceAction = null;
 
         if (selected.length === 0) {
@@ -367,7 +385,7 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
           if (action !== 'install' && /modified|ownership hashes/u.test(message)) {
             forceAction = action;
             if (force) {
-              force.hidden = false;
+              setHidden(force, false);
               force.textContent = action === 'update' ? 'Force update' : 'Force uninstall';
             }
           }
