@@ -765,41 +765,48 @@ export async function applyResourceOperations(
       const warnings = [...plan.warnings];
 
       for (const operation of operations) {
-        const manifestPath = installationManifestPath(operation.scope, options);
-        if (operation.action === 'install') {
-          const resources = operation.resources ?? [];
-          for (const harness of operation.harnesses) {
-            const installer = getHarnessAdapter(harness);
-            const installations = await installer.install(
-              resources,
-              operationInstallOptions(operation.scope, options, true),
+        try {
+          const manifestPath = installationManifestPath(operation.scope, options);
+          if (operation.action === 'install') {
+            const resources = operation.resources ?? [];
+            for (const harness of operation.harnesses) {
+              const installer = getHarnessAdapter(harness);
+              const installations = await installer.install(
+                resources,
+                operationInstallOptions(operation.scope, options, true),
+              );
+              const records = createInstallationRecords(resources, installations, operation.scope, installer.harness);
+              await saveInstallationRecords(
+                manifestPath,
+                records,
+                operationInstallOptions(operation.scope, options, force),
+              );
+              installed.push(...records);
+            }
+          } else {
+            const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
+            const manifest = await readInstallationManifest(manifestPath);
+            const records = manifest.installations.filter(
+              (record) =>
+                record.scope === operation.scope &&
+                operation.harnesses.includes(record.harness) &&
+                resourceIds.includes(record.resource),
             );
-            const records = createInstallationRecords(resources, installations, operation.scope, installer.harness);
-            await saveInstallationRecords(
-              manifestPath,
-              records,
-              operationInstallOptions(operation.scope, options, force),
-            );
-            installed.push(...records);
-          }
-        } else {
-          const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
-          const manifest = await readInstallationManifest(manifestPath);
-          const records = manifest.installations.filter(
-            (record) =>
-              record.scope === operation.scope &&
-              operation.harnesses.includes(record.harness) &&
-              resourceIds.includes(record.resource),
-          );
 
-          for (const record of records) {
-            await uninstallInstallation(
-              record,
-              operationInstallOptions(operation.scope, options, force),
-            );
-            await removeInstallationRecord(manifestPath, record);
-            removed.push(record);
+            for (const record of records) {
+              await uninstallInstallation(
+                record,
+                operationInstallOptions(operation.scope, options, force),
+              );
+              await removeInstallationRecord(manifestPath, record);
+              removed.push(record);
+            }
           }
+        } catch (error) {
+          throw new Error(
+            `Failed to ${operation.action} ${operation.resource} for ${operation.harnesses.join(', ')} in the ${operation.scope} scope: ${errorMessage(error)}`,
+            { cause: error },
+          );
         }
       }
 
@@ -809,11 +816,14 @@ export async function applyResourceOperations(
         await restoreFiles(snapshots);
       } catch (rollbackError) {
         throw new Error(
-          `Installation failed and rollback failed: ${errorMessage(rollbackError)}`,
+          `Installation failed. Rollback failed; manual review may be required.\nRollback error: ${errorMessage(rollbackError)}\nOriginal error: ${errorMessage(error)}`,
           { cause: error },
         );
       }
-      throw error;
+      throw new Error(
+        `Installation failed. All changes were rolled back.\nCause: ${errorMessage(error)}`,
+        { cause: error },
+      );
     }
   });
 }

@@ -7,13 +7,14 @@ type Props = {
   force: boolean;
   onForce: (value: boolean) => void;
   status: string;
+  statusError: boolean;
   busy: boolean;
   onApply: () => void;
   title?: string;
   onClose?: () => void;
 };
 
-export default function PlanView({ plan, showResource, force, onForce, status, busy, onApply, title, onClose }: Props) {
+export default function PlanView({ plan, showResource, force, onForce, status, statusError, busy, onApply, title, onClose }: Props) {
   const count = (action: ChangePlan['changes'][number]['action']) =>
     plan.changes.filter((change) => change.action === action).length;
   const removesInstallation = plan.operations?.some((operation) => operation.action === 'uninstall') ?? false;
@@ -51,7 +52,12 @@ export default function PlanView({ plan, showResource, force, onForce, status, b
           </label>
         )}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-base-content/60" role="status">{status}</p>
+          {status && (
+            <div className={'alert items-start text-sm ' + (statusError ? 'alert-error' : 'alert-info')} role={statusError ? 'alert' : 'status'} aria-live="polite">
+              <i className={'text-lg ' + (statusError ? 'ph ph-warning-circle' : 'ph ph-info')} aria-hidden="true" />
+              <span className="whitespace-pre-line">{status}</span>
+            </div>
+          )}
           <button className="btn btn-primary" type="button" onClick={onApply} disabled={!canApply || busy}>Apply changes</button>
         </div>
       </div>

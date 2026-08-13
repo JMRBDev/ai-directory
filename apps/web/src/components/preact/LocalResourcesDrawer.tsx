@@ -71,6 +71,7 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
   const [plan, setPlan] = useState<ChangePlan | null>(null);
   const [operation, setOperation] = useState<ChangeOperation | null>(null);
   const [planStatus, setPlanStatus] = useState('');
+  const [planError, setPlanError] = useState(false);
   const [force, setForce] = useState(false);
 
   async function load() {
@@ -105,6 +106,7 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
     setPlan(null);
     setOperation(nextOperation);
     setForce(false);
+    setPlanError(false);
     setPlanStatus('Preparing change preview…');
 
     try {
@@ -119,6 +121,7 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
         : `${nextPlan.changes.length} file${nextPlan.changes.length === 1 ? '' : 's'} ready to apply.`);
     } catch (cause) {
       setOperation(null);
+      setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not generate the change plan.'));
     } finally {
       setBusy(false);
@@ -131,6 +134,7 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
     if (!canApply) return;
 
     setBusy(true);
+    setPlanError(false);
     setPlanStatus('Applying changes…');
     try {
       const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
@@ -141,9 +145,11 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
       setPlan(null);
       setOperation(null);
       setForce(false);
+      setPlanError(false);
       await load();
       setStatus(`${operation.action === 'uninstall' ? 'Uninstalled' : 'Installed'} ${operation.resource}. Applied ${result.plan.changes.length} file change${result.plan.changes.length === 1 ? '' : 's'}.`);
     } catch (cause) {
+      setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
     } finally {
       setBusy(false);
@@ -252,6 +258,7 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
           force={force}
           onForce={setForce}
           status={planStatus}
+          statusError={planError}
           busy={busy}
           onApply={() => void applyPlan()}
           onClose={() => {

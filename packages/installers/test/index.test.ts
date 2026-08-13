@@ -880,9 +880,10 @@ describe('shared resource operations', () => {
     const plan = await planResourceOperations([operation], { cwd: projectDirectory });
     await writeFile(configPath, '{ invalid json\n', 'utf8');
 
-    await expect(
-      applyResourceOperations([operation], { cwd: projectDirectory }, false, plan),
-    ).rejects.toThrow('OpenCode config is not a valid object');
+    const failure = applyResourceOperations([operation], { cwd: projectDirectory }, false, plan);
+    await expect(failure).rejects.toThrow('Failed to install jose-rosendo/rules/typescript-quality');
+    await expect(failure).rejects.toThrow('All changes were rolled back');
+    await expect(failure).rejects.toThrow('OpenCode config is not a valid object');
     await expect(
       readFile(join(projectDirectory, '.claude', 'rules', 'typescript-quality.md'), 'utf8'),
     ).rejects.toThrow();
