@@ -147,7 +147,7 @@ pnpm build
 apps/cli/dist/aid web --open
 ```
 
-Open `/settings/` to configure the registry repository from the browser. The page writes through the local API, so the CLI and website share the same user/project configuration. Use `--index`, `--host`, `--port`, or `--api-port` to change the local setup. The command starts Astro and the local API from the workspace.
+Use the Settings control in the catalog or publishing page to configure the registry repository from the browser. The drawer writes through the local API, so the CLI and website share the same user/project configuration. Use `--index`, `--host`, `--port`, or `--api-port` to change the local setup. The command starts Astro and the local API from the workspace.
 
 Open `/publish/` to submit a resource from the website. The page fills the authenticated GitHub username, then lets you choose the resource type and name, select its directory, and enter its version. AI Directory infers the registry description from the entry file. Validate it locally, review the summary, then confirm the pull request. The local API keeps the uploaded files in a temporary directory and removes them after validation or submission. Website publishing requires the configured source to be a Git repository and uses the employee's existing Git and GitHub CLI credentials. Use `Refresh registry` on the catalog after a pull request is merged to fetch the latest production branch.
 
