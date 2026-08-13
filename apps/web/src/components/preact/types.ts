@@ -24,10 +24,19 @@ export type PlanChange = {
   after?: string;
 };
 
+export type ChangeOperation = {
+  resource: string;
+  harnesses: Harness[];
+  scope: Scope;
+  action: Action;
+  version?: string;
+};
+
 export type ChangePlan = {
   changes: PlanChange[];
   conflicts: string[];
   warnings: string[];
+  operations?: ChangeOperation[];
 };
 
 export type Installation = {
