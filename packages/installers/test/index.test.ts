@@ -437,6 +437,9 @@ describe('portable harness installers', () => {
     expect(claudeResult.files).not.toContain('agents/openai.yaml');
     expect(openCodeResult.files).not.toContain('agents/openai.yaml');
     expect(codexResult.files).toContain('agents/openai.yaml');
+    expect(claudeResult.skippedFiles).toEqual(['agents/openai.yaml']);
+    expect(openCodeResult.skippedFiles).toEqual(['agents/openai.yaml']);
+    expect(codexResult.skippedFiles).toEqual([]);
     await expect(
       readFile(join(projectDirectory, '.claude', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
     ).rejects.toThrow();

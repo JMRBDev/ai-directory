@@ -86,6 +86,7 @@ type ChangePlan = {
   changes: PlannedFileChange[];
   conflicts: string[];
   warnings: string[];
+  projectionNotes: string[];
 };
 
 type ResourceUpload = {
@@ -416,6 +417,7 @@ async function buildChangePlan(
   const changes: PlannedFileChange[] = [];
   const conflicts: string[] = [];
   const warnings: string[] = [];
+  const projectionNotes: string[] = [];
   const contents = new Map<string, string | null>();
 
   async function addChange(
@@ -524,6 +526,11 @@ async function buildChangePlan(
           for (const change of result.changes ?? []) {
             await addChange(change, owner, resourceId, harness);
           }
+          if (result.skippedFiles.length > 0) {
+            projectionNotes.push(
+              `${resourceId} · ${harness}: omitted harness-specific files (${result.skippedFiles.join(', ')}).`,
+            );
+          }
 
           const previous = manifest.installations.find(
             (record) =>
@@ -559,6 +566,7 @@ async function buildChangePlan(
     changes,
     conflicts: [...new Set(conflicts)],
     warnings: [...new Set(warnings)],
+    projectionNotes: [...new Set(projectionNotes)],
   };
 }
 

@@ -35,6 +35,7 @@ export type ClaudeCodeInstallOptions = InstallOptions;
 export type InstallResult = {
   destination: string;
   files: string[];
+  skippedFiles: string[];
   paths: string[];
   ownedPaths: string[];
   fileHashes: Record<string, string>;
@@ -147,6 +148,7 @@ export async function installOpenCodeResources(
   return plans.map((plan) => ({
     destination: plan.destination,
     files: plan.files.map((file) => file.path),
+    skippedFiles: plan.skippedFiles,
     paths: [
       ...plan.files.map((file) => file.destination),
       ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
@@ -196,6 +198,7 @@ export async function installCodexResources(
         ? guidance.path
         : plan.destination,
     files: plan.files.map((file) => file.path),
+    skippedFiles: plan.skippedFiles,
     paths: [
       ...plan.files.map((file) => file.destination),
       ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
@@ -242,6 +245,7 @@ async function installResources(
   return plans.map((plan) => ({
     destination: plan.destination,
     files: plan.files.map((file) => file.path),
+    skippedFiles: plan.skippedFiles,
     paths: plan.files.map((file) => file.destination),
     ownedPaths: plan.files.map((file) => file.destination),
     fileHashes: hashesForPlan(plan, fileHashes),
@@ -747,6 +751,7 @@ type InstallPlan = {
   resource: ResourceVersion;
   destination: string;
   files: InstallFile[];
+  skippedFiles: string[];
 };
 
 type InstallFile = {
@@ -778,7 +783,8 @@ function createClaudeCodePlan(
     );
   }
 
-  const files = projectedFiles(resource, 'claude-code').map((file) => ({
+  const projection = projectFiles(resource, 'claude-code');
+  const files = projection.files.map((file) => ({
     ...file,
     destination: destinationForFile(root, resource, file.path),
   }));
@@ -787,6 +793,7 @@ function createClaudeCodePlan(
     resource,
     destination: resourceDestination(root, resource),
     files,
+    skippedFiles: projection.skippedFiles,
   };
 }
 
@@ -801,7 +808,8 @@ function createOpenCodePlan(
     );
   }
 
-  const files = projectedFiles(resource, 'opencode').map((file) => ({
+  const projection = projectFiles(resource, 'opencode');
+  const files = projection.files.map((file) => ({
     ...file,
     content:
       resource.resource.type === 'agents' && file.path === 'AGENT.md'
@@ -819,6 +827,7 @@ function createOpenCodePlan(
     resource,
     destination: openCodeResourceDestination(root, resource, scope),
     files,
+    skippedFiles: projection.skippedFiles,
   };
 }
 
@@ -832,7 +841,8 @@ function createCodexPlan(
     );
   }
 
-  const files = projectedFiles(resource, 'codex').map((file) => ({
+  const projection = projectFiles(resource, 'codex');
+  const files = projection.files.map((file) => ({
     ...file,
     content:
       resource.resource.type === 'agents' && file.path === 'AGENT.md'
@@ -845,13 +855,21 @@ function createCodexPlan(
     resource,
     destination: codexResourceDestination(paths, resource),
     files,
+    skippedFiles: projection.skippedFiles,
   };
 }
 
-function projectedFiles(resource: ResourceVersion, harness: Harness) {
-  return resource.files.filter((file) =>
-    harness === 'codex' || !file.path.replaceAll('\\', '/').startsWith('agents/'),
+function projectFiles(resource: ResourceVersion, harness: Harness) {
+  const files = resource.files.filter((file) =>
+    harness === 'codex' || file.path.replaceAll('\\', '/') !== 'agents/openai.yaml',
   );
+
+  return {
+    files,
+    skippedFiles: resource.files
+      .filter((file) => !files.includes(file))
+      .map((file) => file.path),
+  };
 }
 
 function destinationForFile(
