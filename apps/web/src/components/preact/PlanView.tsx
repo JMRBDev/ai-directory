@@ -43,6 +43,7 @@ export default function PlanView({ plan, showResource, force, onForce, status, b
           </div>
         )}
         {plan.warnings.length > 0 && <div className="alert alert-warning mt-4 items-start text-sm"><i className="ph ph-warning text-lg" aria-hidden="true" /><span>Unreviewed resources: {plan.warnings.join(', ')}</span></div>}
+        {(plan.projectionNotes?.length ?? 0) > 0 && <div className="alert alert-info mt-4 items-start text-sm"><i className="ph ph-info text-lg" aria-hidden="true" /><span>{plan.projectionNotes?.join(' ')}</span></div>}
         {plan.conflicts.length > 0 && (
           <label className="alert alert-warning mt-4 items-start gap-3 text-sm">
             <input className="checkbox checkbox-warning mt-0.5" type="checkbox" checked={force} onChange={(event) => onForce(event.currentTarget.checked)} />
