@@ -2,12 +2,10 @@
 import { loadRegistry, refreshRegistry, resourceId } from '../lib/registry';
 import ThemeInit from '../components/ThemeInit.astro';
 import SiteHeader from '../components/SiteHeader.astro';
-import SettingsDrawer from '../components/SettingsDrawer.astro';
 import RegistryHero from '../components/RegistryHero.astro';
-import ResourceCard from '../components/ResourceCard.astro';
-import ResourceFilters from '../components/ResourceFilters.astro';
-import ChangeDeck from '../components/ChangeDeck.astro';
 import ShareResourceCard from '../components/ShareResourceCard.astro';
+import ResourceCatalog from '../components/preact/ResourceCatalog';
+import SettingsDrawer from '../components/preact/SettingsDrawer';
 import '../styles/global.css';
 
 if (Astro.url.searchParams.get('refresh') === '1') await refreshRegistry();
@@ -17,9 +15,7 @@ const resources = (registry.index?.resources ?? [])
   .sort((left, right) => resourceId(left).localeCompare(resourceId(right)));
 const reviewedCount = resources.filter((resource) => resource.reviewStatus === 'reviewed').length;
 const resourceTypes = new Set(resources.map((resource) => resource.type)).size;
-const title = 'AI Directory | Internal resource registry';
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
-
 ---
 
 <!doctype html>
@@ -27,460 +23,33 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
-    <meta
-      name="description"
-      content="Internal catalog of reusable AI development resources."
-    />
+    <meta name="description" content="Internal catalog of reusable AI development resources." />
     <ThemeInit />
-    <title>{title}</title>
+    <title>AI Directory | Internal resource registry</title>
   </head>
   <body class="min-h-screen bg-base-100 font-sans text-base-content antialiased">
-    <a
-      class="btn btn-primary sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50"
-      href="#catalog"
-    >Skip to catalog</a>
+    <a class="btn btn-primary sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50" href="#catalog">
+      Skip to catalog
+    </a>
     <SiteHeader showChanges showPublish showRefresh showSettings />
 
     <main class="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8 lg:py-14">
       <RegistryHero active={resources.length} reviewed={reviewedCount} types={resourceTypes} />
-
-      <section id="catalog" class="mt-14" aria-labelledby="catalog-title">
-        <div class="flex flex-wrap items-end justify-between gap-4 border-b border-base-300 pb-5">
-          <div>
-            <h2 id="catalog-title" class="text-xl font-semibold tracking-tight text-base-content">Available resources</h2>
-          </div>
-          <p class="text-xs text-base-content/60">
-            Source: {registry.source === 'remote' ? 'configured Git registry' : 'explicit local index'}
-          </p>
-        </div>
-
-        {registry.error ? (
-          <div class="alert alert-error mt-6 items-start text-sm" role="alert">
-            <i class="ph ph-warning-circle text-xl" aria-hidden="true"></i>
-            <div>
-              <strong class="font-semibold">Could not load the registry.</strong>
-              <p class="mt-2">{registry.error}</p>
-              <p class="mt-2">Run <kbd class="kbd kbd-sm font-mono">aid setup</kbd> or pass <kbd class="kbd kbd-sm font-mono">--index &lt;path&gt;</kbd>.</p>
-            </div>
-          </div>
-        ) : resources.length === 0 ? (
-          <div class="card mt-6 border border-base-300 bg-base-100">
-            <div class="card-body p-6">
-              <strong class="font-semibold text-base-content">No active resources yet.</strong>
-              <p class="mt-2 text-sm text-base-content/60">Submit the first resource with the CLI, then refresh the registry.</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            <ResourceFilters resultCount={resources.length} />
-            <div class="mt-4 grid gap-4 md:grid-cols-2" data-resource-grid>
-              {resources.map((resource) => <ResourceCard resource={resource} />)}
-            </div>
-            <div class="card card-border mt-6 hidden bg-base-100" data-no-results hidden>
-              <div class="card-body p-6">
-                <strong class="font-semibold text-base-content">No matching resources.</strong>
-                <p class="mt-2 text-sm text-base-content/60">Change the search text or select a different resource type.</p>
-              </div>
-            </div>
-          </>
-        )}
-      </section>
-
-      <ChangeDeck />
-
+      <ResourceCatalog
+        client:load
+        resources={resources}
+        apiUrl={apiUrl}
+        registryError={registry.error}
+        source={registry.source}
+      />
       <ShareResourceCard />
     </main>
 
-    <SettingsDrawer />
+    <SettingsDrawer client:load apiUrl={apiUrl} />
 
     <footer class="footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8">
       <p>Backed by the production branch of the resources repository.</p>
       <p>Local-first prototype</p>
     </footer>
-
-    <script>
-      type Action = 'install' | 'uninstall';
-      type Change = {
-        path: string;
-        action: 'added' | 'modified' | 'removed';
-        resource: string;
-        harness: string;
-        scope: string;
-        before?: string;
-        after?: string;
-      };
-      type Plan = {
-        changes: Change[];
-        conflicts: string[];
-        warnings: string[];
-      };
-
-      const apiBase = document.documentElement.dataset.apiUrl ?? 'http://127.0.0.1:4317';
-      const search = document.querySelector<HTMLInputElement>('#resource-search');
-      const type = document.querySelector<HTMLSelectElement>('#resource-type');
-      const count = document.querySelector<HTMLElement>('[data-result-count]');
-      const noResults = document.querySelector<HTMLElement>('[data-no-results]');
-      const resources = Array.from(document.querySelectorAll<HTMLElement>('[data-resource]'));
-      const openDeckButton = document.querySelector<HTMLButtonElement>('[data-open-deck]');
-      const deckBackdrop = document.querySelector<HTMLElement>('[data-deck-backdrop]');
-      const deckRoot = document.querySelector<HTMLElement>('[data-deck-root]');
-      const deckToggle = document.querySelector<HTMLInputElement>('[data-deck-toggle]');
-      const deckSide = deckRoot?.querySelector<HTMLElement>('.drawer-side');
-      const deckCount = document.querySelector<HTMLElement>('[data-deck-count]');
-      const selectionCount = document.querySelector<HTMLElement>('[data-selection-count]');
-      const selectionList = document.querySelector<HTMLElement>('[data-selection-list]');
-      const selectionEmpty = document.querySelector<HTMLElement>('[data-selection-empty]');
-      const clearSelectionButton = document.querySelector<HTMLButtonElement>('[data-clear-selection]');
-      const review = document.querySelector<HTMLElement>('[data-change-review]');
-      const closeReview = document.querySelector<HTMLButtonElement>('[data-close-review]');
-      const planContext = document.querySelector<HTMLElement>('[data-plan-context]');
-      const planHarnesses = Array.from(document.querySelectorAll<HTMLInputElement>('[data-plan-harness]'));
-      const planScope = document.querySelector<HTMLSelectElement>('[data-plan-scope]');
-      const generatePlan = document.querySelector<HTMLButtonElement>('[data-generate-plan]');
-      const planOutput = document.querySelector<HTMLElement>('[data-plan-output]');
-      const planStatus = document.querySelector<HTMLElement>('[data-plan-status]');
-      const applyPlan = document.querySelector<HTMLButtonElement>('[data-apply-plan]');
-      const forceLabel = document.querySelector<HTMLElement>('[data-plan-force-label]');
-      const forceInput = document.querySelector<HTMLInputElement>('[data-plan-force]');
-      const actions = new Map<string, Action>();
-      let currentOperations: Array<{ resource: string; action: Action; harnesses: string[]; scope: string }> = [];
-      let currentPlan: Plan | null = null;
-      let planTimer: ReturnType<typeof setTimeout> | undefined;
-      let planRequest = 0;
-
-      function setHidden(element: HTMLElement | null, hidden: boolean) {
-        if (!element) return;
-        element.hidden = hidden;
-        element.classList.toggle('hidden', hidden);
-      }
-
-      function selectedResources(): HTMLElement[] {
-        return resources.filter((resource) =>
-          resource.querySelector<HTMLInputElement>('[data-resource-select]')?.checked,
-        );
-      }
-
-      function setDeckOpen(open: boolean) {
-        if (!review || !deckBackdrop || !deckRoot || !deckToggle) return;
-        deckRoot.classList.toggle('drawer-open', open);
-        deckRoot.classList.toggle('pointer-events-none', !open);
-        deckToggle.checked = open;
-        deckSide?.style.setProperty('display', open ? 'grid' : 'none', 'important');
-        deckSide?.style.setProperty('visibility', open ? 'visible' : 'hidden', 'important');
-        deckSide?.style.setProperty('opacity', open ? '1' : '0', 'important');
-        deckSide?.style.setProperty('transition', 'none', 'important');
-        review.style.setProperty('transform', `translateX(${open ? '0' : '100'}%)`, 'important');
-        review.style.setProperty('translate', open ? '0%' : '100%', 'important');
-        review.style.setProperty('transition', 'none', 'important');
-        review.setAttribute('aria-hidden', String(!open));
-        openDeckButton?.setAttribute('aria-expanded', String(open));
-        document.body.classList.toggle('overflow-hidden', open);
-        if (open) closeReview?.focus();
-      }
-
-      function invalidatePlan(message = 'Select a resource to generate a preview.') {
-        planRequest += 1;
-        currentPlan = null;
-        setHidden(planOutput, true);
-        if (applyPlan) applyPlan.disabled = true;
-        if (planStatus) planStatus.textContent = message;
-      }
-
-      function updateSelectionSummary(selected: HTMLElement[]) {
-        const size = selected.length;
-        if (deckCount) deckCount.textContent = String(size);
-        if (selectionCount) selectionCount.textContent = `${size} resource${size === 1 ? '' : 's'} selected`;
-        if (planContext) planContext.textContent = size === 0
-          ? 'No pending changes.'
-          : `${size} resource${size === 1 ? '' : 's'} staged. Review the file changes before saving.`;
-        setHidden(selectionEmpty, size > 0);
-      }
-
-      function renderSelection() {
-        const selected = selectedResources();
-        updateSelectionSummary(selected);
-        if (!selectionList) return;
-
-        selectionList.replaceChildren();
-        for (const resource of selected) {
-          const id = resource.dataset.resourceId ?? '';
-          if (!actions.has(id)) actions.set(id, 'install');
-
-          const row = document.createElement('li');
-          row.className = 'list-row list-col-wrap grid-cols-1 gap-2 bg-base-200';
-
-          const top = document.createElement('div');
-          top.className = 'flex items-start justify-between gap-3';
-          const label = document.createElement('span');
-          label.className = 'break-all font-mono text-xs text-base-content';
-          label.textContent = id;
-          top.append(label);
-
-          const remove = document.createElement('button');
-          remove.className = 'btn btn-ghost btn-xs shrink-0';
-          remove.type = 'button';
-          remove.textContent = 'Remove';
-          remove.setAttribute('aria-label', `Remove ${id} from the change deck`);
-          remove.addEventListener('click', () => {
-            const input = resource.querySelector<HTMLInputElement>('[data-resource-select]');
-            if (input) input.checked = false;
-            renderSelection();
-          });
-          top.append(remove);
-          const body = document.createElement('div');
-          body.className = 'list-col-grow flex flex-col gap-2';
-          body.append(top);
-
-          const action = document.createElement('select');
-          action.className = 'select select-bordered select-sm w-full';
-          action.setAttribute('aria-label', `Action for ${id}`);
-          action.innerHTML = '<option value="install">Install or update</option><option value="uninstall">Uninstall</option>';
-          action.value = actions.get(id) ?? 'install';
-          action.addEventListener('change', () => {
-            actions.set(id, action.value as Action);
-            invalidatePlan();
-            schedulePlan();
-          });
-          body.append(action);
-          row.append(body);
-          selectionList.append(row);
-        }
-        invalidatePlan(selected.length === 0 ? 'Select a resource to generate a preview.' : 'Updating preview…');
-        schedulePlan();
-      }
-
-      function collectOperations() {
-        const harnesses = planHarnesses.filter((input) => input.checked).map((input) => input.value);
-        const scope = planScope?.value ?? 'project';
-        return {
-          harnesses,
-          operations: selectedResources().map((resource) => ({
-            resource: resource.dataset.resourceId ?? '',
-            action: actions.get(resource.dataset.resourceId ?? '') ?? 'install',
-            harnesses,
-            scope,
-          })),
-        };
-      }
-
-      function schedulePlan() {
-        if (planTimer) clearTimeout(planTimer);
-        if (selectedResources().length === 0) return;
-        if (planHarnesses.every((input) => !input.checked)) {
-          invalidatePlan('Select at least one harness.');
-          return;
-        }
-        planTimer = setTimeout(() => void generateChanges(), 250);
-      }
-
-      async function generateChanges() {
-        const requestId = ++planRequest;
-        const requestData = collectOperations();
-        if (requestData.harnesses.length === 0 || requestData.operations.length === 0) return;
-        currentOperations = requestData.operations;
-        if (generatePlan) generatePlan.disabled = true;
-        setHidden(planOutput, true);
-        if (planStatus) planStatus.textContent = 'Updating preview…';
-        try {
-          const result = await request('/api/plan', { operations: currentOperations });
-          if (requestId !== planRequest) return;
-          renderPlan(result as Plan);
-        } catch (error) {
-          if (requestId === planRequest && planStatus) {
-            planStatus.textContent = error instanceof Error ? error.message : 'Could not generate the change plan.';
-          }
-        } finally {
-          if (requestId === planRequest && generatePlan) generatePlan.disabled = false;
-        }
-      }
-
-      function appendChange(list: HTMLElement, change: Change) {
-        const item = document.createElement('li');
-        item.className = 'list-row list-col-wrap gap-3 bg-base-200';
-
-        const header = document.createElement('div');
-        header.className = 'flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between';
-        const path = document.createElement('span');
-        path.className = 'break-all font-mono text-xs font-semibold text-base-content';
-        path.textContent = change.path;
-        const meta = document.createElement('span');
-        meta.className = 'text-xs text-base-content/60';
-        meta.textContent = `${change.resource} · ${change.harness} · ${change.scope}`;
-        header.append(path, meta);
-        const body = document.createElement('div');
-        body.className = 'list-col-grow';
-        body.append(header);
-
-        const content = change.after ?? change.before;
-        if (content) {
-          const details = document.createElement('details');
-          details.className = 'collapse collapse-arrow mt-3 border border-base-300';
-          const summary = document.createElement('summary');
-          summary.className = 'collapse-title min-h-0 py-3 text-xs font-semibold text-primary';
-          summary.textContent = change.action === 'modified' ? 'View file change' : 'View file content';
-          const contentContainer = document.createElement('div');
-          contentContainer.className = 'collapse-content';
-          const codeBlock = document.createElement('div');
-          codeBlock.className = 'mockup-code max-h-64 overflow-auto text-xs leading-5 before:hidden';
-          const pre = document.createElement('pre');
-          const code = document.createElement('code');
-          code.textContent = change.action === 'modified'
-            ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}`
-            : content;
-          pre.append(code);
-          codeBlock.append(pre);
-          contentContainer.append(codeBlock);
-          details.append(summary, contentContainer);
-          body.append(details);
-        }
-        item.append(body);
-        list.append(item);
-      }
-
-      function renderPlan(plan: Plan) {
-        currentPlan = plan;
-        setHidden(planOutput, false);
-        for (const action of ['added', 'modified', 'removed'] as const) {
-          const changes = plan.changes.filter((change) => change.action === action);
-          const section = document.querySelector<HTMLElement>(`[data-plan-section="${action}"]`);
-          const list = document.querySelector<HTMLElement>(`[data-plan-list="${action}"]`);
-          const total = document.querySelector<HTMLElement>(`[data-plan-count="${action}"]`);
-          if (total) total.textContent = String(changes.length);
-          setHidden(section, changes.length === 0);
-          if (list) {
-            list.replaceChildren();
-            for (const change of changes) appendChange(list, change);
-          }
-        }
-
-        setHidden(document.querySelector<HTMLElement>('[data-plan-empty]'), plan.changes.length !== 0);
-        const conflicts = document.querySelector<HTMLElement>('[data-plan-conflicts]');
-        if (conflicts) {
-          conflicts.replaceChildren();
-          if (plan.conflicts.length > 0) {
-            const title = document.createElement('strong');
-            title.className = 'font-semibold';
-            title.textContent = 'Review required before applying.';
-            const list = document.createElement('ul');
-            list.className = 'list list-xs mt-2';
-            for (const conflict of plan.conflicts) {
-              const item = document.createElement('li');
-              item.className = 'list-row py-1';
-              item.textContent = conflict;
-              list.append(item);
-            }
-            conflicts.append(title, list);
-          }
-          setHidden(conflicts, plan.conflicts.length === 0);
-        }
-
-        const warnings = document.querySelector<HTMLElement>('[data-plan-warnings]');
-        if (warnings) {
-          warnings.textContent = plan.warnings.length > 0
-            ? `Unreviewed resources: ${plan.warnings.join(', ')}`
-            : '';
-          setHidden(warnings, plan.warnings.length === 0);
-        }
-
-        setHidden(forceLabel, plan.conflicts.length === 0);
-        if (forceInput) forceInput.checked = false;
-        if (applyPlan) applyPlan.disabled = plan.conflicts.length > 0 || plan.changes.length === 0;
-        if (planStatus) {
-          planStatus.textContent = plan.changes.length === 0
-            ? 'No changes are needed.'
-            : `${plan.changes.length} file${plan.changes.length === 1 ? '' : 's'} ready to apply.`;
-        }
-      }
-
-      async function request(path: string, body: unknown) {
-        const response = await fetch(`${apiBase}${path}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error ?? 'The local API request failed.');
-        return result;
-      }
-
-      function updateResults() {
-        const query = search?.value.toLowerCase().trim() ?? '';
-        const selectedType = type?.value ?? 'all';
-        let visible = 0;
-
-        for (const resource of resources) {
-          const matchesQuery = resource.dataset.search?.includes(query) ?? false;
-          const matchesType = selectedType === 'all' || resource.dataset.type === selectedType;
-          const hidden = !(matchesQuery && matchesType);
-          resource.hidden = hidden;
-          resource.classList.toggle('hidden', hidden);
-          if (!hidden) visible += 1;
-        }
-
-        if (count) count.textContent = `${visible} result${visible === 1 ? '' : 's'}`;
-        if (noResults) {
-          noResults.hidden = visible !== 0;
-          noResults.classList.toggle('hidden', visible !== 0);
-        }
-      }
-
-      for (const resource of resources) {
-        resource.querySelector<HTMLInputElement>('[data-resource-select]')?.addEventListener('change', renderSelection);
-      }
-      search?.addEventListener('input', updateResults);
-      type?.addEventListener('change', updateResults);
-      openDeckButton?.addEventListener('click', () => {
-        setDeckOpen(true);
-        if (selectedResources().length > 0 && !currentPlan) schedulePlan();
-      });
-      closeReview?.addEventListener('click', () => setDeckOpen(false));
-      deckBackdrop?.addEventListener('click', () => setDeckOpen(false));
-      document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && review?.getAttribute('aria-hidden') === 'false') setDeckOpen(false);
-      });
-      clearSelectionButton?.addEventListener('click', () => {
-        for (const resource of resources) {
-          const input = resource.querySelector<HTMLInputElement>('[data-resource-select]');
-          if (input) input.checked = false;
-        }
-        actions.clear();
-        renderSelection();
-      });
-      for (const input of planHarnesses) input.addEventListener('change', () => {
-        invalidatePlan('Updating preview…');
-        schedulePlan();
-      });
-      planScope?.addEventListener('change', () => {
-        invalidatePlan('Updating preview…');
-        schedulePlan();
-      });
-      forceInput?.addEventListener('change', () => {
-        if (applyPlan && currentPlan) applyPlan.disabled = currentPlan.changes.length === 0 || (currentPlan.conflicts.length > 0 && !forceInput.checked);
-      });
-      generatePlan?.addEventListener('click', () => void generateChanges());
-      applyPlan?.addEventListener('click', async () => {
-        if (currentOperations.length === 0) return;
-        const force = forceInput?.checked === true;
-        if (currentPlan?.conflicts.length && !force) return;
-        applyPlan.disabled = true;
-        if (planStatus) planStatus.textContent = 'Applying all changes…';
-        try {
-          const result = await request('/api/apply', { operations: currentOperations, force });
-          if (planStatus) planStatus.textContent = `Applied ${result.plan.changes.length} file change${result.plan.changes.length === 1 ? '' : 's'}.`;
-          for (const resource of resources) {
-            const input = resource.querySelector<HTMLInputElement>('[data-resource-select]');
-            if (input) input.checked = false;
-          }
-          actions.clear();
-          currentOperations = [];
-          renderSelection();
-          if (planStatus) planStatus.textContent = `Saved ${result.plan.changes.length} file change${result.plan.changes.length === 1 ? '' : 's'}.`;
-        } catch (error) {
-          if (planStatus) planStatus.textContent = error instanceof Error ? error.message : 'Could not apply the change plan.';
-          applyPlan.disabled = false;
-        }
-      });
-      renderSelection();
-    </script>
   </body>
 </html>
