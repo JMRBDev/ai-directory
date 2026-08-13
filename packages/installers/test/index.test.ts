@@ -769,6 +769,34 @@ describe('shared resource operations', () => {
     );
     expect(uninstall.removed).toHaveLength(2);
   });
+
+  it('restores earlier harness changes when a later apply step fails', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const configPath = join(projectDirectory, 'opencode.jsonc');
+    const operation = {
+      resource: resourceKey(ruleResource.resource),
+      harnesses: ['claude-code', 'opencode'] as const,
+      scope: 'project' as const,
+      action: 'install' as const,
+      resources: [ruleResource],
+      warningResources: [ruleResource],
+    };
+
+    await writeFile(configPath, '{"instructions": []}\n', 'utf8');
+    const plan = await planResourceOperations([operation], { cwd: projectDirectory });
+    await writeFile(configPath, '{ invalid json\n', 'utf8');
+
+    await expect(
+      applyResourceOperations([operation], { cwd: projectDirectory }, false, plan),
+    ).rejects.toThrow('OpenCode config is not a valid object');
+    await expect(
+      readFile(join(projectDirectory, '.claude', 'rules', 'typescript-quality.md'), 'utf8'),
+    ).rejects.toThrow();
+    await expect(
+      readFile(join(projectDirectory, '.ai-directory', 'installed.json'), 'utf8'),
+    ).rejects.toThrow();
+    await expect(readFile(configPath, 'utf8')).resolves.toBe('{ invalid json\n');
+  });
 });
 
 describe('installation manifest', () => {
