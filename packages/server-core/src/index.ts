@@ -229,11 +229,12 @@ async function githubUsername(options: ServerOptions, cwd: string): Promise<stri
 async function readInstallationRecords(
   scopes: InstallScope[],
   cwd: string,
+  homeDirectory?: string,
 ): Promise<InstallationRecord[]> {
   return (
     await Promise.all(
       scopes.map(async (scope) =>
-        (await readInstallationManifest(getInstallManifestPath(scope, cwd))).installations,
+        (await readInstallationManifest(getInstallManifestPath(scope, cwd, homeDirectory))).installations,
       ),
     )
   ).flat();
@@ -538,7 +539,7 @@ export function createApp(options: ServerOptions = {}) {
     const scopes: InstallScope[] = requestedScope
       ? [requestedScope]
       : ['project', 'global'];
-    const installations = await readInstallationRecords(scopes, cwd);
+    const installations = await readInstallationRecords(scopes, cwd, options.homeDirectory);
 
     return context.json({ installations });
   });
@@ -555,7 +556,7 @@ export function createApp(options: ServerOptions = {}) {
       : ['project', 'global'];
 
     try {
-      const records = await readInstallationRecords(scopes, cwd);
+      const records = await readInstallationRecords(scopes, cwd, options.homeDirectory);
       const resources = await discoverLocalResources({
         cwd,
         ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
@@ -713,7 +714,7 @@ export function createApp(options: ServerOptions = {}) {
 
     try {
       const request = parseResourceRequest(body);
-      const manifestPath = getInstallManifestPath(request.scope, cwd);
+      const manifestPath = getInstallManifestPath(request.scope, cwd, options.homeDirectory);
       const manifest = await readInstallationManifest(manifestPath);
       const loaded = await readRegistrySourceResource(
         registrySource(options, cwd),
@@ -798,7 +799,7 @@ export function createApp(options: ServerOptions = {}) {
 
     try {
       const request = parseResourceRequest(rawRequest);
-      const manifestPath = getInstallManifestPath(request.scope, cwd);
+      const manifestPath = getInstallManifestPath(request.scope, cwd, options.homeDirectory);
       const manifest = await readInstallationManifest(manifestPath);
       const resourceIds = await installationResourceIds(
         request.resource,

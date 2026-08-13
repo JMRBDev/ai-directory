@@ -100,6 +100,9 @@ describe('AI Directory config', () => {
     expect(getInstallManifestPath('project', directory)).toBe(
       join(directory, '.ai-directory', 'installed.json'),
     );
+    expect(getInstallManifestPath('global', directory, directory)).toBe(
+      join(directory, '.local', 'share', 'ai-directory', 'installed.json'),
+    );
     expect(getInstallManifestPath('global')).toContain('installed.json');
   });
 });

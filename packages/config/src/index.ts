@@ -34,10 +34,15 @@ export function getConfigPath(scope: ConfigScope, cwd = process.cwd()): string {
 export function getInstallManifestPath(
   scope: 'project' | 'global',
   cwd = process.cwd(),
+  homeDirectory?: string,
 ): string {
   if (scope === 'project') return join(cwd, '.ai-directory', 'installed.json');
 
-  return join(envPaths('ai-directory', { suffix: '' }).data, 'installed.json');
+  const dataDirectory = homeDirectory
+    ? join(resolve(homeDirectory), '.local', 'share', 'ai-directory')
+    : envPaths('ai-directory', { suffix: '' }).data;
+
+  return join(dataDirectory, 'installed.json');
 }
 
 export function findWorkspaceRoot(startDirectory: string): string | null {

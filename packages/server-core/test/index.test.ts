@@ -233,6 +233,32 @@ describe('local control API', () => {
     });
   });
 
+  it('keeps global installations inside the configured home directory', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({
+      cwd,
+      homeDirectory,
+      environment: { CODEX_HOME: join(homeDirectory, '.codex') },
+      registryIndexPath: fixtureIndexPath,
+    });
+
+    const resource = 'john-doe/skills/typescript-review';
+    const install = await app.request('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ resource, harnesses: ['codex'], scope: 'global' }),
+    });
+
+    expect(install.status).toBe(200);
+    await expect(
+      readFile(join(homeDirectory, '.agents', 'skills', 'typescript-review', 'SKILL.md'), 'utf8'),
+    ).resolves.toContain('TypeScript');
+    await expect(app.request('/api/installed?scope=global').then((response) => response.json())).resolves.toMatchObject({
+      installations: [expect.objectContaining({ resource, harness: 'codex', scope: 'global' })],
+    });
+  });
+
   it('discovers managed and unmanaged project resources', async () => {
     const cwd = await createTemporaryDirectory();
     const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });

@@ -648,7 +648,7 @@ export async function planResourceOperations(
   for (const operation of operations) {
     const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
     warnings.push(...requestWarnings(operation.warningResources ?? operation.resources ?? []));
-    const manifestPath = getInstallManifestPath(operation.scope, options.cwd);
+    const manifestPath = installationManifestPath(operation.scope, options);
     const manifest = await readInstallationManifest(manifestPath);
 
     for (const harness of operation.harnesses) {
@@ -755,7 +755,7 @@ export async function applyResourceOperations(
 
     const paths = [
       ...plan.changes.map((change) => change.path),
-      ...operations.map((operation) => getInstallManifestPath(operation.scope, options.cwd)),
+      ...operations.map((operation) => installationManifestPath(operation.scope, options)),
     ];
     const snapshots = await snapshotFiles(paths);
 
@@ -765,7 +765,7 @@ export async function applyResourceOperations(
       const warnings = [...plan.warnings];
 
       for (const operation of operations) {
-        const manifestPath = getInstallManifestPath(operation.scope, options.cwd);
+        const manifestPath = installationManifestPath(operation.scope, options);
         if (operation.action === 'install') {
           const resources = operation.resources ?? [];
           for (const harness of operation.harnesses) {
@@ -1585,6 +1585,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function installationManifestPath(
+  scope: InstallScope,
+  options: ResourceChangeOptions,
+): string {
+  return getInstallManifestPath(scope, options.cwd, options.homeDirectory);
+}
+
 type InstallationLock = {
   release(): Promise<void>;
 };
@@ -1601,7 +1608,7 @@ async function withInstallationLocks<T>(
 ): Promise<T> {
   const lockPaths = [...new Set(
     operations.map((operation) =>
-      `${resolve(getInstallManifestPath(operation.scope, options.cwd))}.lock`,
+      `${resolve(installationManifestPath(operation.scope, options))}.lock`,
     ),
   )].sort();
   const locks: InstallationLock[] = [];

@@ -822,6 +822,48 @@ describe('shared resource operations', () => {
     await expect(readFile(lockPath, 'utf8')).rejects.toThrow();
   });
 
+  it('applies a global operation inside the supplied home directory', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const operation = {
+      resource: resourceKey(resource.resource),
+      harnesses: ['claude-code', 'opencode', 'codex'] as const,
+      scope: 'global' as const,
+      action: 'install' as const,
+      resources: [resourceWithCodexMetadata],
+    };
+
+    const applied = await applyResourceOperations(
+      [operation],
+      {
+        homeDirectory,
+        environment: { CODEX_HOME: join(homeDirectory, '.codex') },
+      },
+    );
+
+    expect(applied.installed).toHaveLength(3);
+    await expect(
+      readFile(
+        join(homeDirectory, '.claude', 'skills', 'typescript-api-review', 'SKILL.md'),
+        'utf8',
+      ),
+    ).resolves.toBe('# API review\n');
+    await expect(
+      readFile(
+        join(homeDirectory, '.config', 'opencode', 'skills', 'typescript-api-review', 'SKILL.md'),
+        'utf8',
+      ),
+    ).resolves.toBe('# API review\n');
+    await expect(
+      readFile(
+        join(homeDirectory, '.agents', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'),
+        'utf8',
+      ),
+    ).resolves.toContain('display_name');
+    await expect(
+      readFile(join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json'), 'utf8'),
+    ).resolves.toContain('jose-rosendo/skills/typescript-api-review');
+  });
+
   it('restores earlier harness changes when a later apply step fails', async () => {
     const projectDirectory = await createTemporaryDirectory();
     const configPath = join(projectDirectory, 'opencode.jsonc');
