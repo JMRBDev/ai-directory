@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
 import {
+  applyResourceOperations,
   createInstallationRecords,
   discoverLocalResources,
   enrichLocalResources,
@@ -14,6 +15,7 @@ import {
   installCodexResources,
   installOpenCodeResources,
   getHarnessAdapter,
+  planResourceOperations,
   readInstallationManifest,
   removeStaleInstallationFiles,
   uninstallInstallation,
@@ -728,6 +730,44 @@ describe('portable harness installers', () => {
     await expect(readFile(configPath, 'utf8')).resolves.toContain(
       'rules/typescript-quality.md',
     );
+  });
+});
+
+describe('shared resource operations', () => {
+  it('plans, applies, and removes one operation across multiple harnesses', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const operation = {
+      resource: resourceKey(resource.resource),
+      harnesses: ['claude-code', 'opencode'] as const,
+      scope: 'project' as const,
+      action: 'install' as const,
+      resources: [resource],
+      warningResources: [resource],
+    };
+
+    const plan = await planResourceOperations([operation], { cwd: projectDirectory });
+    expect(plan.changes).toHaveLength(4);
+    expect(plan.conflicts).toEqual([]);
+
+    const applied = await applyResourceOperations(
+      [operation],
+      { cwd: projectDirectory },
+      false,
+      plan,
+    );
+    expect(applied.installed).toHaveLength(2);
+
+    const uninstall = await applyResourceOperations(
+      [{
+        resource: operation.resource,
+        harnesses: [...operation.harnesses],
+        scope: operation.scope,
+        action: 'uninstall' as const,
+        resourceIds: [operation.resource],
+      }],
+      { cwd: projectDirectory },
+    );
+    expect(uninstall.removed).toHaveLength(2);
   });
 });
 

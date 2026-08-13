@@ -173,6 +173,9 @@ importers:
 
   packages/installers:
     dependencies:
+      '@ai-directory/config':
+        specifier: workspace:*
+        version: link:../config
       '@ai-directory/contracts':
         specifier: workspace:*
         version: link:../contracts
