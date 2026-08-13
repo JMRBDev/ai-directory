@@ -24,7 +24,6 @@ import {
   type InstallScope,
   type InstallationRecord,
   type ResourceChangeOptions,
-  type ResourceChangePlan,
   type ResourceOperation,
 } from '@ai-directory/installers';
 import { resourceKey } from '@ai-directory/domain';
@@ -66,8 +65,6 @@ type ResourceRequest = {
 type ChangeOperation = ResourceRequest & {
   action: 'install' | 'uninstall';
 };
-
-type ChangePlan = ResourceChangePlan;
 
 type ResourceUpload = {
   resourceId: string;

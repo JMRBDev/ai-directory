@@ -53,3 +53,10 @@ export type ResourceType = z.infer<typeof resourceTypeSchema>;
 export type ResourceSummary = z.infer<typeof resourceSummarySchema>;
 export type RegistryIndex = z.infer<typeof registryIndexSchema>;
 export type TemplateManifest = z.infer<typeof templateManifestSchema>;
+
+export const RESOURCE_ENTRY_FILES = {
+  skills: 'SKILL.md',
+  agents: 'AGENT.md',
+  rules: 'RULE.md',
+  templates: 'TEMPLATE.md',
+} satisfies Record<ResourceType, string>;

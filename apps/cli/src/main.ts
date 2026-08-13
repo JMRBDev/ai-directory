@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { defineCommand, runCommand, runMain, showUsage } from 'citty';
 import {
+  RESOURCE_ENTRY_FILES,
   resourceIdSchema,
   resourceTypeSchema,
   resourceVersionSchema,
@@ -12,6 +13,8 @@ import {
 } from '@ai-directory/contracts';
 import {
   CONFIG_OPTIONS,
+  DEFAULT_API_HOST,
+  DEFAULT_API_PORT,
   clearConfigFile,
   findWorkspaceRoot,
   getConfigPath,
@@ -65,13 +68,6 @@ const resourceTypeOptions = [
   { value: 'rules' as const, label: 'Rules', hint: 'Guidance applied to coding work' },
   { value: 'templates' as const, label: 'Template', hint: 'A pack of existing resources' },
 ];
-
-const entryFiles: Record<ResourceType, string> = {
-  skills: 'SKILL.md',
-  agents: 'AGENT.md',
-  rules: 'RULE.md',
-  templates: 'TEMPLATE.md',
-};
 
 function getRegistrySource(indexPath?: string, repository?: string, baseBranch?: string) {
   const repositoryUrl = resolveRepository(repository);
@@ -327,7 +323,7 @@ async function createResourceDirectory(options: {
 
   await mkdir(output, { recursive: true });
   await writeFile(
-    join(output, entryFiles[options.type]),
+    join(output, RESOURCE_ENTRY_FILES[options.type]),
     scaffoldContent(options.type, options.name, options.description, options.components),
     { encoding: 'utf8', flag: 'wx' },
   );
@@ -843,7 +839,7 @@ const create = defineCommand({
       const id = `${ownerValue}/${typeValue}/${nameValue}`;
 
       console.log(`Created ${id} at ${outputDirectory}.`);
-      console.log(`Entry file: ${join(outputDirectory, entryFiles[typeValue])}`);
+      console.log(`Entry file: ${join(outputDirectory, RESOURCE_ENTRY_FILES[typeValue])}`);
       console.log(
         `Next: aid submit "${outputValue}" --id ${id} --version 1.0.0 --description ${JSON.stringify(descriptionValue)}`,
       );
@@ -1560,7 +1556,7 @@ const web = defineCommand({
     },
     host: {
       type: 'string',
-      default: '127.0.0.1',
+      default: DEFAULT_API_HOST,
       description: 'Host for the local website',
     },
     port: {
@@ -1570,7 +1566,7 @@ const web = defineCommand({
     },
     'api-port': {
       type: 'string',
-      default: '4317',
+      default: String(DEFAULT_API_PORT),
       description: 'Port for the local configuration API',
     },
     open: {
@@ -1596,8 +1592,8 @@ const web = defineCommand({
     }
 
     const indexPath = args.index ? resolve(workspaceRoot, args.index) : undefined;
-    const apiPort = args['api-port'] ?? '4317';
-    const apiUrl = `http://127.0.0.1:${apiPort}`;
+    const apiPort = args['api-port'] ?? String(DEFAULT_API_PORT);
+    const apiUrl = `http://${DEFAULT_API_HOST}:${apiPort}`;
     const api = Bun.spawn(['pnpm', '--filter', '@ai-directory/api', 'dev'], {
       cwd: workspaceRoot,
       env: {
@@ -1617,7 +1613,7 @@ const web = defineCommand({
         'pnpm',
         'dev',
         '--host',
-        args.host ?? '127.0.0.1',
+        args.host ?? DEFAULT_API_HOST,
         '--port',
         args.port ?? '4321',
         ...(args.open ? ['--open'] : []),

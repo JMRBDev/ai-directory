@@ -14,6 +14,7 @@ import { dirname, join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import {
+  RESOURCE_ENTRY_FILES,
   registryIndexSchema,
   resourceIdSchema,
   resourceVersionSchema,
@@ -134,13 +135,6 @@ export type SubmitResourceResult = {
 };
 
 const execFileAsync = promisify(execFile);
-
-const requiredEntryFiles: Record<ResourceType, string> = {
-  skills: 'SKILL.md',
-  agents: 'AGENT.md',
-  rules: 'RULE.md',
-  templates: 'TEMPLATE.md',
-};
 
 function oneLine(value: string): string {
   return value.replace(/\s+/gu, ' ').trim();
@@ -596,11 +590,11 @@ export async function validateResourceDirectory(
   const resource = parseResourceId(options.resourceId);
   const sourceDirectory = await resolveDirectory(options.sourceDirectory, 'Resource source directory');
   const files = await readResourceFiles(sourceDirectory);
-  const entryFile = files.find((file) => file.path === requiredEntryFiles[resource.type]);
+  const entryFile = files.find((file) => file.path === RESOURCE_ENTRY_FILES[resource.type]);
 
   if (!entryFile) {
     throw new Error(
-      `${options.resourceId}@${options.version} is missing ${requiredEntryFiles[resource.type]}`,
+      `${options.resourceId}@${options.version} is missing ${RESOURCE_ENTRY_FILES[resource.type]}`,
     );
   }
 
@@ -911,10 +905,10 @@ async function validateResourceIndex(
     try {
       const loadedVersion = await readVersion(resource);
       const files = loadedVersion.files;
-      const entryFile = files.find((file) => file.path === requiredEntryFiles[resource.type]);
+      const entryFile = files.find((file) => file.path === RESOURCE_ENTRY_FILES[resource.type]);
 
       if (!entryFile) {
-        issues.push(`${id}@${requestedVersion} is missing ${requiredEntryFiles[resource.type]}`);
+        issues.push(`${id}@${requestedVersion} is missing ${RESOURCE_ENTRY_FILES[resource.type]}`);
       } else if (!entryFile.content.trim()) {
         issues.push(`${id}@${requestedVersion} has an empty ${entryFile.path}`);
       }
