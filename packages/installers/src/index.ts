@@ -146,7 +146,7 @@ export async function installOpenCodeResources(
 
   return plans.map((plan) => ({
     destination: plan.destination,
-    files: plan.resource.files.map((file) => file.path),
+    files: plan.files.map((file) => file.path),
     paths: [
       ...plan.files.map((file) => file.destination),
       ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
@@ -195,7 +195,7 @@ export async function installCodexResources(
       plan.resource.resource.type === 'rules' && guidance
         ? guidance.path
         : plan.destination,
-    files: plan.resource.files.map((file) => file.path),
+    files: plan.files.map((file) => file.path),
     paths: [
       ...plan.files.map((file) => file.destination),
       ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
@@ -241,7 +241,7 @@ async function installResources(
 
   return plans.map((plan) => ({
     destination: plan.destination,
-    files: plan.resource.files.map((file) => file.path),
+    files: plan.files.map((file) => file.path),
     paths: plan.files.map((file) => file.destination),
     ownedPaths: plan.files.map((file) => file.destination),
     fileHashes: hashesForPlan(plan, fileHashes),
@@ -778,7 +778,7 @@ function createClaudeCodePlan(
     );
   }
 
-  const files = resource.files.map((file) => ({
+  const files = projectedFiles(resource, 'claude-code').map((file) => ({
     ...file,
     destination: destinationForFile(root, resource, file.path),
   }));
@@ -801,7 +801,7 @@ function createOpenCodePlan(
     );
   }
 
-  const files = resource.files.map((file) => ({
+  const files = projectedFiles(resource, 'opencode').map((file) => ({
     ...file,
     content:
       resource.resource.type === 'agents' && file.path === 'AGENT.md'
@@ -832,7 +832,7 @@ function createCodexPlan(
     );
   }
 
-  const files = resource.files.map((file) => ({
+  const files = projectedFiles(resource, 'codex').map((file) => ({
     ...file,
     content:
       resource.resource.type === 'agents' && file.path === 'AGENT.md'
@@ -846,6 +846,12 @@ function createCodexPlan(
     destination: codexResourceDestination(paths, resource),
     files,
   };
+}
+
+function projectedFiles(resource: ResourceVersion, harness: Harness) {
+  return resource.files.filter((file) =>
+    harness === 'codex' || !file.path.replaceAll('\\', '/').startsWith('agents/'),
+  );
 }
 
 function destinationForFile(

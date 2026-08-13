@@ -40,6 +40,14 @@ const resource = {
   ],
 } satisfies ResourceVersion;
 
+const resourceWithCodexMetadata = {
+  ...resource,
+  files: [
+    ...resource.files,
+    { path: 'agents/openai.yaml', content: 'interface:\n  display_name: "API review"\n' },
+  ],
+} satisfies ResourceVersion;
+
 const agentResource = {
   ...resource,
   resource: {
@@ -408,6 +416,36 @@ describe('portable harness installers', () => {
     await expect(readFile(agentResult.destination, 'utf8')).resolves.toContain(
       '# API reviewer\n',
     );
+  });
+
+  it('projects Codex metadata only into Codex skills', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+
+    const [claudeResult] = await installClaudeCodeResources(
+      [resourceWithCodexMetadata],
+      { scope: 'project', cwd: projectDirectory },
+    );
+    const [openCodeResult] = await installOpenCodeResources(
+      [resourceWithCodexMetadata],
+      { scope: 'project', cwd: projectDirectory },
+    );
+    const [codexResult] = await installCodexResources(
+      [resourceWithCodexMetadata],
+      { scope: 'project', cwd: projectDirectory },
+    );
+
+    expect(claudeResult.files).not.toContain('agents/openai.yaml');
+    expect(openCodeResult.files).not.toContain('agents/openai.yaml');
+    expect(codexResult.files).toContain('agents/openai.yaml');
+    await expect(
+      readFile(join(projectDirectory, '.claude', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
+    ).rejects.toThrow();
+    await expect(
+      readFile(join(projectDirectory, '.opencode', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
+    ).rejects.toThrow();
+    await expect(
+      readFile(join(projectDirectory, '.agents', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
+    ).resolves.toContain('API review');
   });
 
   it('installs native Codex skills and converts agents to TOML', async () => {
