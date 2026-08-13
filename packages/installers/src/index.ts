@@ -752,50 +752,68 @@ export async function applyResourceOperations(
     throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
   }
 
-  const installed: InstallationRecord[] = [];
-  const removed: InstallationRecord[] = [];
-  const warnings = [...plan.warnings];
+  const paths = [
+    ...plan.changes.map((change) => change.path),
+    ...operations.map((operation) => getInstallManifestPath(operation.scope, options.cwd)),
+  ];
+  const snapshots = await snapshotFiles(paths);
 
-  for (const operation of operations) {
-    const manifestPath = getInstallManifestPath(operation.scope, options.cwd);
-    if (operation.action === 'install') {
-      const resources = operation.resources ?? [];
-      for (const harness of operation.harnesses) {
-        const installer = getHarnessAdapter(harness);
-        const installations = await installer.install(
-          resources,
-          operationInstallOptions(operation.scope, options, true),
-        );
-        const records = createInstallationRecords(resources, installations, operation.scope, installer.harness);
-        await saveInstallationRecords(
-          manifestPath,
-          records,
-          operationInstallOptions(operation.scope, options, force),
-        );
-        installed.push(...records);
-      }
-    } else {
-      const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
-      const manifest = await readInstallationManifest(manifestPath);
-      const records = manifest.installations.filter(
-        (record) =>
-          record.scope === operation.scope &&
-          operation.harnesses.includes(record.harness) &&
-          resourceIds.includes(record.resource),
-      );
+  try {
+    const installed: InstallationRecord[] = [];
+    const removed: InstallationRecord[] = [];
+    const warnings = [...plan.warnings];
 
-      for (const record of records) {
-        await uninstallInstallation(
-          record,
-          operationInstallOptions(operation.scope, options, force),
+    for (const operation of operations) {
+      const manifestPath = getInstallManifestPath(operation.scope, options.cwd);
+      if (operation.action === 'install') {
+        const resources = operation.resources ?? [];
+        for (const harness of operation.harnesses) {
+          const installer = getHarnessAdapter(harness);
+          const installations = await installer.install(
+            resources,
+            operationInstallOptions(operation.scope, options, true),
+          );
+          const records = createInstallationRecords(resources, installations, operation.scope, installer.harness);
+          await saveInstallationRecords(
+            manifestPath,
+            records,
+            operationInstallOptions(operation.scope, options, force),
+          );
+          installed.push(...records);
+        }
+      } else {
+        const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
+        const manifest = await readInstallationManifest(manifestPath);
+        const records = manifest.installations.filter(
+          (record) =>
+            record.scope === operation.scope &&
+            operation.harnesses.includes(record.harness) &&
+            resourceIds.includes(record.resource),
         );
-        await removeInstallationRecord(manifestPath, record);
-        removed.push(record);
+
+        for (const record of records) {
+          await uninstallInstallation(
+            record,
+            operationInstallOptions(operation.scope, options, force),
+          );
+          await removeInstallationRecord(manifestPath, record);
+          removed.push(record);
+        }
       }
     }
-  }
 
-  return { plan, installed, removed, warnings: [...new Set(warnings)] };
+    return { plan, installed, removed, warnings: [...new Set(warnings)] };
+  } catch (error) {
+    try {
+      await restoreFiles(snapshots);
+    } catch (rollbackError) {
+      throw new Error(
+        `Installation failed and rollback failed: ${errorMessage(rollbackError)}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 export async function removeStaleInstallationFiles(
@@ -1504,6 +1522,31 @@ function operationInstallOptions(
     ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
     ...(options.environment ? { environment: options.environment } : {}),
   };
+}
+
+type FileSnapshot = {
+  path: string;
+  content: string | null;
+};
+
+async function snapshotFiles(paths: string[]): Promise<FileSnapshot[]> {
+  const snapshots: FileSnapshot[] = [];
+
+  for (const path of new Set(paths)) {
+    snapshots.push({ path, content: await currentFile(path) });
+  }
+
+  return snapshots;
+}
+
+async function restoreFiles(snapshots: FileSnapshot[]): Promise<void> {
+  for (const snapshot of snapshots) {
+    if (snapshot.content === null) {
+      await rm(snapshot.path, { force: true });
+    } else {
+      await writeTextAtomic(snapshot.path, snapshot.content);
+    }
+  }
 }
 
 async function currentFile(path: string): Promise<string | null> {
