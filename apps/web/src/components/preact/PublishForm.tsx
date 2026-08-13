@@ -1,5 +1,7 @@
 import { useState } from 'preact/hooks';
 import { useMountEffect } from './useMountEffect';
+import { closeDrawers, errorMessage, request } from './api';
+import DrawerShell from './DrawerShell';
 
 type Props = {
   apiUrl: string;
@@ -59,15 +61,14 @@ export default function PublishForm({ apiUrl }: Props) {
 
   async function loadGithubUsername() {
     try {
-      const response = await fetch(apiUrl + '/api/github-user');
-      const result = await response.json() as ApiResult;
-      if (!response.ok || typeof result.username !== 'string') {
+      const result = await request<ApiResult>(apiUrl, '/api/github-user');
+      if (typeof result.username !== 'string') {
         throw new Error(result.error ?? 'Could not determine the GitHub username.');
       }
       setOwner(result.username);
       showStatus('Ready to validate.');
     } catch (cause) {
-      showStatus(cause instanceof Error ? cause.message : 'Could not determine the GitHub username.', true);
+      showStatus(errorMessage(cause, 'Could not determine the GitHub username.'), true);
     }
   }
 
@@ -92,14 +93,11 @@ export default function PublishForm({ apiUrl }: Props) {
     return data;
   }
 
-  async function request(path: string) {
-    const response = await fetch(apiUrl + path, {
+  async function submit(path: string) {
+    return request<ApiResult>(apiUrl, path, {
       method: 'POST',
       body: formData(),
     });
-    const result = await response.json().catch(() => ({})) as ApiResult;
-    if (!response.ok) throw new Error(result.error ?? 'The local API request failed.');
-    return result;
   }
 
   async function validateResource(event: SubmitEvent) {
@@ -116,7 +114,7 @@ export default function PublishForm({ apiUrl }: Props) {
     setBusy(true);
     showStatus('Validating resource…');
     try {
-      const result = await request('/api/validate');
+      const result = await submit('/api/validate');
       const reviewFiles = Array.isArray(result.files)
         ? result.files.filter((file): file is string => typeof file === 'string')
         : [];
@@ -132,7 +130,7 @@ export default function PublishForm({ apiUrl }: Props) {
       setValidated(true);
       showStatus('Validation passed. Review the files, then submit the pull request.');
     } catch (cause) {
-      showStatus(cause instanceof Error ? cause.message : 'Could not validate the resource.', true);
+      showStatus(errorMessage(cause, 'Could not validate the resource.'), true);
     } finally {
       setBusy(false);
     }
@@ -144,13 +142,13 @@ export default function PublishForm({ apiUrl }: Props) {
     setBusy(true);
     showStatus('Creating pull request…');
     try {
-      const result = await request('/api/submit');
+      const result = await submit('/api/submit');
       const url = typeof result.pullRequestUrl === 'string' ? result.pullRequestUrl : '';
       setPullRequestUrl(url);
       setValidated(false);
       showStatus(url ? 'Pull request created: ' + url : 'Pull request created.');
     } catch (cause) {
-      showStatus(cause instanceof Error ? cause.message : 'Could not create the pull request.', true);
+      showStatus(errorMessage(cause, 'Could not create the pull request.'), true);
     } finally {
       setBusy(false);
     }
@@ -161,16 +159,8 @@ export default function PublishForm({ apiUrl }: Props) {
   const reviewDescription = description.trim() || 'Not found';
   const composedId = [owner, type, name].join('/');
 
-  return (
-    <section className="mt-12 w-full" aria-labelledby="publish-title">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-base-300 pb-5">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Pull request</p>
-          <h2 id="publish-title" className="mt-2 text-xl font-semibold tracking-tight text-base-content">Resource details</h2>
-        </div>
-        <span className="badge badge-ghost">Local API</span>
-      </div>
-
+  const content = (
+    <section className="w-full">
       <form className="mt-6 space-y-6" onSubmit={(event) => void validateResource(event)}>
         <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_10rem]">
           <fieldset className="fieldset rounded-box border border-base-300 p-4">
@@ -265,5 +255,15 @@ export default function PublishForm({ apiUrl }: Props) {
         </div>
       )}
     </section>
+  );
+
+  return (
+    <DrawerShell
+      id="publish-drawer-toggle"
+      title="Publish resource"
+      onOpen={() => closeDrawers('change-deck-toggle', 'settings-drawer-toggle')}
+    >
+      {content}
+    </DrawerShell>
   );
 }

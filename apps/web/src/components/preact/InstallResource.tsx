@@ -1,7 +1,8 @@
 import { useState } from 'preact/hooks';
 import { useMountEffect } from './useMountEffect';
-import ChangeRows from './ChangeRows';
-import type { ChangePlan, Installation } from './types';
+import PlanView from './PlanView';
+import { errorMessage, request } from './api';
+import { harnessOptions, type Action, type ChangePlan, type Harness, type Installation, type Scope } from './types';
 
 type Props = {
   apiUrl: string;
@@ -11,15 +12,7 @@ type Props = {
   installBase: string;
 };
 
-type Harness = 'claude-code' | 'opencode' | 'codex';
-type Scope = 'project' | 'global';
-type Action = 'install' | 'update' | 'uninstall';
-
-const harnessOptions: Array<{ value: Harness; label: string }> = [
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'opencode', label: 'OpenCode' },
-  { value: 'codex', label: 'Codex' },
-];
+type Intent = Action | 'update';
 
 export default function InstallResource({
   apiUrl,
@@ -68,20 +61,13 @@ export default function InstallResource({
     }
   }
 
-  async function request(path: string, init?: RequestInit) {
-    const response = await fetch(apiUrl + path, init);
-    const result = await response.json().catch(() => ({})) as Partial<ChangePlan> & { error?: string; installations?: Installation[] };
-    if (!response.ok) throw new Error(result.error ?? 'The local API request failed.');
-    return result;
-  }
-
   async function loadInstallation(nextHarnesses = harnesses, nextScope = scope) {
     if (nextHarnesses.length === 0) {
       updateInstallation([], nextHarnesses);
       return;
     }
     try {
-      const result = await request('/api/installed?scope=' + encodeURIComponent(nextScope));
+      const result = await request<{ installations?: Installation[] }>(apiUrl, '/api/installed?scope=' + encodeURIComponent(nextScope));
       const nextRecords = (result.installations ?? []).filter(
         (item) => trackedResources.includes(item.resource)
           && nextHarnesses.includes(item.harness as Harness)
@@ -90,16 +76,16 @@ export default function InstallResource({
       setHarnesses(nextHarnesses);
       updateInstallation(nextRecords, nextHarnesses);
     } catch (cause) {
-      showStatus(cause instanceof Error ? cause.message : 'Could not reach the local API.', true);
+      showStatus(errorMessage(cause, 'Could not reach the local API.'), true);
     }
   }
 
-  function targetsFor(action: Action) {
+  function targetsFor(action: Intent) {
     if (action === 'install') return harnesses.filter((harness) => !completeInstallation(records, harness));
     return harnesses.filter((harness) => completeInstallation(records, harness));
   }
 
-  async function reviewChanges(action: Action) {
+  async function reviewChanges(action: Intent) {
     setBusy(true);
     showStatus('Preparing change plan…');
     try {
@@ -115,20 +101,20 @@ export default function InstallResource({
         scope,
         action: action === 'uninstall' ? 'uninstall' as const : 'install' as const,
       }];
-      const result = await request('/api/plan', {
+      const result = await request<ChangePlan>(apiUrl, '/api/plan', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ operations: nextOperations }),
       });
       setOperations(nextOperations);
-      setPlan(result as ChangePlan);
+      setPlan(result);
       setForce(false);
       setPlanStatus(result.changes?.length
         ? 'Review the file changes, then apply them together.'
         : 'No changes are needed.');
-      document.querySelector('[data-detail-plan]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.querySelector('[data-plan]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (cause) {
-      showStatus(cause instanceof Error ? cause.message : 'The operation failed.', true);
+      showStatus(errorMessage(cause, 'The operation failed.'), true);
     } finally {
       setBusy(false);
     }
@@ -139,16 +125,16 @@ export default function InstallResource({
     setBusy(true);
     setPlanStatus('Applying all changes…');
     try {
-      const result = await request('/api/apply', {
+      const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ operations, force }),
       });
       await loadInstallation(harnesses, scope);
       setOperations([]);
-      setPlanStatus('Applied ' + (result.changes?.length ?? plan.changes.length) + ' file changes.');
+      setPlanStatus('Applied ' + result.plan.changes.length + ' file changes.');
     } catch (cause) {
-      setPlanStatus(cause instanceof Error ? cause.message : 'Could not apply the change plan.');
+      setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
     } finally {
       setBusy(false);
     }
@@ -156,8 +142,6 @@ export default function InstallResource({
 
   const installed = harnesses.filter((harness) => completeInstallation(records, harness));
   const missing = harnesses.filter((harness) => !completeInstallation(records, harness));
-  const canApply = Boolean(plan && plan.changes.length > 0 && (plan.conflicts.length === 0 || force));
-
   return (
     <section
       className="mt-14 w-full border-t border-base-300 pt-8"
@@ -206,46 +190,7 @@ export default function InstallResource({
         </div>
       </div>
 
-      {plan && (
-        <div className="card card-border mt-5 bg-base-100" data-detail-plan>
-          <div className="card-body p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-base-300 pb-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Change plan</p>
-                <h3 className="mt-2 text-lg font-semibold tracking-tight text-base-content">Review before applying</h3>
-              </div>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setPlan(null)}>Close</button>
-            </div>
-            <div className="stats stats-vertical mt-4 w-full border-y border-base-300 sm:stats-horizontal">
-              <div className="stat px-0 py-3 sm:pr-4"><div className="stat-value text-xl">{plan.changes.filter((change) => change.action === 'added').length}</div><div className="stat-title text-xs">Added</div></div>
-              <div className="stat border-base-300 px-0 py-3 sm:border-l sm:px-4"><div className="stat-value text-xl">{plan.changes.filter((change) => change.action === 'modified').length}</div><div className="stat-title text-xs">Modified</div></div>
-              <div className="stat border-base-300 px-0 py-3 sm:border-l sm:pl-4"><div className="stat-value text-xl">{plan.changes.filter((change) => change.action === 'removed').length}</div><div className="stat-title text-xs">Removed</div></div>
-            </div>
-            <div className="mt-4">
-              {plan.changes.length > 0
-                ? <ChangeRows changes={plan.changes} />
-                : <div className="alert alert-info items-start text-sm"><i className="ph ph-info text-lg" aria-hidden="true"></i><span>No file changes are needed.</span></div>}
-            </div>
-            {plan.conflicts.length > 0 && (
-              <div className="alert alert-warning mt-4 items-start text-sm" role="alert">
-                <i className="ph ph-warning text-lg" aria-hidden="true"></i>
-                <span>Review required: {plan.conflicts.join(' ')}</span>
-              </div>
-            )}
-            {plan.warnings.length > 0 && <div className="alert alert-warning mt-4 items-start text-sm"><i className="ph ph-warning text-lg" aria-hidden="true"></i><span>Unreviewed resources: {plan.warnings.join(', ')}</span></div>}
-            {plan.conflicts.length > 0 && (
-              <label className="alert alert-warning mt-4 items-start gap-3 text-sm">
-                <input className="checkbox checkbox-warning mt-0.5" type="checkbox" checked={force} onChange={(event) => setForce(event.currentTarget.checked)} />
-                <span><strong className="font-semibold">Allow overwrite or removal of locally changed files</strong><span className="mt-1 block text-xs">Use this only after checking the affected files.</span></span>
-              </label>
-            )}
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-base-content/60" role="status">{planStatus}</p>
-              <button className="btn btn-primary" type="button" onClick={() => void applyChanges()} disabled={!canApply || busy}>Apply changes</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {plan && <PlanView plan={plan} title="Review before applying" onClose={() => setPlan(null)} force={force} onForce={setForce} status={planStatus} busy={busy} onApply={() => void applyChanges()} />}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {(['project', 'global'] as const).map((commandScope) => (

@@ -1,8 +1,9 @@
 import { useRef, useState } from 'preact/hooks';
 import type { ResourceSummary } from '@ai-directory/contracts';
-import { useMountEffect } from './useMountEffect';
-import ChangeRows from './ChangeRows';
-import type { ChangePlan } from './types';
+import PlanView from './PlanView';
+import { closeDrawers, errorMessage, request } from './api';
+import DrawerShell from './DrawerShell';
+import { harnessOptions, resourceId, type Action, type ChangePlan, type Harness, type Scope } from './types';
 
 type Props = {
   resources: ResourceSummary[];
@@ -10,20 +11,6 @@ type Props = {
   registryError?: string | undefined;
   source: string;
 };
-
-type Action = 'install' | 'uninstall';
-type Harness = 'claude-code' | 'opencode' | 'codex';
-type Scope = 'project' | 'global';
-
-function resourceId(resource: ResourceSummary) {
-  return [resource.owner, resource.type, resource.name].join('/');
-}
-
-const harnessOptions: Array<{ value: Harness; label: string }> = [
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'opencode', label: 'OpenCode' },
-  { value: 'codex', label: 'Codex' },
-];
 
 function detailPath(resource: ResourceSummary) {
   return ['/resources', resource.owner, resource.type, resource.name, ''].join('/');
@@ -78,64 +65,12 @@ function CatalogCard({
   );
 }
 
-function PlanSummary({ plan }: { plan: ChangePlan }) {
-  return (
-    <div className="card card-border mt-5 bg-base-100">
-      <div className="card-body p-0">
-        <div className="stats stats-vertical w-full sm:stats-horizontal">
-          <div className="stat px-5 py-4 sm:pr-4">
-            <div className="stat-value text-xl">{plan.changes.filter((change) => change.action === 'added').length}</div>
-            <div className="stat-title text-xs">Added</div>
-          </div>
-          <div className="stat border-base-300 px-5 py-4 sm:border-l sm:px-4">
-            <div className="stat-value text-xl">{plan.changes.filter((change) => change.action === 'modified').length}</div>
-            <div className="stat-title text-xs">Modified</div>
-          </div>
-          <div className="stat border-base-300 px-5 py-4 sm:border-l sm:pl-4">
-            <div className="stat-value text-xl">{plan.changes.filter((change) => change.action === 'removed').length}</div>
-            <div className="stat-title text-xs">Removed</div>
-          </div>
-        </div>
-        <div className="p-5">
-          {plan.changes.length > 0
-            ? <ChangeRows changes={plan.changes} showResource />
-            : (
-              <div className="alert alert-info items-start text-sm">
-                <i className="ph ph-info text-lg" aria-hidden="true"></i>
-                <span>No file changes are needed for this selection.</span>
-              </div>
-            )}
-        </div>
-        {plan.conflicts.length > 0 && (
-          <div className="alert alert-warning mx-5 mt-5 items-start text-sm" role="alert">
-            <i className="ph ph-warning text-lg" aria-hidden="true"></i>
-            <div>
-              <strong className="font-semibold">Review required before applying.</strong>
-              <ul className="list list-xs mt-2">
-                {plan.conflicts.map((conflict) => <li className="list-row py-1" key={conflict}>{conflict}</li>)}
-              </ul>
-            </div>
-          </div>
-        )}
-        {plan.warnings.length > 0 && (
-          <div className="alert alert-warning mx-5 mt-5 items-start text-sm">
-            <i className="ph ph-warning text-lg" aria-hidden="true"></i>
-            <span>Unreviewed resources: {plan.warnings.join(', ')}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function ResourceCatalog({ resources, apiUrl, registryError, source }: Props) {
   const [query, setQuery] = useState('');
   const [type, setType] = useState('all');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [actions, setActions] = useState<Record<string, Action>>({});
+  const [selected, setSelected] = useState<Record<string, Action>>({});
   const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
   const [scope, setScope] = useState<Scope>('project');
-  const [deckOpen, setDeckOpen] = useState(false);
   const [plan, setPlan] = useState<ChangePlan | null>(null);
   const [planStatus, setPlanStatus] = useState('');
   const [force, setForce] = useState(false);
@@ -150,15 +85,8 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
       .includes(query.trim().toLowerCase());
     return matchesQuery && (type === 'all' || resource.type === type);
   });
-  const selectedResources = resources.filter((resource) => selectedIds.includes(resourceId(resource)));
+  const selectedResources = resources.filter((resource) => selected[resourceId(resource)]);
   const canApply = Boolean(plan && plan.changes.length > 0 && (plan.conflicts.length === 0 || force) && !applied);
-
-  useMountEffect(() => {
-    const opener = document.querySelector<HTMLButtonElement>('[data-open-deck]');
-    const onOpen = () => setDeckOpen(true);
-    opener?.addEventListener('click', onOpen);
-    return () => opener?.removeEventListener('click', onOpen);
-  });
 
   function setHeaderCount(value: number) {
     const counter = document.querySelector<HTMLElement>('[data-deck-count]');
@@ -166,12 +94,11 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
   }
 
   async function requestPlan(
-    nextSelectedIds = selectedIds,
-    nextActions = actions,
+    nextSelected = selected,
     nextHarnesses = harnesses,
     nextScope = scope,
   ) {
-    const nextResources = resources.filter((resource) => nextSelectedIds.includes(resourceId(resource)));
+    const nextResources = resources.filter((resource) => nextSelected[resourceId(resource)]);
     if (nextResources.length === 0) {
       setPlan(null);
       setPlanStatus('Select a resource to generate a preview.');
@@ -186,7 +113,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
     const currentRequest = ++requestId.current;
     const operations = nextResources.map((resource) => ({
       resource: resourceId(resource),
-      action: nextActions[resourceId(resource)] ?? 'install',
+      action: nextSelected[resourceId(resource)] ?? 'install',
       harnesses: nextHarnesses,
       scope: nextScope,
     }));
@@ -196,41 +123,35 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
     setPlanStatus('Updating preview…');
 
     try {
-      const response = await fetch(apiUrl + '/api/plan', {
+      const result = await request<ChangePlan>(apiUrl, '/api/plan', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ operations }),
       });
-      const result = await response.json() as ChangePlan & { error?: string };
-      if (!response.ok) throw new Error(result.error ?? 'Could not generate the change plan.');
       if (currentRequest !== requestId.current) return;
       setPlan(result);
       setPlanStatus(result.changes.length === 0
         ? 'No changes are needed.'
         : result.changes.length + ' file' + (result.changes.length === 1 ? '' : 's') + ' ready to apply.');
     } catch (cause) {
-      if (currentRequest === requestId.current) {
-        setPlanStatus(cause instanceof Error ? cause.message : 'Could not generate the change plan.');
-      }
+      if (currentRequest === requestId.current) setPlanStatus(errorMessage(cause, 'Could not generate the change plan.'));
     }
   }
 
   function selectResource(resource: ResourceSummary, checked: boolean) {
     const id = resourceId(resource);
-    const nextSelectedIds = checked
-      ? [...selectedIds, id]
-      : selectedIds.filter((selectedId) => selectedId !== id);
-    const nextActions = actions[id] ? actions : { ...actions, [id]: 'install' as Action };
-    setSelectedIds(nextSelectedIds);
-    setActions(nextActions);
-    setHeaderCount(nextSelectedIds.length);
-    void requestPlan(nextSelectedIds, nextActions);
+    const nextSelected = checked
+      ? { ...selected, [id]: selected[id] ?? 'install' }
+      : Object.fromEntries(Object.entries(selected).filter(([key]) => key !== id));
+    setSelected(nextSelected);
+    setHeaderCount(Object.keys(nextSelected).length);
+    void requestPlan(nextSelected);
   }
 
   function updateAction(id: string, action: Action) {
-    const nextActions = { ...actions, [id]: action };
-    setActions(nextActions);
-    void requestPlan(selectedIds, nextActions);
+    const nextSelected = { ...selected, [id]: action };
+    setSelected(nextSelected);
+    void requestPlan(nextSelected);
   }
 
   function updateHarness(value: Harness, checked: boolean) {
@@ -238,12 +159,11 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
       ? [...harnesses, value]
       : harnesses.filter((harness) => harness !== value);
     setHarnesses(nextHarnesses);
-    void requestPlan(selectedIds, actions, nextHarnesses);
+    void requestPlan(selected, nextHarnesses);
   }
 
   function clearSelection() {
-    setSelectedIds([]);
-    setActions({});
+    setSelected({});
     setHeaderCount(0);
     setPlan(null);
     setPlanStatus('Select a resource to generate a preview.');
@@ -255,22 +175,20 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
     setPlanStatus('Applying all changes…');
     const operations = selectedResources.map((resource) => ({
       resource: resourceId(resource),
-      action: actions[resourceId(resource)] ?? 'install',
+      action: selected[resourceId(resource)] ?? 'install',
       harnesses,
       scope,
     }));
     try {
-      const response = await fetch(apiUrl + '/api/apply', {
+      const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ operations, force }),
       });
-      const result = await response.json() as { plan?: ChangePlan; error?: string };
-      if (!response.ok) throw new Error(result.error ?? 'Could not apply the change plan.');
       setApplied(true);
-      setPlanStatus('Applied ' + (result.plan?.changes.length ?? plan.changes.length) + ' file changes.');
+      setPlanStatus('Applied ' + result.plan.changes.length + ' file changes.');
     } catch (cause) {
-      setPlanStatus(cause instanceof Error ? cause.message : 'Could not apply the change plan.');
+      setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
     } finally {
       setBusy(false);
     }
@@ -329,7 +247,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
                 <CatalogCard
                   key={resourceId(resource)}
                   resource={resource}
-                  selected={selectedIds.includes(resourceId(resource))}
+                  selected={Boolean(selected[resourceId(resource)])}
                   onSelect={(checked) => selectResource(resource, checked)}
                 />
               ))}
@@ -346,104 +264,75 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
         )}
       </section>
 
-      <div className={'drawer drawer-end fixed inset-0 z-40' + (deckOpen ? ' drawer-open' : ' pointer-events-none')}>
-        <input className="drawer-toggle" type="checkbox" checked={deckOpen} readOnly aria-hidden="true" tabIndex={-1} />
-        <div className="drawer-content pointer-events-none" aria-hidden="true"></div>
-        <div className="drawer-side" style={{ display: deckOpen ? 'grid' : 'none', visibility: deckOpen ? 'visible' : 'hidden', opacity: deckOpen ? 1 : 0, transition: 'none' }}>
-          <button className="drawer-overlay bg-neutral/30" type="button" aria-label="Close change deck" onClick={() => setDeckOpen(false)}></button>
-          <section
-            className="card card-border min-h-full w-full max-w-2xl overflow-y-auto rounded-none bg-base-100 text-base-content shadow-2xl"
-            style={{ transform: deckOpen ? 'translateX(0)' : 'translateX(100%)', translate: deckOpen ? '0%' : '100%', transition: 'none' }}
-            aria-hidden={!deckOpen}
-            aria-labelledby="change-review-title"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="card-body min-h-full overflow-y-auto p-5 sm:p-6">
-              <div className="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-base-300 pb-5">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Workspace</p>
-                  <h2 id="change-review-title" className="mt-2 text-xl font-semibold tracking-tight text-base-content">Change deck</h2>
-                  <p className="mt-2 text-sm text-base-content/60">
-                    {selectedResources.length === 0 ? 'No pending changes.' : selectedResources.length + ' resource' + (selectedResources.length === 1 ? '' : 's') + ' staged. Review the file changes before saving.'}
-                  </p>
-                </div>
-                <button className="btn btn-ghost btn-sm" type="button" data-close-review onClick={() => setDeckOpen(false)}>Close</button>
-              </div>
+      <DrawerShell
+        id="change-deck-toggle"
+        title="Change deck"
+        onOpen={() => closeDrawers('settings-drawer-toggle', 'publish-drawer-toggle')}
+      >
+        <p className="mb-5 text-sm text-base-content/60">
+          {selectedResources.length === 0 ? 'No pending changes.' : selectedResources.length + ' resource' + (selectedResources.length === 1 ? '' : 's') + ' staged. Review the file changes before saving.'}
+        </p>
 
-              <section className="shrink-0 border-b border-base-300 py-5" aria-labelledby="deck-selection-title">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 id="deck-selection-title" className="text-sm font-semibold text-base-content">Selected resources</h3>
-                    <p className="mt-1 text-xs text-base-content/60">{selectedResources.length} resource{selectedResources.length === 1 ? '' : 's'} selected</p>
-                  </div>
-                  <button className="btn btn-ghost btn-xs" type="button" onClick={clearSelection}>Discard changes</button>
-                </div>
-                {selectedResources.length > 0 ? (
-                  <ul className="list list-sm mt-4">
-                    {selectedResources.map((resource) => {
-                      const id = resourceId(resource);
-                      return (
-                        <li className="list-row list-col-wrap grid-cols-1 gap-2 bg-base-200" key={id}>
-                          <div className="list-col-grow flex flex-col gap-2">
-                            <div className="flex items-start justify-between gap-3">
-                              <span className="break-all font-mono text-xs text-base-content">{id}</span>
-                              <button className="btn btn-ghost btn-xs shrink-0" type="button" onClick={() => selectResource(resource, false)}>Remove</button>
-                            </div>
-                            <select className="select select-bordered select-sm w-full" value={actions[id] ?? 'install'} aria-label={'Action for ' + id} onChange={(event) => updateAction(id, event.currentTarget.value as Action)}>
-                              <option value="install">Install or update</option>
-                              <option value="uninstall">Uninstall</option>
-                            </select>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <div className="alert alert-info mt-4 items-start text-sm">
-                    <i className="ph ph-info text-lg" aria-hidden="true"></i>
-                    <span>Select resources from the catalog to stage changes here.</span>
-                  </div>
-                )}
-              </section>
-
-              <div className="mt-5 grid shrink-0 gap-5 border-b border-base-300 pb-5">
-                <fieldset className="fieldset">
-                  <legend className="fieldset-legend">Harnesses</legend>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {harnessOptions.map((option) => (
-                      <label className="label cursor-pointer justify-start gap-2" key={option.value}>
-                        <input className="checkbox checkbox-primary" type="checkbox" value={option.value} checked={harnesses.includes(option.value)} onChange={(event) => updateHarness(option.value, event.currentTarget.checked)} disabled={busy} />
-                        {option.label}
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-                <label className="fieldset">
-                  <span className="fieldset-legend">Scope</span>
-                  <select className="select select-bordered w-full" value={scope} onChange={(event) => { const nextScope = event.currentTarget.value as Scope; setScope(nextScope); void requestPlan(selectedIds, actions, harnesses, nextScope); }} disabled={busy}>
-                    <option value="project">This project</option>
-                    <option value="global">All projects</option>
-                  </select>
-                </label>
-                <button className="btn btn-ghost btn-sm justify-self-start text-primary" type="button" onClick={() => void requestPlan()} disabled={busy}>Refresh preview</button>
-              </div>
-
-              {plan && <PlanSummary plan={plan} />}
-              {plan && plan.conflicts.length > 0 && (
-                <label className="alert alert-warning mt-5 items-start gap-3 text-sm">
-                  <input className="checkbox checkbox-warning mt-0.5" type="checkbox" checked={force} onChange={(event) => setForce(event.currentTarget.checked)} />
-                  <span><strong className="font-semibold">Allow overwrite or removal of locally changed files</strong><span className="mt-1 block text-xs">Use this only after checking the affected files.</span></span>
-                </label>
-              )}
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-base-content/60" role="status">{planStatus}</p>
-                <button className="btn btn-primary" type="button" onClick={() => void applyPlan()} disabled={!canApply || busy}>Save changes</button>
-              </div>
+        <section className="shrink-0 border-b border-base-300 py-5" aria-labelledby="deck-selection-title">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 id="deck-selection-title" className="text-sm font-semibold text-base-content">Selected resources</h3>
+              <p className="mt-1 text-xs text-base-content/60">{selectedResources.length} resource{selectedResources.length === 1 ? '' : 's'} selected</p>
             </div>
-          </section>
+            <button className="btn btn-ghost btn-xs" type="button" onClick={clearSelection}>Discard changes</button>
+          </div>
+          {selectedResources.length > 0 ? (
+            <ul className="list list-sm mt-4">
+              {selectedResources.map((resource) => {
+                const id = resourceId(resource);
+                return (
+                  <li className="list-row list-col-wrap grid-cols-1 gap-2 bg-base-200" key={id}>
+                    <div className="list-col-grow flex flex-col gap-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="break-all font-mono text-xs text-base-content">{id}</span>
+                        <button className="btn btn-ghost btn-xs shrink-0" type="button" onClick={() => selectResource(resource, false)}>Remove</button>
+                      </div>
+                      <select className="select select-bordered select-sm w-full" value={selected[id] ?? 'install'} aria-label={'Action for ' + id} onChange={(event) => updateAction(id, event.currentTarget.value as Action)}>
+                        <option value="install">Install or update</option>
+                        <option value="uninstall">Uninstall</option>
+                      </select>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="alert alert-info mt-4 items-start text-sm">
+              <i className="ph ph-info text-lg" aria-hidden="true"></i>
+              <span>Select resources from the catalog to stage changes here.</span>
+            </div>
+          )}
+        </section>
+
+        <div className="mt-5 grid shrink-0 gap-5 border-b border-base-300 pb-5">
+          <fieldset className="fieldset">
+            <legend className="fieldset-legend">Harnesses</legend>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {harnessOptions.map((option) => (
+                <label className="label cursor-pointer justify-start gap-2" key={option.value}>
+                  <input className="checkbox checkbox-primary" type="checkbox" value={option.value} checked={harnesses.includes(option.value)} onChange={(event) => updateHarness(option.value, event.currentTarget.checked)} disabled={busy} />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label className="fieldset">
+            <span className="fieldset-legend">Scope</span>
+            <select className="select select-bordered w-full" value={scope} onChange={(event) => { const nextScope = event.currentTarget.value as Scope; setScope(nextScope); void requestPlan(selected, harnesses, nextScope); }} disabled={busy}>
+              <option value="project">This project</option>
+              <option value="global">All projects</option>
+            </select>
+          </label>
+          <button className="btn btn-ghost btn-sm justify-self-start text-primary" type="button" onClick={() => void requestPlan()} disabled={busy}>Refresh preview</button>
         </div>
-      </div>
+
+        {plan && <PlanView plan={plan} showResource force={force} onForce={setForce} status={planStatus} busy={busy} onApply={() => void applyPlan()} />}
+      </DrawerShell>
     </>
   );
 }
