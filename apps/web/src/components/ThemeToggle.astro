@@ -1,15 +1,15 @@
 <div class="relative shrink-0" data-theme-control>
   <button
-    class="inline-flex min-h-8 items-center gap-2 rounded-md border border-line bg-panel px-2.5 py-1.5 text-xs font-semibold text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300"
+    class="inline-flex size-8 items-center justify-center rounded-md border border-line bg-panel text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300"
     type="button"
     data-theme-trigger
     aria-haspopup="menu"
     aria-expanded="false"
     aria-label="Theme: System"
   >
-    <span class="hidden sm:inline">Theme</span>
-    <span data-theme-current>System</span>
-    <span class="text-[10px] text-muted dark:text-zinc-500" aria-hidden="true">⌄</span>
+    <i class="ph ph-monitor text-lg" data-theme-icon="system" aria-hidden="true"></i>
+    <i class="ph ph-sun hidden text-lg" data-theme-icon="light" aria-hidden="true"></i>
+    <i class="ph ph-moon hidden text-lg" data-theme-icon="dark" aria-hidden="true"></i>
   </button>
 
   <div
@@ -60,7 +60,9 @@
   const control = document.querySelector<HTMLElement>('[data-theme-control]');
   const trigger = control?.querySelector<HTMLButtonElement>('[data-theme-trigger]');
   const menu = control?.querySelector<HTMLElement>('[data-theme-menu]');
-  const current = control?.querySelector<HTMLElement>('[data-theme-current]');
+  const icons = Array.from(
+    control?.querySelectorAll<HTMLElement>('[data-theme-icon]') ?? [],
+  );
   const options = Array.from(
     control?.querySelectorAll<HTMLButtonElement>('[data-theme-option]') ?? [],
   );
@@ -111,8 +113,9 @@
     }
 
     applyTheme(theme);
-    if (current) current.textContent = labels[theme];
     trigger?.setAttribute('aria-label', `Theme: ${labels[theme]}`);
+    trigger?.setAttribute('title', `Theme: ${labels[theme]}`);
+    for (const icon of icons) icon.classList.toggle('hidden', icon.dataset.themeIcon !== theme);
     for (const option of options) {
       const selected = option.dataset.themeOption === theme;
       option.setAttribute('aria-checked', String(selected));

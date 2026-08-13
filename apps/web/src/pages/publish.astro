@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import ThemeInit from '../components/ThemeInit.astro';
 import ThemeToggle from '../components/ThemeToggle.astro';
+import SettingsDrawer from '../components/SettingsDrawer.astro';
 
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
 ---
@@ -24,7 +25,10 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         <div class="flex items-center gap-4 text-xs font-medium text-muted dark:text-zinc-400">
           <span class="hidden sm:inline">Local publishing</span>
           <ThemeToggle />
-          <a class="text-ink transition-colors hover:text-accent dark:text-zinc-200 dark:hover:text-orange-300" href="/settings/">Settings</a>
+          <button class="inline-flex size-8 items-center justify-center rounded-md text-ink transition-colors hover:bg-accent-soft hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-200 dark:hover:bg-orange-950/30 dark:hover:text-orange-300" type="button" data-open-settings aria-controls="settings-drawer" aria-expanded="false" title="Settings" aria-label="Settings">
+            <i class="ph ph-gear text-lg" aria-hidden="true"></i>
+            <span class="sr-only">Settings</span>
+          </button>
         </div>
       </div>
     </header>
@@ -142,6 +146,8 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         </div>
       </section>
     </main>
+
+    <SettingsDrawer />
 
     <footer class="mx-auto flex w-full max-w-6xl flex-col gap-2 border-t border-line px-5 py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-8 dark:border-zinc-800 dark:text-zinc-500">
       <p>Backed by the production branch of the resources repository.</p>
