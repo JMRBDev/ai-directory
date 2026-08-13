@@ -1,7 +1,8 @@
 import { useState } from 'preact/hooks';
 import DrawerShell from './DrawerShell';
 import { closeDrawers, errorMessage, request } from './api';
-import type { Harness, LocalResource, Scope } from './types';
+import PlanView from './PlanView';
+import type { Action, ChangeOperation, ChangePlan, Harness, LocalResource, Scope } from './types';
 
 type Props = {
   apiUrl: string;
@@ -56,6 +57,10 @@ function resourceLabel(resource: LocalResource) {
   return resource.resource ?? `local/${resource.type}/${resource.name}`;
 }
 
+function installActionLabel(resource: LocalResource) {
+  return resource.state === 'missing' || resource.state === 'modified' ? 'Reinstall' : 'Update';
+}
+
 export default function LocalResourcesDrawer({ apiUrl }: Props) {
   const [resources, setResources] = useState<LocalResource[]>([]);
   const [scope, setScope] = useState<ScopeFilter>('all');
@@ -63,6 +68,10 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
   const [status, setStatus] = useState('Open this panel to scan known harness locations.');
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [plan, setPlan] = useState<ChangePlan | null>(null);
+  const [operation, setOperation] = useState<ChangeOperation | null>(null);
+  const [planStatus, setPlanStatus] = useState('');
+  const [force, setForce] = useState(false);
 
   async function load() {
     setBusy(true);
@@ -78,6 +87,64 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
     } catch (cause) {
       setError(true);
       setStatus(errorMessage(cause, 'Could not scan local resources.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function planResource(resource: LocalResource, action: Action) {
+    if (!resource.resource) return;
+
+    const nextOperation: ChangeOperation = {
+      resource: resource.resource,
+      harnesses: [resource.harness],
+      scope: resource.scope,
+      action,
+    };
+    setBusy(true);
+    setPlan(null);
+    setOperation(nextOperation);
+    setForce(false);
+    setPlanStatus('Preparing change preview…');
+
+    try {
+      const nextPlan = await request<ChangePlan>(apiUrl, '/api/plan', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operations: [nextOperation] }),
+      });
+      setPlan(nextPlan);
+      setPlanStatus(nextPlan.changes.length === 0
+        ? 'No file changes are needed.'
+        : `${nextPlan.changes.length} file${nextPlan.changes.length === 1 ? '' : 's'} ready to apply.`);
+    } catch (cause) {
+      setOperation(null);
+      setPlanStatus(errorMessage(cause, 'Could not generate the change plan.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyPlan() {
+    if (!plan || !operation) return;
+    const canApply = (plan.changes.length > 0 || operation.action === 'uninstall') && (plan.conflicts.length === 0 || force);
+    if (!canApply) return;
+
+    setBusy(true);
+    setPlanStatus('Applying changes…');
+    try {
+      const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operations: [operation], force }),
+      });
+      setPlan(null);
+      setOperation(null);
+      setForce(false);
+      await load();
+      setStatus(`${operation.action === 'uninstall' ? 'Uninstalled' : 'Installed'} ${operation.resource}. Applied ${result.plan.changes.length} file change${result.plan.changes.length === 1 ? '' : 's'}.`);
+    } catch (cause) {
+      setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
     } finally {
       setBusy(false);
     }
@@ -150,6 +217,22 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
                   {resource.latestVersion && resource.latestVersion !== resource.version ? ` · latest v${resource.latestVersion}` : ''}
                 </p>
                 <code className="mt-2 block break-all text-xs text-base-content/50">{resource.path}</code>
+                {resource.resource ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(resource.registryState === 'outdated' || resource.state === 'missing' || resource.state === 'modified') && (
+                      <button className="btn btn-primary btn-xs" type="button" onClick={() => void planResource(resource, 'install')} disabled={busy}>
+                        <i className="ph ph-arrow-clockwise" aria-hidden="true"></i>
+                        {installActionLabel(resource)}
+                      </button>
+                    )}
+                    <button className="btn btn-ghost btn-xs text-error" type="button" onClick={() => void planResource(resource, 'uninstall')} disabled={busy}>
+                      <i className="ph ph-trash" aria-hidden="true"></i>
+                      Uninstall
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-base-content/50">Unmanaged local resource</p>
+                )}
               </div>
             </li>
           ))}
@@ -160,6 +243,24 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
           <span>No local resources match these filters.</span>
         </div>
       ) : null}
+
+      {plan && (
+        <PlanView
+          plan={plan}
+          showResource
+          title="Review change"
+          force={force}
+          onForce={setForce}
+          status={planStatus}
+          busy={busy}
+          onApply={() => void applyPlan()}
+          onClose={() => {
+            setPlan(null);
+            setOperation(null);
+            setForce(false);
+          }}
+        />
+      )}
     </DrawerShell>
   );
 }

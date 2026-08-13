@@ -16,7 +16,8 @@ type Props = {
 export default function PlanView({ plan, showResource, force, onForce, status, busy, onApply, title, onClose }: Props) {
   const count = (action: ChangePlan['changes'][number]['action']) =>
     plan.changes.filter((change) => change.action === action).length;
-  const canApply = plan.changes.length > 0 && (plan.conflicts.length === 0 || force);
+  const removesInstallation = plan.operations?.some((operation) => operation.action === 'uninstall') ?? false;
+  const canApply = (plan.changes.length > 0 || removesInstallation) && (plan.conflicts.length === 0 || force);
 
   return (
     <div className="card card-border mt-5 bg-base-100" data-plan>
@@ -33,7 +34,7 @@ export default function PlanView({ plan, showResource, force, onForce, status, b
         <div className="mt-4">
           {plan.changes.length
             ? <ChangeRows changes={plan.changes} showResource={showResource ?? false} />
-            : <div className="alert alert-info items-start text-sm"><i className="ph ph-info text-lg" aria-hidden="true" /><span>No file changes are needed.</span></div>}
+            : <div className="alert alert-info items-start text-sm"><i className="ph ph-info text-lg" aria-hidden="true" /><span>No file changes are needed. Applying this plan will update the installation record.</span></div>}
         </div>
         {plan.conflicts.length > 0 && (
           <div className="alert alert-warning mt-4 items-start text-sm" role="alert">
