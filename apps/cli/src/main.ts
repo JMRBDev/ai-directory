@@ -1191,6 +1191,9 @@ const install = defineCommand({
             `Location: ${installation.destination} (${resourceKey(installedResource.resource)}@${installedResource.version}, ${harness})`,
           );
           console.log(`Files: ${installation.files.join(', ')}`);
+          if (installation.skippedFiles.length > 0) {
+            console.log(`Skipped harness-specific files: ${installation.skippedFiles.join(', ')}`);
+          }
         }
       }
 
