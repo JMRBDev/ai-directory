@@ -756,6 +756,9 @@ describe('shared resource operations', () => {
       plan,
     );
     expect(applied.installed).toHaveLength(2);
+    await expect(
+      readFile(join(projectDirectory, '.ai-directory', 'installed.json.lock'), 'utf8'),
+    ).rejects.toThrow();
 
     const uninstall = await applyResourceOperations(
       [{
@@ -768,6 +771,55 @@ describe('shared resource operations', () => {
       { cwd: projectDirectory },
     );
     expect(uninstall.removed).toHaveLength(2);
+  });
+
+  it('blocks an operation while another process owns the scope lock', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const lockPath = join(projectDirectory, '.ai-directory', 'installed.json.lock');
+    await mkdir(join(projectDirectory, '.ai-directory'), { recursive: true });
+    await writeFile(
+      lockPath,
+      JSON.stringify({ pid: process.pid, token: 'test-lock' }),
+      'utf8',
+    );
+
+    await expect(
+      applyResourceOperations(
+        [{
+          resource: resourceKey(resource.resource),
+          harnesses: ['claude-code'],
+          scope: 'project',
+          action: 'install',
+          resources: [resource],
+        }],
+        { cwd: projectDirectory },
+      ),
+    ).rejects.toThrow('Another AI Directory installation is in progress');
+  });
+
+  it('reclaims a lock owned by a dead process', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const lockPath = join(projectDirectory, '.ai-directory', 'installed.json.lock');
+    await mkdir(join(projectDirectory, '.ai-directory'), { recursive: true });
+    await writeFile(
+      lockPath,
+      JSON.stringify({ pid: Number.MAX_SAFE_INTEGER, token: 'stale-lock' }),
+      'utf8',
+    );
+
+    await expect(
+      applyResourceOperations(
+        [{
+          resource: resourceKey(resource.resource),
+          harnesses: ['claude-code'],
+          scope: 'project',
+          action: 'install',
+          resources: [resource],
+        }],
+        { cwd: projectDirectory },
+      ),
+    ).resolves.toMatchObject({ installed: [expect.anything()] });
+    await expect(readFile(lockPath, 'utf8')).rejects.toThrow();
   });
 
   it('restores earlier harness changes when a later apply step fails', async () => {
@@ -796,6 +848,9 @@ describe('shared resource operations', () => {
       readFile(join(projectDirectory, '.ai-directory', 'installed.json'), 'utf8'),
     ).rejects.toThrow();
     await expect(readFile(configPath, 'utf8')).resolves.toBe('{ invalid json\n');
+    await expect(
+      readFile(join(projectDirectory, '.ai-directory', 'installed.json.lock'), 'utf8'),
+    ).rejects.toThrow();
   });
 });
 

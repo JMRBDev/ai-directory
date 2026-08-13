@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { getInstallManifestPath } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/domain';
@@ -747,73 +747,75 @@ export async function applyResourceOperations(
   force = false,
   planned?: ResourceChangePlan,
 ): Promise<ResourceApplyResult> {
-  const plan = planned ?? await planResourceOperations(operations, options, force);
-  if (plan.conflicts.length > 0 && !force) {
-    throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
-  }
+  return withInstallationLocks(operations, options, async () => {
+    const plan = planned ?? await planResourceOperations(operations, options, force);
+    if (plan.conflicts.length > 0 && !force) {
+      throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
+    }
 
-  const paths = [
-    ...plan.changes.map((change) => change.path),
-    ...operations.map((operation) => getInstallManifestPath(operation.scope, options.cwd)),
-  ];
-  const snapshots = await snapshotFiles(paths);
+    const paths = [
+      ...plan.changes.map((change) => change.path),
+      ...operations.map((operation) => getInstallManifestPath(operation.scope, options.cwd)),
+    ];
+    const snapshots = await snapshotFiles(paths);
 
-  try {
-    const installed: InstallationRecord[] = [];
-    const removed: InstallationRecord[] = [];
-    const warnings = [...plan.warnings];
+    try {
+      const installed: InstallationRecord[] = [];
+      const removed: InstallationRecord[] = [];
+      const warnings = [...plan.warnings];
 
-    for (const operation of operations) {
-      const manifestPath = getInstallManifestPath(operation.scope, options.cwd);
-      if (operation.action === 'install') {
-        const resources = operation.resources ?? [];
-        for (const harness of operation.harnesses) {
-          const installer = getHarnessAdapter(harness);
-          const installations = await installer.install(
-            resources,
-            operationInstallOptions(operation.scope, options, true),
+      for (const operation of operations) {
+        const manifestPath = getInstallManifestPath(operation.scope, options.cwd);
+        if (operation.action === 'install') {
+          const resources = operation.resources ?? [];
+          for (const harness of operation.harnesses) {
+            const installer = getHarnessAdapter(harness);
+            const installations = await installer.install(
+              resources,
+              operationInstallOptions(operation.scope, options, true),
+            );
+            const records = createInstallationRecords(resources, installations, operation.scope, installer.harness);
+            await saveInstallationRecords(
+              manifestPath,
+              records,
+              operationInstallOptions(operation.scope, options, force),
+            );
+            installed.push(...records);
+          }
+        } else {
+          const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
+          const manifest = await readInstallationManifest(manifestPath);
+          const records = manifest.installations.filter(
+            (record) =>
+              record.scope === operation.scope &&
+              operation.harnesses.includes(record.harness) &&
+              resourceIds.includes(record.resource),
           );
-          const records = createInstallationRecords(resources, installations, operation.scope, installer.harness);
-          await saveInstallationRecords(
-            manifestPath,
-            records,
-            operationInstallOptions(operation.scope, options, force),
-          );
-          installed.push(...records);
-        }
-      } else {
-        const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
-        const manifest = await readInstallationManifest(manifestPath);
-        const records = manifest.installations.filter(
-          (record) =>
-            record.scope === operation.scope &&
-            operation.harnesses.includes(record.harness) &&
-            resourceIds.includes(record.resource),
-        );
 
-        for (const record of records) {
-          await uninstallInstallation(
-            record,
-            operationInstallOptions(operation.scope, options, force),
-          );
-          await removeInstallationRecord(manifestPath, record);
-          removed.push(record);
+          for (const record of records) {
+            await uninstallInstallation(
+              record,
+              operationInstallOptions(operation.scope, options, force),
+            );
+            await removeInstallationRecord(manifestPath, record);
+            removed.push(record);
+          }
         }
       }
-    }
 
-    return { plan, installed, removed, warnings: [...new Set(warnings)] };
-  } catch (error) {
-    try {
-      await restoreFiles(snapshots);
-    } catch (rollbackError) {
-      throw new Error(
-        `Installation failed and rollback failed: ${errorMessage(rollbackError)}`,
-        { cause: error },
-      );
+      return { plan, installed, removed, warnings: [...new Set(warnings)] };
+    } catch (error) {
+      try {
+        await restoreFiles(snapshots);
+      } catch (rollbackError) {
+        throw new Error(
+          `Installation failed and rollback failed: ${errorMessage(rollbackError)}`,
+          { cause: error },
+        );
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 export async function removeStaleInstallationFiles(
@@ -1583,6 +1585,119 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+type InstallationLock = {
+  release(): Promise<void>;
+};
+
+type InstallationLockOwner = {
+  pid: number;
+  token: string;
+};
+
+async function withInstallationLocks<T>(
+  operations: ResourceOperation[],
+  options: ResourceChangeOptions,
+  action: () => Promise<T>,
+): Promise<T> {
+  const lockPaths = [...new Set(
+    operations.map((operation) =>
+      `${resolve(getInstallManifestPath(operation.scope, options.cwd))}.lock`,
+    ),
+  )].sort();
+  const locks: InstallationLock[] = [];
+
+  try {
+    for (const path of lockPaths) locks.push(await acquireInstallationLock(path));
+    return await action();
+  } finally {
+    let releaseError: unknown;
+    for (const lock of locks.reverse()) {
+      try {
+        await lock.release();
+      } catch (error) {
+        releaseError ??= error;
+      }
+    }
+    if (releaseError) throw releaseError;
+  }
+}
+
+async function acquireInstallationLock(path: string): Promise<InstallationLock> {
+  await mkdir(dirname(path), { recursive: true });
+  const owner = { pid: process.pid, token: randomUUID() } satisfies InstallationLockOwner;
+  const content = `${JSON.stringify(owner)}\n`;
+
+  while (true) {
+    try {
+      const handle = await open(path, 'wx');
+      try {
+        await handle.writeFile(content, 'utf8');
+      } catch (error) {
+        await rm(path, { force: true });
+        throw error;
+      } finally {
+        await handle.close();
+      }
+
+      return {
+        release: async () => {
+          if (await currentFile(path) === content) await rm(path, { force: true });
+        },
+      };
+    } catch (error) {
+      if (!isPathExistsError(error)) throw error;
+
+      const existing = await readInstallationLock(path);
+      if (!existing && !(await pathExists(path))) continue;
+      if (!existing || isProcessRunning(existing.pid)) {
+        throw new Error(`Another AI Directory installation is in progress: ${path}`);
+      }
+
+      await rm(path, { force: true });
+    }
+  }
+}
+
+async function readInstallationLock(path: string): Promise<InstallationLockOwner | null> {
+  let content: string;
+
+  try {
+    content = await readFile(path, 'utf8');
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
+  }
+
+  try {
+    const value: unknown = JSON.parse(content);
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      'pid' in value &&
+      typeof value.pid === 'number' &&
+      Number.isInteger(value.pid) &&
+      value.pid > 0 &&
+      'token' in value &&
+      typeof value.token === 'string'
+    ) {
+      return { pid: value.pid, token: value.token };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'EPERM';
+  }
+}
+
 function toPosixPath(path: string): string {
   return path.split(sep).join('/');
 }
@@ -1635,5 +1750,14 @@ function isMissingPathError(error: unknown): boolean {
     error !== null &&
     'code' in error &&
     error.code === 'ENOENT'
+  );
+}
+
+function isPathExistsError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'EEXIST'
   );
 }
