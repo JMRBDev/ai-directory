@@ -52,41 +52,37 @@ function CatalogCard({
 
   return (
     <article
-      className={'card card-border transition-colors hover:border-primary ' + (selected ? 'border-primary bg-primary/5' : 'bg-base-100')}
+      className={'card card-border relative transition-colors hover:border-primary ' + (selected ? 'border-primary bg-primary/5' : 'bg-base-100')}
       data-resource
       data-type={resource.type}
       data-resource-id={id}
       data-search={[id, resource.description].join(' ').toLowerCase()}
     >
-      <div className="card-body gap-4 p-5">
-        <div className="flex items-center justify-between gap-3">
-          <label className="label cursor-pointer justify-start gap-2 p-0 text-sm text-base-content">
-            <input
-              className="checkbox checkbox-sm"
-              type="checkbox"
-              checked={selected}
-              aria-label={'Select ' + id}
-              onChange={(event) => onSelect(event.currentTarget.checked)}
-            />
-            <span>{selected ? 'Selected' : 'Select'}</span>
-          </label>
-          <span className={'badge badge-sm ' + (reviewed ? 'badge-success' : 'badge-warning')}>
-            {reviewed ? 'Reviewed' : 'Unreviewed'}
-          </span>
-        </div>
+      <button
+        className="absolute inset-0 cursor-pointer appearance-none border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-primary"
+        type="button"
+        aria-label={(selected ? 'Unselect ' : 'Select ') + id}
+        aria-pressed={selected}
+        onClick={() => onSelect(!selected)}
+      ></button>
+      <div className="card-body pointer-events-none relative gap-4 p-5">
         <div>
-          <h3 className="card-title text-lg">
-            <a className="link link-hover" href={detailPath(resource)}>{resource.name}</a>
-          </h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="card-title min-w-0 flex-1 text-lg">
+              <a className="pointer-events-auto block truncate link link-hover" href={detailPath(resource)}>{resource.name}</a>
+            </h3>
+            <span className={'badge badge-sm shrink-0 ' + (reviewed ? 'badge-success' : 'badge-warning')}>
+              {reviewed ? 'Reviewed' : 'Unreviewed'}
+            </span>
+          </div>
           <p className="mt-2 line-clamp-3 text-sm leading-6 text-base-content/65">{resource.description}</p>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-3 text-xs text-base-content/60">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 text-xs text-base-content/60 pt-3">
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             <span>{resource.owner}</span>
             <span>v{resource.latestVersion}</span>
-            <span>Updated {updatedLabel(resource.updatedAt)}</span>
           </div>
-          <a className="btn btn-ghost btn-xs" href={detailPath(resource)}>Details</a>
+          <span>Updated {updatedLabel(resource.updatedAt)}</span>
         </div>
       </div>
     </article>
