@@ -1,0 +1,41 @@
+---
+import type { ResourceSummary } from '@ai-directory/contracts';
+import { resourceId } from '../lib/registry';
+
+type Props = {
+  resource: ResourceSummary;
+};
+
+const { resource } = Astro.props;
+const id = resourceId(resource);
+const detailPath = ['/resources', resource.owner, resource.type, resource.name, ''].join('/');
+const reviewed = resource.reviewStatus === 'reviewed';
+---
+
+<article
+  class="card card-border bg-base-100"
+  data-resource
+  data-type={resource.type}
+  data-resource-id={id}
+  data-search={[id, resource.description].join(' ').toLowerCase()}
+>
+  <div class="card-body gap-3 p-5">
+    <div class="flex items-center justify-between gap-3 text-xs">
+      <label class="label cursor-pointer justify-start gap-2 p-0 text-base-content/60">
+        <input class="checkbox checkbox-sm" type="checkbox" data-resource-select aria-label={'Select ' + resource.name} />
+        <span class="font-semibold uppercase tracking-[0.12em] text-primary">{resource.type}</span>
+      </label>
+      <span class:list={['badge', reviewed ? 'badge-success' : 'badge-warning']}>
+        {reviewed ? 'Reviewed' : 'Unreviewed'}
+      </span>
+    </div>
+    <h3 class="card-title text-lg">
+      <a class="link link-hover" href={detailPath}>{resource.name}</a>
+    </h3>
+    <p class="line-clamp-2 text-sm leading-6 text-base-content/60">{resource.description}</p>
+    <div class="card-actions mt-1 items-center justify-between text-xs text-base-content/60">
+      <span>{resource.owner} · v{resource.latestVersion}</span>
+      <a class="btn btn-ghost btn-xs" href={detailPath}>View</a>
+    </div>
+  </div>
+</article>

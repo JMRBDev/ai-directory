@@ -1,0 +1,35 @@
+---
+type Props = {
+  resultCount: number;
+};
+
+const { resultCount } = Astro.props;
+---
+
+<div class="card card-border mt-6 bg-base-100" role="search">
+  <div class="card-body grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">
+    <label class="fieldset">
+      <span class="fieldset-legend">Search</span>
+      <input
+        class="input input-bordered w-full"
+        id="resource-search"
+        type="search"
+        placeholder="Name, owner, or description"
+        autocomplete="off"
+      />
+    </label>
+    <label class="fieldset">
+      <span class="fieldset-legend">Type</span>
+      <select class="select select-bordered w-full" id="resource-type">
+        <option value="all">All types</option>
+        <option value="skills">Skills</option>
+        <option value="agents">Agents</option>
+        <option value="rules">Rules</option>
+        <option value="templates">Templates</option>
+      </select>
+    </label>
+    <p class="pb-2 text-xs text-base-content/60" aria-live="polite" data-result-count>
+      {resultCount} results
+    </p>
+  </div>
+</div>
