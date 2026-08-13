@@ -7,7 +7,7 @@
   <div class="drawer-side">
     <label class="drawer-overlay bg-neutral/30" for="settings-drawer-toggle" aria-label="Close settings" data-settings-backdrop></label>
     <aside
-      class="min-h-full w-full max-w-xl overflow-y-auto bg-base-100 p-5 text-base-content shadow-2xl sm:p-6"
+      class="card card-border min-h-full w-full max-w-xl overflow-y-auto rounded-none bg-base-100 text-base-content shadow-2xl"
       data-settings-drawer
       id="settings-drawer"
       aria-hidden="true"
@@ -15,6 +15,7 @@
       role="dialog"
       aria-modal="true"
     >
+  <div class="card-body min-h-full overflow-y-auto p-5 sm:p-6">
   <div class="flex shrink-0 items-start justify-between gap-4 border-b border-base-300 pb-5">
     <div>
       <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Settings</p>
@@ -24,7 +25,7 @@
     <button class="btn btn-ghost btn-sm shrink-0" type="button" data-settings-close>Close</button>
   </div>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="min-h-0 flex-1">
     <div class="mt-5 flex items-center justify-between gap-4">
       <h3 class="text-sm font-semibold text-base-content">Repository</h3>
       <span class="badge badge-ghost" data-settings-source>Loading</span>
@@ -60,8 +61,11 @@
     <div class="mt-8 border-t border-base-300 pt-5">
       <p class="font-semibold text-base-content">Credentials</p>
       <p class="mt-1 text-sm leading-6 text-base-content/60">AI Directory uses the Git credentials already configured on this computer.</p>
-      <code class="mockup-code mt-3 block w-fit px-3 py-2 text-xs before:hidden">aid doctor</code>
+      <div class="mockup-code mt-3 w-fit text-xs">
+        <pre data-prefix="$"><code>aid doctor</code></pre>
+      </div>
     </div>
+  </div>
   </div>
     </aside>
   </div>
