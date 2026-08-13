@@ -1,76 +1,79 @@
 ---
 ---
 
-<button
-  class="invisible pointer-events-none fixed inset-0 z-40 bg-ink/20 opacity-0 transition-opacity duration-200 motion-reduce:transition-none dark:bg-black/50"
-  type="button"
-  aria-label="Close settings"
-  data-settings-backdrop
-></button>
-
-<aside
-  class="invisible pointer-events-none fixed inset-y-0 right-0 z-40 flex w-full max-w-xl translate-x-full flex-col overflow-y-auto border-l border-line bg-canvas p-5 shadow-2xl transition-transform duration-200 motion-reduce:transition-none dark:border-zinc-800 dark:bg-zinc-950 sm:p-6"
-  data-settings-drawer
-  id="settings-drawer"
-  aria-hidden="true"
-  aria-labelledby="settings-title"
-  role="dialog"
-  aria-modal="true"
->
-  <div class="flex shrink-0 items-start justify-between gap-4 border-b border-line pb-5 dark:border-zinc-800">
+<div class="drawer drawer-end pointer-events-none fixed inset-0 z-50" data-settings-drawer-root>
+  <input class="drawer-toggle" id="settings-drawer-toggle" type="checkbox" data-settings-toggle aria-hidden="true" tabindex="-1" />
+  <div class="drawer-content pointer-events-none" aria-hidden="true"></div>
+  <div class="drawer-side">
+    <label class="drawer-overlay bg-neutral/30" for="settings-drawer-toggle" aria-label="Close settings" data-settings-backdrop></label>
+    <aside
+      class="min-h-full w-full max-w-xl overflow-y-auto bg-base-100 p-5 text-base-content shadow-2xl sm:p-6"
+      data-settings-drawer
+      id="settings-drawer"
+      aria-hidden="true"
+      aria-labelledby="settings-title"
+      role="dialog"
+      aria-modal="true"
+    >
+  <div class="flex shrink-0 items-start justify-between gap-4 border-b border-base-300 pb-5">
     <div>
-      <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Settings</p>
-      <h2 id="settings-title" class="mt-2 text-xl font-semibold tracking-tight text-ink dark:text-zinc-100">Registry connection</h2>
-      <p class="mt-2 text-sm text-muted dark:text-zinc-400">Choose the Git repository used by the local CLI and website.</p>
+      <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Settings</p>
+      <h2 id="settings-title" class="mt-2 text-xl font-semibold tracking-tight text-base-content">Registry connection</h2>
+      <p class="mt-2 text-sm text-base-content/60">Choose the Git repository used by the local CLI and website.</p>
     </div>
-    <button class="shrink-0 text-sm font-semibold text-muted transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-400 dark:hover:text-orange-300" type="button" data-settings-close>Close</button>
+    <button class="btn btn-ghost btn-sm shrink-0" type="button" data-settings-close>Close</button>
   </div>
 
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="mt-5 flex items-center justify-between gap-4">
-      <h3 class="text-sm font-semibold text-ink dark:text-zinc-100">Repository</h3>
-      <span class="rounded-full border border-line px-2.5 py-1 text-xs font-medium text-muted dark:border-zinc-700 dark:text-zinc-400" data-settings-source>Loading</span>
+      <h3 class="text-sm font-semibold text-base-content">Repository</h3>
+      <span class="badge badge-ghost" data-settings-source>Loading</span>
     </div>
 
     <form class="mt-5 space-y-6" data-settings-form>
-      <div>
-        <label class="mb-2 block text-sm font-semibold text-ink dark:text-zinc-200" for="settings-repository">Git URL</label>
-        <input class="block min-h-11 w-full rounded-md border border-line bg-panel px-3 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600" id="settings-repository" name="repository" type="text" placeholder="git@github.com:company/ai-directory-registry.git" autocomplete="off" required />
-      </div>
+      <label class="fieldset">
+        <span class="fieldset-legend">Git URL</span>
+        <input class="input input-bordered w-full" id="settings-repository" name="repository" type="text" placeholder="git@github.com:company/ai-directory-registry.git" autocomplete="off" required />
+      </label>
 
-      <fieldset>
-        <legend class="mb-3 text-sm font-semibold text-ink dark:text-zinc-200">Save for</legend>
+      <fieldset class="fieldset">
+        <legend class="fieldset-legend">Save for</legend>
         <div class="grid gap-3 sm:grid-cols-2">
-          <label class="flex cursor-pointer items-center gap-3 rounded-md border border-line bg-panel px-3 py-3 text-sm text-ink transition-colors has-[:checked]:border-accent has-[:checked]:bg-accent-soft dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:has-[:checked]:border-orange-400 dark:has-[:checked]:bg-orange-950/30">
-            <input class="size-4 accent-accent" type="radio" name="settings-scope" value="user" checked />
+          <label class="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+            <input class="radio radio-primary" type="radio" name="settings-scope" value="user" checked />
             This user
           </label>
-          <label class="flex cursor-pointer items-center gap-3 rounded-md border border-line bg-panel px-3 py-3 text-sm text-ink transition-colors has-[:checked]:border-accent has-[:checked]:bg-accent-soft dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:has-[:checked]:border-orange-400 dark:has-[:checked]:bg-orange-950/30">
-            <input class="size-4 accent-accent" type="radio" name="settings-scope" value="project" />
+          <label class="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+            <input class="radio radio-primary" type="radio" name="settings-scope" value="project" />
             This project
           </label>
         </div>
       </fieldset>
 
       <div class="flex flex-wrap gap-3">
-        <button class="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" type="submit">Save settings</button>
-        <button class="inline-flex min-h-10 items-center rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300" type="button" data-settings-clear>Clear selected scope</button>
+        <button class="btn btn-primary" type="submit">Save settings</button>
+        <button class="btn btn-ghost" type="button" data-settings-clear>Clear selected scope</button>
       </div>
-      <p class="text-sm text-muted dark:text-zinc-400" data-settings-status role="status"></p>
+      <p class="text-sm text-base-content/60" data-settings-status role="status"></p>
     </form>
 
-    <div class="mt-8 border-t border-line pt-5 dark:border-zinc-800">
-      <p class="font-semibold text-ink dark:text-zinc-100">Credentials</p>
-      <p class="mt-1 text-sm leading-6 text-muted dark:text-zinc-400">AI Directory uses the Git credentials already configured on this computer.</p>
-      <code class="mt-3 inline-block rounded-md bg-ink px-3 py-2 font-mono text-xs text-white dark:bg-zinc-800 dark:text-zinc-200">aid doctor</code>
+    <div class="mt-8 border-t border-base-300 pt-5">
+      <p class="font-semibold text-base-content">Credentials</p>
+      <p class="mt-1 text-sm leading-6 text-base-content/60">AI Directory uses the Git credentials already configured on this computer.</p>
+      <code class="mockup-code mt-3 block w-fit px-3 py-2 text-xs before:hidden">aid doctor</code>
     </div>
   </div>
-</aside>
+    </aside>
+  </div>
+</div>
 
 <script>
   const apiUrl = document.documentElement.dataset.apiUrl ?? 'http://127.0.0.1:4317';
+  const drawerRoot = document.querySelector<HTMLElement>('[data-settings-drawer-root]');
+  const toggle = document.querySelector<HTMLInputElement>('[data-settings-toggle]');
+  const side = drawerRoot?.querySelector<HTMLElement>('.drawer-side');
   const root = document.querySelector<HTMLElement>('[data-settings-drawer]');
-  const backdrop = document.querySelector<HTMLButtonElement>('[data-settings-backdrop]');
+  const backdrop = document.querySelector<HTMLElement>('[data-settings-backdrop]');
   const close = document.querySelector<HTMLButtonElement>('[data-settings-close]');
   const form = document.querySelector<HTMLFormElement>('[data-settings-form]');
   const repository = document.querySelector<HTMLInputElement>('#settings-repository');
@@ -96,13 +99,17 @@
   }
 
   function setOpen(isOpen: boolean) {
-    if (!root || !backdrop) return;
-    root.classList.toggle('invisible', !isOpen);
-    root.classList.toggle('pointer-events-none', !isOpen);
-    root.classList.toggle('translate-x-full', !isOpen);
-    backdrop.classList.toggle('invisible', !isOpen);
-    backdrop.classList.toggle('pointer-events-none', !isOpen);
-    backdrop.classList.toggle('opacity-0', !isOpen);
+    if (!root || !backdrop || !drawerRoot || !toggle) return;
+    drawerRoot.classList.toggle('drawer-open', isOpen);
+    drawerRoot.classList.toggle('pointer-events-none', !isOpen);
+    toggle.checked = isOpen;
+    side?.style.setProperty('display', isOpen ? 'grid' : 'none', 'important');
+    side?.style.setProperty('visibility', isOpen ? 'visible' : 'hidden', 'important');
+    side?.style.setProperty('opacity', isOpen ? '1' : '0', 'important');
+    side?.style.setProperty('transition', 'none', 'important');
+    root.style.setProperty('transform', `translateX(${isOpen ? '0' : '100'}%)`, 'important');
+    root.style.setProperty('translate', isOpen ? '0%' : '100%', 'important');
+    root.style.setProperty('transition', 'none', 'important');
     root.setAttribute('aria-hidden', String(!isOpen));
     open?.setAttribute('aria-expanded', String(isOpen));
     document.body.classList.toggle('overflow-hidden', isOpen);

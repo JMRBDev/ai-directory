@@ -1,0 +1,57 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+
+type Props = {
+  showChanges?: boolean;
+  showPublish?: boolean;
+  showRefresh?: boolean;
+  showSettings?: boolean;
+  sourceLabel?: string;
+};
+
+const {
+  showChanges = false,
+  showPublish = false,
+  showRefresh = false,
+  showSettings = false,
+  sourceLabel,
+} = Astro.props;
+---
+
+<header class="navbar min-h-16 border-b border-base-300 bg-base-100/95">
+  <div class="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-3 sm:px-8">
+    <div class="navbar-start min-w-0">
+      <a class="truncate text-sm font-semibold tracking-[0.12em] text-base-content" href="/">
+        AI DIRECTORY
+        <span class="ml-2 hidden text-[10px] font-medium tracking-[0.16em] text-base-content/60 sm:inline">RESOURCE REGISTRY</span>
+      </a>
+    </div>
+    <div class="navbar-end gap-1">
+      {showChanges && (
+        <button class="btn btn-outline btn-sm gap-2" type="button" data-open-deck aria-controls="change-deck" aria-expanded="false">
+          Changes <span class="badge badge-primary badge-xs tabular-nums" data-deck-count>0</span>
+        </button>
+      )}
+      {sourceLabel && <span class="badge badge-ghost hidden sm:inline-flex">{sourceLabel}</span>}
+      {showPublish && (
+        <a class="btn btn-ghost btn-square btn-sm text-base-content hover:bg-primary/10 hover:text-primary" href="/publish/" title="Publish resource" aria-label="Publish resource">
+          <i class="ph ph-upload-simple text-lg" aria-hidden="true"></i>
+          <span class="sr-only">Publish resource</span>
+        </a>
+      )}
+      {showRefresh && (
+        <a class="btn btn-ghost btn-square btn-sm text-base-content hover:bg-primary/10 hover:text-primary" href="/?refresh=1" title="Refresh registry" aria-label="Refresh registry">
+          <i class="ph ph-arrow-clockwise text-lg" aria-hidden="true"></i>
+          <span class="sr-only">Refresh registry</span>
+        </a>
+      )}
+      <ThemeToggle />
+      {showSettings && (
+        <button class="btn btn-ghost btn-square btn-sm text-base-content hover:bg-primary/10 hover:text-primary" type="button" data-open-settings aria-controls="settings-drawer" aria-expanded="false" title="Settings" aria-label="Settings">
+          <i class="ph ph-gear text-lg" aria-hidden="true"></i>
+          <span class="sr-only">Settings</span>
+        </button>
+      )}
+    </div>
+  </div>
+</header>

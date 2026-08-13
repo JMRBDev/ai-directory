@@ -2,7 +2,7 @@
 import type { ResourceSummary } from '@ai-directory/contracts';
 import { loadRegistry, refreshRegistry, resourceId } from '../lib/registry';
 import ThemeInit from '../components/ThemeInit.astro';
-import ThemeToggle from '../components/ThemeToggle.astro';
+import SiteHeader from '../components/SiteHeader.astro';
 import SettingsDrawer from '../components/SettingsDrawer.astro';
 import '../styles/global.css';
 
@@ -37,243 +37,234 @@ function statusLabel(resource: ResourceSummary): string {
     <ThemeInit />
     <title>{title}</title>
   </head>
-  <body class="min-h-screen bg-canvas font-sans text-ink antialiased dark:bg-zinc-950 dark:text-zinc-100">
+  <body class="min-h-screen bg-base-100 font-sans text-base-content antialiased">
     <a
-      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
+      class="btn btn-primary sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50"
       href="#catalog"
     >Skip to catalog</a>
-    <header class="border-b border-line bg-canvas/95 dark:border-zinc-800 dark:bg-zinc-950/95">
-      <div class="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 py-3 sm:px-8">
-        <a class="text-sm font-semibold tracking-[0.12em] text-ink dark:text-zinc-100" href="/">
-          AI DIRECTORY
-        </a>
-        <div class="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-xs font-medium text-muted">
-          <button class="inline-flex min-h-8 items-center gap-2 rounded-md border border-line px-2.5 py-1 text-xs font-semibold text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300" type="button" data-open-deck aria-controls="change-deck" aria-expanded="false">
-            Changes <span class="rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] tabular-nums text-accent" data-deck-count>0</span>
-          </button>
-          <ThemeToggle />
-          <a class="inline-flex size-8 items-center justify-center rounded-md text-ink transition-colors hover:bg-accent-soft hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-200 dark:hover:bg-orange-950/30 dark:hover:text-orange-300" href="/publish/" title="Publish resource" aria-label="Publish resource">
-            <i class="ph ph-upload-simple text-lg" aria-hidden="true"></i>
-            <span class="sr-only">Publish resource</span>
-          </a>
-          <a class="inline-flex size-8 items-center justify-center rounded-md text-ink transition-colors hover:bg-accent-soft hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-200 dark:hover:bg-orange-950/30 dark:hover:text-orange-300" href="/?refresh=1" title="Refresh registry" aria-label="Refresh registry">
-            <i class="ph ph-arrow-clockwise text-lg" aria-hidden="true"></i>
-            <span class="sr-only">Refresh registry</span>
-          </a>
-          <button class="inline-flex size-8 items-center justify-center rounded-md text-ink transition-colors hover:bg-accent-soft hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-200 dark:hover:bg-orange-950/30 dark:hover:text-orange-300" type="button" data-open-settings aria-controls="settings-drawer" aria-expanded="false" title="Settings" aria-label="Settings">
-            <i class="ph ph-gear text-lg" aria-hidden="true"></i>
-            <span class="sr-only">Settings</span>
-          </button>
-        </div>
-      </div>
-    </header>
+    <SiteHeader showChanges showPublish showRefresh showSettings />
 
     <main class="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8 lg:py-14">
       <section class="w-full" aria-labelledby="page-title">
-        <h1 id="page-title" class="max-w-2xl text-3xl font-semibold tracking-tight text-ink sm:text-4xl dark:text-zinc-100">
+        <h1 id="page-title" class="max-w-2xl text-3xl font-semibold tracking-tight text-base-content sm:text-4xl">
           Find a resource for the work in front of you.
         </h1>
-        <p class="mt-4 max-w-2xl text-base leading-7 text-muted dark:text-zinc-400">
+        <p class="mt-4 max-w-2xl text-base leading-7 text-base-content/60">
           Shared skills, agents, rules, and templates. Read the source, check the review status, and
           install what you need locally.
         </p>
-        <div class="mt-8 grid w-full grid-cols-3 divide-x divide-line border-y border-line py-4 dark:divide-zinc-800 dark:border-zinc-800" aria-label="Registry summary">
-          <div class="pr-4">
-            <strong class="block text-2xl font-semibold tracking-tight text-ink dark:text-zinc-100">{resources.length}</strong>
-            <span class="mt-1 block text-xs text-muted dark:text-zinc-500">Active</span>
+        <div class="stats stats-vertical mt-8 w-full border-y border-base-300 sm:stats-horizontal" aria-label="Registry summary">
+          <div class="stat px-0 py-4 sm:pr-6">
+            <div class="stat-value text-2xl">{resources.length}</div>
+            <div class="stat-title mt-1 text-xs text-base-content/60">Active</div>
           </div>
-          <div class="px-4">
-            <strong class="block text-2xl font-semibold tracking-tight text-ink dark:text-zinc-100">{reviewedCount}</strong>
-            <span class="mt-1 block text-xs text-muted dark:text-zinc-500">Reviewed</span>
+          <div class="stat border-base-300 px-0 py-4 sm:border-l sm:px-6">
+            <div class="stat-value text-2xl">{reviewedCount}</div>
+            <div class="stat-title mt-1 text-xs text-base-content/60">Reviewed</div>
           </div>
-          <div class="pl-4">
-            <strong class="block text-2xl font-semibold tracking-tight text-ink dark:text-zinc-100">{resourceTypes}</strong>
-            <span class="mt-1 block text-xs text-muted dark:text-zinc-500">Types</span>
+          <div class="stat border-base-300 px-0 py-4 sm:border-l sm:pl-6">
+            <div class="stat-value text-2xl">{resourceTypes}</div>
+            <div class="stat-title mt-1 text-xs text-base-content/60">Types</div>
           </div>
         </div>
       </section>
 
       <section id="catalog" class="mt-14" aria-labelledby="catalog-title">
-        <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5 dark:border-zinc-800">
+        <div class="flex flex-wrap items-end justify-between gap-4 border-b border-base-300 pb-5">
           <div>
-            <h2 id="catalog-title" class="text-xl font-semibold tracking-tight text-ink dark:text-zinc-100">Available resources</h2>
+            <h2 id="catalog-title" class="text-xl font-semibold tracking-tight text-base-content">Available resources</h2>
           </div>
-          <p class="text-xs text-muted dark:text-zinc-500">
+          <p class="text-xs text-base-content/60">
             Source: {registry.source === 'remote' ? 'configured Git registry' : 'explicit local index'}
           </p>
         </div>
 
         {registry.error ? (
-          <div class="mt-6 rounded-lg border border-red-200 bg-red-50 p-5 text-sm dark:border-red-900/70 dark:bg-red-950/30" role="alert">
-            <strong class="font-semibold text-red-900 dark:text-red-200">Could not load the registry.</strong>
-            <p class="mt-2 text-red-800 dark:text-red-300">{registry.error}</p>
-            <p class="mt-2 text-red-800 dark:text-red-300">Run <code class="rounded bg-red-100 px-1.5 py-0.5 font-mono text-xs dark:bg-red-900/50">aid setup</code> or pass <code class="rounded bg-red-100 px-1.5 py-0.5 font-mono text-xs dark:bg-red-900/50">--index &lt;path&gt;</code>.</p>
+          <div class="alert alert-error mt-6 items-start text-sm" role="alert">
+            <i class="ph ph-warning-circle text-xl" aria-hidden="true"></i>
+            <div>
+              <strong class="font-semibold">Could not load the registry.</strong>
+              <p class="mt-2">{registry.error}</p>
+              <p class="mt-2">Run <code class="rounded bg-error-content/20 px-1.5 py-0.5 font-mono text-xs">aid setup</code> or pass <code class="rounded bg-error-content/20 px-1.5 py-0.5 font-mono text-xs">--index &lt;path&gt;</code>.</p>
+            </div>
           </div>
         ) : resources.length === 0 ? (
-          <div class="mt-6 rounded-lg border border-line bg-panel p-6 dark:border-zinc-800 dark:bg-zinc-900">
-            <strong class="font-semibold text-ink dark:text-zinc-100">No active resources yet.</strong>
-            <p class="mt-2 text-sm text-muted dark:text-zinc-400">Submit the first resource with the CLI, then refresh the registry.</p>
+          <div class="card mt-6 border border-base-300 bg-base-100">
+            <div class="card-body p-6">
+              <strong class="font-semibold text-base-content">No active resources yet.</strong>
+              <p class="mt-2 text-sm text-base-content/60">Submit the first resource with the CLI, then refresh the registry.</p>
+            </div>
           </div>
         ) : (
           <>
-            <div class="mt-6 grid gap-4 rounded-lg border border-line bg-panel p-4 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end dark:border-zinc-800 dark:bg-zinc-900" role="search">
-              <div>
-                <label class="mb-2 block text-xs font-semibold text-muted dark:text-zinc-400" for="resource-search">Search</label>
+            <div class="card mt-6 border border-base-300 bg-base-100" role="search">
+              <div class="card-body grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">
+              <label class="fieldset">
+                <span class="fieldset-legend">Search</span>
                 <input
-                  class="block min-h-10 w-full rounded-md border border-line bg-canvas px-3 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+                  class="input input-bordered w-full"
                   id="resource-search" type="search" placeholder="Name, owner, or description" autocomplete="off"
                 />
-              </div>
-              <div>
-                <label class="mb-2 block text-xs font-semibold text-muted dark:text-zinc-400" for="resource-type">Type</label>
-                <select class="block min-h-10 w-full rounded-md border border-line bg-canvas px-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100" id="resource-type">
+              </label>
+              <label class="fieldset">
+                <span class="fieldset-legend">Type</span>
+                <select class="select select-bordered w-full" id="resource-type">
                   <option value="all">All types</option>
                   <option value="skills">Skills</option>
                   <option value="agents">Agents</option>
                   <option value="rules">Rules</option>
                   <option value="templates">Templates</option>
                 </select>
-              </div>
-              <p class="pb-2 text-xs text-muted dark:text-zinc-500" aria-live="polite" data-result-count>
+              </label>
+              <p class="pb-2 text-xs text-base-content/60" aria-live="polite" data-result-count>
                 {resources.length} results
               </p>
+              </div>
             </div>
 
             <div class="mt-4 grid gap-x-8 md:grid-cols-2" data-resource-grid>
               {resources.map((resource) => (
                 <article
-                  class="border-t border-line py-5 first:border-t-0 md:[&:nth-child(2)]:border-t-0 dark:border-zinc-800"
+                  class="border-t border-base-300 py-5 first:border-t-0 md:[&:nth-child(2)]:border-t-0"
                   data-resource
                   data-type={resource.type}
                   data-resource-id={resourceId(resource)}
                   data-search={`${resourceId(resource)} ${resource.description}`.toLowerCase()}
                 >
                   <div class="flex items-center justify-between gap-3 text-xs">
-                    <label class="flex cursor-pointer items-center gap-2 text-muted dark:text-zinc-400">
-                      <input class="size-4 accent-accent" type="checkbox" data-resource-select aria-label={`Select ${resource.name}`} />
-                      <span class="font-semibold uppercase tracking-[0.12em] text-accent">{resource.type}</span>
+                    <label class="label cursor-pointer justify-start gap-2 p-0 text-base-content/60">
+                      <input class="checkbox checkbox-primary checkbox-sm" type="checkbox" data-resource-select aria-label={`Select ${resource.name}`} />
+                      <span class="font-semibold uppercase tracking-[0.12em] text-primary">{resource.type}</span>
                     </label>
                     <span
                       class:list={[
-                        'rounded-full border px-2 py-0.5 font-medium',
+                        'badge',
                         resource.reviewStatus === 'unreviewed'
-                          ? 'border-amber-200 bg-warning-soft text-warning dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
-                          : 'border-line text-muted dark:border-zinc-700 dark:text-zinc-400',
+                          ? 'badge-warning'
+                          : 'badge-ghost',
                       ]}
                     >
                       {statusLabel(resource)}
                     </span>
                   </div>
-                  <a class="mt-3 block text-lg font-semibold tracking-tight text-ink transition-colors hover:text-accent dark:text-zinc-100 dark:hover:text-orange-300" href={detailPath(resource)}>
+                  <a class="mt-3 block text-lg font-semibold tracking-tight text-base-content transition-colors hover:text-primary" href={detailPath(resource)}>
                     {resource.name}
                   </a>
-                  <p class="mt-2 line-clamp-2 text-sm leading-6 text-muted dark:text-zinc-400">{resource.description}</p>
-                  <div class="mt-4 flex items-center justify-between gap-3 text-xs text-muted dark:text-zinc-500">
+                  <p class="mt-2 line-clamp-2 text-sm leading-6 text-base-content/60">{resource.description}</p>
+                  <div class="mt-4 flex items-center justify-between gap-3 text-xs text-base-content/60">
                     <span>{resource.owner} · v{resource.latestVersion}</span>
-                    <a class="font-semibold text-ink hover:text-accent dark:text-zinc-300 dark:hover:text-orange-300" href={detailPath(resource)}>View</a>
+                    <a class="font-semibold text-base-content hover:text-primary" href={detailPath(resource)}>View</a>
                   </div>
                 </article>
               ))}
             </div>
-            <div class="mt-6 hidden rounded-lg border border-line bg-panel p-6 dark:border-zinc-800 dark:bg-zinc-900" data-no-results hidden>
-              <strong class="font-semibold text-ink dark:text-zinc-100">No matching resources.</strong>
-              <p class="mt-2 text-sm text-muted dark:text-zinc-400">Change the search text or select a different resource type.</p>
+            <div class="card mt-6 hidden border border-base-300 bg-base-100" data-no-results hidden>
+              <div class="card-body p-6">
+                <strong class="font-semibold text-base-content">No matching resources.</strong>
+                <p class="mt-2 text-sm text-base-content/60">Change the search text or select a different resource type.</p>
+              </div>
             </div>
           </>
         )}
       </section>
 
-      <button class="invisible pointer-events-none fixed inset-0 z-40 bg-ink/20 opacity-0 transition-opacity duration-200 motion-reduce:transition-none dark:bg-black/50" type="button" aria-label="Close change deck" data-deck-backdrop></button>
-      <section class="invisible pointer-events-none fixed inset-y-0 right-0 z-40 flex w-full max-w-2xl translate-x-full flex-col overflow-y-auto border-l border-line bg-canvas p-5 shadow-2xl transition-transform duration-200 motion-reduce:transition-none dark:border-zinc-800 dark:bg-zinc-950 sm:p-6" data-change-review id="change-deck" aria-hidden="true" aria-labelledby="change-review-title" role="dialog" aria-modal="true">
-        <div class="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-line pb-5 dark:border-zinc-800">
+      <div class="drawer drawer-end pointer-events-none fixed inset-0 z-40" data-deck-root>
+        <input class="drawer-toggle" id="change-deck-toggle" type="checkbox" data-deck-toggle aria-hidden="true" tabindex="-1" />
+        <div class="drawer-content pointer-events-none" aria-hidden="true"></div>
+        <div class="drawer-side">
+          <label class="drawer-overlay bg-neutral/30" for="change-deck-toggle" aria-label="Close change deck" data-deck-backdrop></label>
+          <section class="min-h-full w-full max-w-2xl overflow-y-auto bg-base-100 p-5 text-base-content shadow-2xl sm:p-6" data-change-review id="change-deck" aria-hidden="true" aria-labelledby="change-review-title" role="dialog" aria-modal="true">
+        <div class="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-base-300 pb-5">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Workspace</p>
-            <h2 id="change-review-title" class="mt-2 text-xl font-semibold tracking-tight text-ink dark:text-zinc-100">Change deck</h2>
-            <p class="mt-2 text-sm text-muted dark:text-zinc-400" data-plan-context>No pending changes.</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Workspace</p>
+            <h2 id="change-review-title" class="mt-2 text-xl font-semibold tracking-tight text-base-content">Change deck</h2>
+            <p class="mt-2 text-sm text-base-content/60" data-plan-context>No pending changes.</p>
           </div>
-          <button class="text-sm font-semibold text-muted transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-400 dark:hover:text-orange-300" type="button" data-close-review>Close</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-close-review>Close</button>
         </div>
 
-        <section class="shrink-0 border-b border-line py-5 dark:border-zinc-800" aria-labelledby="deck-selection-title">
+        <section class="shrink-0 border-b border-base-300 py-5" aria-labelledby="deck-selection-title">
           <div class="flex items-start justify-between gap-4">
             <div>
-              <h3 id="deck-selection-title" class="text-sm font-semibold text-ink dark:text-zinc-100">Selected resources</h3>
-              <p class="mt-1 text-xs text-muted dark:text-zinc-400" data-selection-count>0 resources selected</p>
+              <h3 id="deck-selection-title" class="text-sm font-semibold text-base-content">Selected resources</h3>
+              <p class="mt-1 text-xs text-base-content/60" data-selection-count>0 resources selected</p>
             </div>
-            <button class="text-xs font-semibold text-muted transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-400 dark:hover:text-orange-300" type="button" data-clear-selection>Discard changes</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-clear-selection>Discard changes</button>
           </div>
           <div class="mt-4 grid gap-2" data-selection-list></div>
-          <p class="mt-4 rounded-md border border-dashed border-line p-4 text-sm text-muted dark:border-zinc-700 dark:text-zinc-400" data-selection-empty>Select resources from the catalog to stage changes here.</p>
+          <p class="mt-4 rounded-box border border-dashed border-base-300 p-4 text-sm text-base-content/60" data-selection-empty>Select resources from the catalog to stage changes here.</p>
         </section>
 
-        <div class="mt-5 shrink-0 grid gap-5 border-b border-line pb-5 dark:border-zinc-800">
-          <fieldset>
-            <legend class="mb-3 text-xs font-semibold text-muted dark:text-zinc-400">Harnesses</legend>
+        <div class="mt-5 grid shrink-0 gap-5 border-b border-base-300 pb-5">
+          <fieldset class="fieldset">
+            <legend class="fieldset-legend">Harnesses</legend>
             <div class="grid gap-3 sm:grid-cols-3">
-              <label class="flex items-center gap-2 text-sm text-ink dark:text-zinc-200"><input class="size-4 accent-accent" type="checkbox" value="claude-code" data-plan-harness checked />Claude Code</label>
-              <label class="flex items-center gap-2 text-sm text-ink dark:text-zinc-200"><input class="size-4 accent-accent" type="checkbox" value="opencode" data-plan-harness />OpenCode</label>
-              <label class="flex items-center gap-2 text-sm text-ink dark:text-zinc-200"><input class="size-4 accent-accent" type="checkbox" value="codex" data-plan-harness />Codex</label>
+              <label class="label cursor-pointer justify-start gap-2"><input class="checkbox checkbox-primary" type="checkbox" value="claude-code" data-plan-harness checked />Claude Code</label>
+              <label class="label cursor-pointer justify-start gap-2"><input class="checkbox checkbox-primary" type="checkbox" value="opencode" data-plan-harness />OpenCode</label>
+              <label class="label cursor-pointer justify-start gap-2"><input class="checkbox checkbox-primary" type="checkbox" value="codex" data-plan-harness />Codex</label>
             </div>
           </fieldset>
-          <label class="block" for="plan-scope">
-            <span class="mb-3 block text-xs font-semibold text-muted dark:text-zinc-400">Scope</span>
-            <select class="block min-h-10 w-full rounded-md border border-line bg-canvas px-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100" id="plan-scope" data-plan-scope>
+          <label class="fieldset" for="plan-scope">
+            <span class="fieldset-legend">Scope</span>
+            <select class="select select-bordered w-full" id="plan-scope" data-plan-scope>
               <option value="project">This project</option>
               <option value="global">All projects</option>
             </select>
           </label>
-          <button class="justify-self-start text-xs font-semibold text-accent transition-colors hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" type="button" data-generate-plan>Refresh preview</button>
+          <button class="btn btn-ghost btn-sm justify-self-start text-primary" type="button" data-generate-plan>Refresh preview</button>
         </div>
 
         <div class="mt-5 hidden" data-plan-output>
-          <div class="grid grid-cols-3 divide-x divide-line border-y border-line py-4 dark:divide-zinc-800 dark:border-zinc-800">
-            <div class="pr-4"><strong class="block text-xl font-semibold text-ink dark:text-zinc-100" data-plan-count="added">0</strong><span class="mt-1 block text-xs text-muted dark:text-zinc-500">Added</span></div>
-            <div class="px-4"><strong class="block text-xl font-semibold text-ink dark:text-zinc-100" data-plan-count="modified">0</strong><span class="mt-1 block text-xs text-muted dark:text-zinc-500">Modified</span></div>
-            <div class="pl-4"><strong class="block text-xl font-semibold text-ink dark:text-zinc-100" data-plan-count="removed">0</strong><span class="mt-1 block text-xs text-muted dark:text-zinc-500">Removed</span></div>
+          <div class="stats stats-vertical w-full border-y border-base-300 sm:stats-horizontal">
+            <div class="stat px-0 py-3 sm:pr-4"><div class="stat-value text-xl" data-plan-count="added">0</div><div class="stat-title text-xs">Added</div></div>
+            <div class="stat border-base-300 px-0 py-3 sm:border-l sm:px-4"><div class="stat-value text-xl" data-plan-count="modified">0</div><div class="stat-title text-xs">Modified</div></div>
+            <div class="stat border-base-300 px-0 py-3 sm:border-l sm:pl-4"><div class="stat-value text-xl" data-plan-count="removed">0</div><div class="stat-title text-xs">Removed</div></div>
           </div>
           <div class="mt-5 space-y-6" data-plan-changes>
             <section class="hidden" data-plan-section="added" aria-labelledby="plan-added-title">
-              <h3 id="plan-added-title" class="text-sm font-semibold text-ink dark:text-zinc-100">Added files</h3>
+              <h3 id="plan-added-title" class="text-sm font-semibold text-base-content">Added files</h3>
               <ul class="mt-3 space-y-2" data-plan-list="added"></ul>
             </section>
             <section class="hidden" data-plan-section="modified" aria-labelledby="plan-modified-title">
-              <h3 id="plan-modified-title" class="text-sm font-semibold text-ink dark:text-zinc-100">Modified files</h3>
+              <h3 id="plan-modified-title" class="text-sm font-semibold text-base-content">Modified files</h3>
               <ul class="mt-3 space-y-2" data-plan-list="modified"></ul>
             </section>
             <section class="hidden" data-plan-section="removed" aria-labelledby="plan-removed-title">
-              <h3 id="plan-removed-title" class="text-sm font-semibold text-ink dark:text-zinc-100">Removed files</h3>
+              <h3 id="plan-removed-title" class="text-sm font-semibold text-base-content">Removed files</h3>
               <ul class="mt-3 space-y-2" data-plan-list="removed"></ul>
             </section>
-            <p class="hidden rounded-md border border-line bg-canvas p-4 text-sm text-muted dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400" data-plan-empty>No file changes are needed for this selection.</p>
+            <p class="hidden rounded-box border border-base-300 bg-base-200 p-4 text-sm text-base-content/60" data-plan-empty>No file changes are needed for this selection.</p>
           </div>
-          <div class="mt-5 hidden rounded-md border border-amber-200 bg-warning-soft p-4 text-sm text-warning dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" data-plan-conflicts role="alert"></div>
-          <div class="mt-5 hidden rounded-md border border-amber-200 bg-warning-soft p-4 text-sm text-warning dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" data-plan-warnings></div>
-          <label class="mt-5 hidden items-start gap-3 rounded-md border border-line p-4 text-sm text-ink dark:border-zinc-700 dark:text-zinc-200" data-plan-force-label>
-            <input class="mt-0.5 size-4 accent-accent" type="checkbox" data-plan-force />
-            <span><strong class="font-semibold">Allow overwrite or removal of locally changed files</strong><span class="mt-1 block text-xs text-muted dark:text-zinc-400">Use this only after checking the affected files.</span></span>
+          <div class="alert alert-warning mt-5 hidden items-start text-sm" data-plan-conflicts role="alert"></div>
+          <div class="alert alert-warning mt-5 hidden items-start text-sm" data-plan-warnings></div>
+          <label class="label mt-5 hidden items-start gap-3 rounded-box border border-base-300 p-4" data-plan-force-label>
+            <input class="checkbox checkbox-warning mt-0.5" type="checkbox" data-plan-force />
+            <span><strong class="font-semibold">Allow overwrite or removal of locally changed files</strong><span class="mt-1 block text-xs text-base-content/60">Use this only after checking the affected files.</span></span>
           </label>
           <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <p class="text-sm text-muted dark:text-zinc-400" data-plan-status role="status"></p>
-            <button class="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" type="button" data-apply-plan disabled>Save changes</button>
+            <p class="text-sm text-base-content/60" data-plan-status role="status"></p>
+            <button class="btn btn-primary" type="button" data-apply-plan disabled>Save changes</button>
           </div>
         </div>
-      </section>
+          </section>
+        </div>
+      </div>
 
-      <section class="mt-14 flex w-full flex-col gap-5 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800" aria-label="Submit a resource">
+      <section class="mt-14 flex w-full flex-col gap-5 border-t border-base-300 pt-6 sm:flex-row sm:items-center sm:justify-between" aria-label="Submit a resource">
         <div>
-          <p class="text-sm font-semibold text-ink dark:text-zinc-100">Share a resource</p>
-          <p class="mt-1 text-sm text-muted dark:text-zinc-400">Prepare its entry file and submit a pull request for review.</p>
+          <p class="text-sm font-semibold text-base-content">Share a resource</p>
+          <p class="mt-1 text-sm text-base-content/60">Prepare its entry file and submit a pull request for review.</p>
         </div>
         <div class="flex flex-wrap items-center justify-end gap-3 sm:flex-nowrap">
-          <a class="inline-flex min-h-10 items-center whitespace-nowrap rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" href="/publish/">Publish resource</a>
-          <code class="whitespace-nowrap rounded-md bg-ink px-3 py-2 font-mono text-xs text-white dark:bg-zinc-800 dark:text-zinc-200">aid submit ./resource</code>
+          <a class="btn btn-primary whitespace-nowrap" href="/publish/">Publish resource</a>
+          <code class="badge badge-neutral h-auto whitespace-nowrap px-3 py-2 font-mono text-xs">aid submit ./resource</code>
         </div>
       </section>
     </main>
 
     <SettingsDrawer />
 
-    <footer class="mx-auto flex w-full max-w-6xl flex-col gap-1 border-t border-line px-5 py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-8 dark:border-zinc-800 dark:text-zinc-500">
+    <footer class="footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8">
       <p>Backed by the production branch of the resources repository.</p>
       <p>Local-first prototype</p>
     </footer>
@@ -302,7 +293,10 @@ function statusLabel(resource: ResourceSummary): string {
       const noResults = document.querySelector<HTMLElement>('[data-no-results]');
       const resources = Array.from(document.querySelectorAll<HTMLElement>('[data-resource]'));
       const openDeckButton = document.querySelector<HTMLButtonElement>('[data-open-deck]');
-      const deckBackdrop = document.querySelector<HTMLButtonElement>('[data-deck-backdrop]');
+      const deckBackdrop = document.querySelector<HTMLElement>('[data-deck-backdrop]');
+      const deckRoot = document.querySelector<HTMLElement>('[data-deck-root]');
+      const deckToggle = document.querySelector<HTMLInputElement>('[data-deck-toggle]');
+      const deckSide = deckRoot?.querySelector<HTMLElement>('.drawer-side');
       const deckCount = document.querySelector<HTMLElement>('[data-deck-count]');
       const selectionCount = document.querySelector<HTMLElement>('[data-selection-count]');
       const selectionList = document.querySelector<HTMLElement>('[data-selection-list]');
@@ -338,13 +332,17 @@ function statusLabel(resource: ResourceSummary): string {
       }
 
       function setDeckOpen(open: boolean) {
-        if (!review || !deckBackdrop) return;
-        review.classList.toggle('invisible', !open);
-        review.classList.toggle('pointer-events-none', !open);
-        review.classList.toggle('translate-x-full', !open);
-        deckBackdrop.classList.toggle('invisible', !open);
-        deckBackdrop.classList.toggle('pointer-events-none', !open);
-        deckBackdrop.classList.toggle('opacity-0', !open);
+        if (!review || !deckBackdrop || !deckRoot || !deckToggle) return;
+        deckRoot.classList.toggle('drawer-open', open);
+        deckRoot.classList.toggle('pointer-events-none', !open);
+        deckToggle.checked = open;
+        deckSide?.style.setProperty('display', open ? 'grid' : 'none', 'important');
+        deckSide?.style.setProperty('visibility', open ? 'visible' : 'hidden', 'important');
+        deckSide?.style.setProperty('opacity', open ? '1' : '0', 'important');
+        deckSide?.style.setProperty('transition', 'none', 'important');
+        review.style.setProperty('transform', `translateX(${open ? '0' : '100'}%)`, 'important');
+        review.style.setProperty('translate', open ? '0%' : '100%', 'important');
+        review.style.setProperty('transition', 'none', 'important');
         review.setAttribute('aria-hidden', String(!open));
         openDeckButton?.setAttribute('aria-expanded', String(open));
         document.body.classList.toggle('overflow-hidden', open);
@@ -380,17 +378,17 @@ function statusLabel(resource: ResourceSummary): string {
           if (!actions.has(id)) actions.set(id, 'install');
 
           const row = document.createElement('div');
-          row.className = 'flex flex-col gap-2 rounded-md border border-line bg-panel px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900';
+          row.className = 'card border border-base-300 bg-base-100';
 
           const top = document.createElement('div');
           top.className = 'flex items-start justify-between gap-3';
           const label = document.createElement('span');
-          label.className = 'break-all font-mono text-xs text-ink dark:text-zinc-200';
+          label.className = 'break-all font-mono text-xs text-base-content';
           label.textContent = id;
           top.append(label);
 
           const remove = document.createElement('button');
-          remove.className = 'shrink-0 text-xs font-semibold text-muted transition-colors hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-500 dark:hover:text-orange-300';
+          remove.className = 'btn btn-ghost btn-xs shrink-0';
           remove.type = 'button';
           remove.textContent = 'Remove';
           remove.setAttribute('aria-label', `Remove ${id} from the change deck`);
@@ -400,10 +398,12 @@ function statusLabel(resource: ResourceSummary): string {
             renderSelection();
           });
           top.append(remove);
-          row.append(top);
+          const body = document.createElement('div');
+          body.className = 'card-body gap-2 p-3';
+          body.append(top);
 
           const action = document.createElement('select');
-          action.className = 'min-h-9 w-full rounded-md border border-line bg-canvas px-2 text-xs font-medium text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200';
+          action.className = 'select select-bordered select-sm w-full';
           action.setAttribute('aria-label', `Action for ${id}`);
           action.innerHTML = '<option value="install">Install or update</option><option value="uninstall">Uninstall</option>';
           action.value = actions.get(id) ?? 'install';
@@ -412,7 +412,8 @@ function statusLabel(resource: ResourceSummary): string {
             invalidatePlan();
             schedulePlan();
           });
-          row.append(action);
+          body.append(action);
+          row.append(body);
           selectionList.append(row);
         }
         invalidatePlan(selected.length === 0 ? 'Select a resource to generate a preview.' : 'Updating preview…');
@@ -466,34 +467,37 @@ function statusLabel(resource: ResourceSummary): string {
 
       function appendChange(list: HTMLElement, change: Change) {
         const item = document.createElement('li');
-        item.className = 'rounded-md border border-line bg-canvas p-3 dark:border-zinc-800 dark:bg-zinc-950';
+        item.className = 'card border border-base-300 bg-base-200';
 
         const header = document.createElement('div');
         header.className = 'flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between';
         const path = document.createElement('span');
-        path.className = 'break-all font-mono text-xs font-semibold text-ink dark:text-zinc-200';
+        path.className = 'break-all font-mono text-xs font-semibold text-base-content';
         path.textContent = change.path;
         const meta = document.createElement('span');
-        meta.className = 'text-xs text-muted dark:text-zinc-500';
+        meta.className = 'text-xs text-base-content/60';
         meta.textContent = `${change.resource} · ${change.harness} · ${change.scope}`;
         header.append(path, meta);
-        item.append(header);
+        const body = document.createElement('div');
+        body.className = 'card-body gap-3 p-3';
+        body.append(header);
 
         const content = change.after ?? change.before;
         if (content) {
           const details = document.createElement('details');
-          details.className = 'mt-3 border-t border-line pt-3 dark:border-zinc-800';
+          details.className = 'mt-3 border-t border-base-300 pt-3';
           const summary = document.createElement('summary');
-          summary.className = 'cursor-pointer text-xs font-semibold text-accent';
+          summary.className = 'cursor-pointer text-xs font-semibold text-primary';
           summary.textContent = change.action === 'modified' ? 'View file change' : 'View file content';
           const pre = document.createElement('pre');
-          pre.className = 'mt-3 max-h-64 overflow-auto rounded-md bg-ink p-3 font-mono text-xs leading-5 text-zinc-100 dark:bg-zinc-900';
+          pre.className = 'mockup-code mt-3 max-h-64 overflow-auto rounded-box p-3 text-xs leading-5 before:hidden';
           pre.textContent = change.action === 'modified'
             ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}`
             : content;
           details.append(summary, pre);
-          item.append(details);
+          body.append(details);
         }
+        item.append(body);
         list.append(item);
       }
 
