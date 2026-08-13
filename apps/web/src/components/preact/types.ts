@@ -36,7 +36,7 @@ export type ChangePlan = {
   changes: PlanChange[];
   conflicts: string[];
   warnings: string[];
-  projectionNotes?: string[];
+  projectionNotes: string[];
   operations?: ChangeOperation[];
 };
 

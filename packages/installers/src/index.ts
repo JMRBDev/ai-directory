@@ -295,8 +295,7 @@ async function writeInstallPlans(plans: InstallPlan[], dryRun: boolean): Promise
 
   for (const plan of plans) {
     for (const file of plan.files) {
-      await mkdir(dirname(file.destination), { recursive: true });
-      await writeFile(file.destination, file.content, 'utf8');
+      await writeTextAtomic(file.destination, file.content);
     }
   }
 }
