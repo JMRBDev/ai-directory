@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getConfigPath, readConfigFile, writeConfigFile } from '@ai-directory/config';
+import { getConfigPath, getInstallManifestPath, readConfigFile, writeConfigFile } from '@ai-directory/config';
 import { createApp } from '../src/index.js';
 
 const temporaryDirectories: string[] = [];
@@ -313,6 +314,48 @@ describe('local control API', () => {
 
     expect(applied.status).toBe(200);
     await expect(readFile(skillPath, 'utf8')).resolves.toContain('TypeScript');
+  });
+
+  it('previews stale files removed by a newer harness projection', async () => {
+    const cwd = await createTemporaryDirectory();
+    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const resourceId = 'john-doe/skills/typescript-review';
+    const stalePath = join(cwd, '.claude', 'skills', 'typescript-review', 'agents', 'openai.yaml');
+
+    const install = await app.request('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ resource: resourceId, harnesses: ['claude-code'], scope: 'project' }),
+    });
+    expect(install.status).toBe(200);
+
+    await mkdir(join(cwd, '.claude', 'skills', 'typescript-review', 'agents'), { recursive: true });
+    await writeFile(stalePath, 'interface:\n  display_name: "Legacy"\n', 'utf8');
+    const manifestPath = getInstallManifestPath('project', cwd);
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      installations: Array<{ resource: string; files: string[]; fileHashes: Record<string, string> }>;
+    };
+    const record = manifest.installations[0];
+    if (!record) throw new Error('Expected an installation record.');
+    record.files.push(stalePath);
+    record.fileHashes[stalePath] = createHash('sha256').update('interface:\n  display_name: "Legacy"\n').digest('hex');
+    await writeFile(manifestPath, JSON.stringify({ schemaVersion: 1, installations: manifest.installations }), 'utf8');
+
+    const plan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operations: [{ resource: resourceId, action: 'install', harnesses: ['claude-code'], scope: 'project' }],
+      }),
+    });
+
+    expect(plan.status).toBe(200);
+    await expect(plan.json()).resolves.toMatchObject({
+      changes: expect.arrayContaining([
+        expect.objectContaining({ path: stalePath, action: 'removed', resource: resourceId }),
+      ]),
+    });
+    await expect(readFile(stalePath, 'utf8')).resolves.toContain('Legacy');
   });
 
   it('installs and uninstalls a template pack by its template ID', async () => {
