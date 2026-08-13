@@ -1,9 +1,13 @@
 ---
-import type { ResourceSummary } from '@ai-directory/contracts';
 import { loadRegistry, refreshRegistry, resourceId } from '../lib/registry';
 import ThemeInit from '../components/ThemeInit.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import SettingsDrawer from '../components/SettingsDrawer.astro';
+import RegistryHero from '../components/RegistryHero.astro';
+import ResourceCard from '../components/ResourceCard.astro';
+import ResourceFilters from '../components/ResourceFilters.astro';
+import ChangeDeck from '../components/ChangeDeck.astro';
+import ShareResourceCard from '../components/ShareResourceCard.astro';
 import '../styles/global.css';
 
 if (Astro.url.searchParams.get('refresh') === '1') await refreshRegistry();
@@ -16,13 +20,6 @@ const resourceTypes = new Set(resources.map((resource) => resource.type)).size;
 const title = 'AI Directory | Internal resource registry';
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
 
-function detailPath(resource: ResourceSummary): string {
-  return `/resources/${resource.owner}/${resource.type}/${resource.name}/`;
-}
-
-function statusLabel(resource: ResourceSummary): string {
-  return resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed';
-}
 ---
 
 <!doctype html>
@@ -45,31 +42,7 @@ function statusLabel(resource: ResourceSummary): string {
     <SiteHeader showChanges showPublish showRefresh showSettings />
 
     <main class="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8 lg:py-14">
-      <section class="hero w-full justify-start" aria-labelledby="page-title">
-        <div class="hero-content block w-full max-w-none p-0">
-          <h1 id="page-title" class="max-w-2xl text-3xl font-semibold tracking-tight text-base-content sm:text-4xl">
-            Find a resource for the work in front of you.
-          </h1>
-          <p class="mt-4 max-w-2xl text-base leading-7 text-base-content/60">
-            Shared skills, agents, rules, and templates. Read the source, check the review status, and
-            install what you need locally.
-          </p>
-          <div class="stats stats-vertical mt-8 w-full border-y border-base-300 sm:stats-horizontal" aria-label="Registry summary">
-            <div class="stat px-0 py-4 sm:pr-6">
-              <div class="stat-value text-2xl">{resources.length}</div>
-              <div class="stat-title mt-1 text-xs text-base-content/60">Active</div>
-            </div>
-            <div class="stat border-base-300 px-0 py-4 sm:border-l sm:px-6">
-              <div class="stat-value text-2xl">{reviewedCount}</div>
-              <div class="stat-title mt-1 text-xs text-base-content/60">Reviewed</div>
-            </div>
-            <div class="stat border-base-300 px-0 py-4 sm:border-l sm:pl-6">
-              <div class="stat-value text-2xl">{resourceTypes}</div>
-              <div class="stat-title mt-1 text-xs text-base-content/60">Types</div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <RegistryHero active={resources.length} reviewed={reviewedCount} types={resourceTypes} />
 
       <section id="catalog" class="mt-14" aria-labelledby="catalog-title">
         <div class="flex flex-wrap items-end justify-between gap-4 border-b border-base-300 pb-5">
@@ -99,70 +72,11 @@ function statusLabel(resource: ResourceSummary): string {
           </div>
         ) : (
           <>
-            <div class="card mt-6 border border-base-300 bg-base-100" role="search">
-              <div class="card-body grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">
-              <label class="fieldset">
-                <span class="fieldset-legend">Search</span>
-                <input
-                  class="input input-bordered w-full"
-                  id="resource-search" type="search" placeholder="Name, owner, or description" autocomplete="off"
-                />
-              </label>
-              <label class="fieldset">
-                <span class="fieldset-legend">Type</span>
-                <select class="select select-bordered w-full" id="resource-type">
-                  <option value="all">All types</option>
-                  <option value="skills">Skills</option>
-                  <option value="agents">Agents</option>
-                  <option value="rules">Rules</option>
-                  <option value="templates">Templates</option>
-                </select>
-              </label>
-              <p class="pb-2 text-xs text-base-content/60" aria-live="polite" data-result-count>
-                {resources.length} results
-              </p>
-              </div>
-            </div>
-
+            <ResourceFilters resultCount={resources.length} />
             <div class="mt-4 grid gap-4 md:grid-cols-2" data-resource-grid>
-              {resources.map((resource) => (
-                <article
-                  class="card card-border bg-base-100"
-                  data-resource
-                  data-type={resource.type}
-                  data-resource-id={resourceId(resource)}
-                  data-search={`${resourceId(resource)} ${resource.description}`.toLowerCase()}
-                >
-                  <div class="card-body gap-3 p-5">
-                    <div class="flex items-center justify-between gap-3 text-xs">
-                      <label class="label cursor-pointer justify-start gap-2 p-0 text-base-content/60">
-                        <input class="checkbox checkbox-sm" type="checkbox" data-resource-select aria-label={`Select ${resource.name}`} />
-                        <span class="font-semibold uppercase tracking-[0.12em] text-primary">{resource.type}</span>
-                      </label>
-                      <span
-                        class:list={[
-                          'badge',
-                          resource.reviewStatus === 'unreviewed'
-                            ? 'badge-warning'
-                            : 'badge-success',
-                        ]}
-                      >
-                        {statusLabel(resource)}
-                      </span>
-                    </div>
-                    <h3 class="card-title text-lg">
-                      <a class="link link-hover" href={detailPath(resource)}>{resource.name}</a>
-                    </h3>
-                    <p class="line-clamp-2 text-sm leading-6 text-base-content/60">{resource.description}</p>
-                    <div class="card-actions mt-1 items-center justify-between text-xs text-base-content/60">
-                      <span>{resource.owner} · v{resource.latestVersion}</span>
-                      <a class="btn btn-ghost btn-xs" href={detailPath(resource)}>View</a>
-                    </div>
-                  </div>
-                </article>
-              ))}
+              {resources.map((resource) => <ResourceCard resource={resource} />)}
             </div>
-            <div class="card mt-6 hidden border border-base-300 bg-base-100" data-no-results hidden>
+            <div class="card card-border mt-6 hidden bg-base-100" data-no-results hidden>
               <div class="card-body p-6">
                 <strong class="font-semibold text-base-content">No matching resources.</strong>
                 <p class="mt-2 text-sm text-base-content/60">Change the search text or select a different resource type.</p>
@@ -172,110 +86,9 @@ function statusLabel(resource: ResourceSummary): string {
         )}
       </section>
 
-      <div class="drawer drawer-end pointer-events-none fixed inset-0 z-40" data-deck-root>
-        <input class="drawer-toggle" id="change-deck-toggle" type="checkbox" data-deck-toggle aria-hidden="true" tabindex="-1" />
-        <div class="drawer-content pointer-events-none" aria-hidden="true"></div>
-        <div class="drawer-side">
-          <label class="drawer-overlay bg-neutral/30" for="change-deck-toggle" aria-label="Close change deck" data-deck-backdrop></label>
-          <section class="card card-border min-h-full w-full max-w-2xl overflow-y-auto rounded-none bg-base-100 text-base-content shadow-2xl" data-change-review id="change-deck" aria-hidden="true" aria-labelledby="change-review-title" role="dialog" aria-modal="true">
-        <div class="card-body min-h-full overflow-y-auto p-5 sm:p-6">
-        <div class="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-base-300 pb-5">
-          <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Workspace</p>
-            <h2 id="change-review-title" class="mt-2 text-xl font-semibold tracking-tight text-base-content">Change deck</h2>
-            <p class="mt-2 text-sm text-base-content/60" data-plan-context>No pending changes.</p>
-          </div>
-          <button class="btn btn-ghost btn-sm" type="button" data-close-review>Close</button>
-        </div>
+      <ChangeDeck />
 
-        <section class="shrink-0 border-b border-base-300 py-5" aria-labelledby="deck-selection-title">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <h3 id="deck-selection-title" class="text-sm font-semibold text-base-content">Selected resources</h3>
-              <p class="mt-1 text-xs text-base-content/60" data-selection-count>0 resources selected</p>
-            </div>
-            <button class="btn btn-ghost btn-xs" type="button" data-clear-selection>Discard changes</button>
-          </div>
-          <ul class="list list-sm mt-4" data-selection-list></ul>
-          <div class="alert alert-info mt-4 items-start text-sm" data-selection-empty>
-            <i class="ph ph-info text-lg" aria-hidden="true"></i>
-            <span>Select resources from the catalog to stage changes here.</span>
-          </div>
-          </section>
-
-        <div class="mt-5 grid shrink-0 gap-5 border-b border-base-300 pb-5">
-          <fieldset class="fieldset">
-            <legend class="fieldset-legend">Harnesses</legend>
-            <div class="grid gap-3 sm:grid-cols-3">
-              <label class="label cursor-pointer justify-start gap-2"><input class="checkbox checkbox-primary" type="checkbox" value="claude-code" data-plan-harness checked />Claude Code</label>
-              <label class="label cursor-pointer justify-start gap-2"><input class="checkbox checkbox-primary" type="checkbox" value="opencode" data-plan-harness />OpenCode</label>
-              <label class="label cursor-pointer justify-start gap-2"><input class="checkbox checkbox-primary" type="checkbox" value="codex" data-plan-harness />Codex</label>
-            </div>
-          </fieldset>
-          <label class="fieldset" for="plan-scope">
-            <span class="fieldset-legend">Scope</span>
-            <select class="select select-bordered w-full" id="plan-scope" data-plan-scope>
-              <option value="project">This project</option>
-              <option value="global">All projects</option>
-            </select>
-          </label>
-          <button class="btn btn-ghost btn-sm justify-self-start text-primary" type="button" data-generate-plan>Refresh preview</button>
-        </div>
-
-        <div class="card card-border mt-5 hidden bg-base-100" data-plan-output>
-          <div class="card-body p-0">
-            <div class="stats stats-vertical w-full sm:stats-horizontal">
-              <div class="stat px-5 py-4 sm:pr-4"><div class="stat-value text-xl" data-plan-count="added">0</div><div class="stat-title text-xs">Added</div></div>
-              <div class="stat border-base-300 px-5 py-4 sm:border-l sm:px-4"><div class="stat-value text-xl" data-plan-count="modified">0</div><div class="stat-title text-xs">Modified</div></div>
-              <div class="stat border-base-300 px-5 py-4 sm:border-l sm:pl-4"><div class="stat-value text-xl" data-plan-count="removed">0</div><div class="stat-title text-xs">Removed</div></div>
-            </div>
-          <div class="space-y-6 p-5" data-plan-changes>
-            <section class="hidden" data-plan-section="added" aria-labelledby="plan-added-title">
-              <h3 id="plan-added-title" class="text-sm font-semibold text-base-content">Added files</h3>
-              <ul class="list list-sm mt-3" data-plan-list="added"></ul>
-            </section>
-            <section class="hidden" data-plan-section="modified" aria-labelledby="plan-modified-title">
-              <h3 id="plan-modified-title" class="text-sm font-semibold text-base-content">Modified files</h3>
-              <ul class="list list-sm mt-3" data-plan-list="modified"></ul>
-            </section>
-            <section class="hidden" data-plan-section="removed" aria-labelledby="plan-removed-title">
-              <h3 id="plan-removed-title" class="text-sm font-semibold text-base-content">Removed files</h3>
-              <ul class="list list-sm mt-3" data-plan-list="removed"></ul>
-            </section>
-            <div class="alert alert-info hidden items-start text-sm" data-plan-empty>
-              <i class="ph ph-info text-lg" aria-hidden="true"></i>
-              <span>No file changes are needed for this selection.</span>
-            </div>
-          </div>
-          <div class="alert alert-warning mx-5 mt-5 hidden items-start text-sm" data-plan-conflicts role="alert"></div>
-          <div class="alert alert-warning mx-5 mt-5 hidden items-start text-sm" data-plan-warnings></div>
-          <label class="alert alert-warning mx-5 mt-5 hidden items-start gap-3 text-sm" data-plan-force-label>
-            <input class="checkbox checkbox-warning mt-0.5" type="checkbox" data-plan-force />
-            <span><strong class="font-semibold">Allow overwrite or removal of locally changed files</strong><span class="mt-1 block text-xs">Use this only after checking the affected files.</span></span>
-          </label>
-          <div class="mt-5 flex flex-wrap items-center justify-between gap-3 px-5 pb-5">
-            <p class="text-sm text-base-content/60" data-plan-status role="status"></p>
-            <button class="btn btn-primary" type="button" data-apply-plan disabled>Save changes</button>
-          </div>
-          </div>
-          </div>
-        </div>
-          </section>
-        </div>
-      </div>
-
-      <section class="card card-border mt-14 w-full bg-base-100 sm:card-side" aria-label="Submit a resource">
-        <div class="card-body gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p class="font-semibold text-base-content">Share a resource</p>
-            <p class="mt-1 text-sm text-base-content/60">Prepare its entry file and submit a pull request for review.</p>
-          </div>
-          <div class="card-actions items-center sm:justify-end">
-            <a class="btn btn-primary whitespace-nowrap" href="/publish/">Publish resource</a>
-            <kbd class="kbd kbd-sm whitespace-nowrap font-mono">aid submit ./resource</kbd>
-          </div>
-        </div>
-      </section>
+      <ShareResourceCard />
     </main>
 
     <SettingsDrawer />
