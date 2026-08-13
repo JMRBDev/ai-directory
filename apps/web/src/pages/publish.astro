@@ -1,7 +1,7 @@
 ---
 import '../styles/global.css';
 import ThemeInit from '../components/ThemeInit.astro';
-import ThemeToggle from '../components/ThemeToggle.astro';
+import SiteHeader from '../components/SiteHeader.astro';
 import SettingsDrawer from '../components/SettingsDrawer.astro';
 
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
@@ -16,142 +16,136 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
     <ThemeInit />
     <title>Publish | AI Directory</title>
   </head>
-  <body class="min-h-screen bg-canvas font-sans text-ink antialiased dark:bg-zinc-950 dark:text-zinc-100">
-    <header class="border-b border-line bg-canvas/95 dark:border-zinc-800 dark:bg-zinc-950/95">
-      <div class="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 py-3 sm:px-8">
-        <a class="text-sm font-semibold tracking-[0.12em] text-ink dark:text-zinc-100" href="/">
-          AI DIRECTORY <span class="ml-2 hidden text-[10px] font-medium tracking-[0.16em] text-muted sm:inline">RESOURCE REGISTRY</span>
-        </a>
-        <div class="flex items-center gap-4 text-xs font-medium text-muted dark:text-zinc-400">
-          <span class="hidden sm:inline">Local publishing</span>
-          <ThemeToggle />
-          <button class="inline-flex size-8 items-center justify-center rounded-md text-ink transition-colors hover:bg-accent-soft hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:text-zinc-200 dark:hover:bg-orange-950/30 dark:hover:text-orange-300" type="button" data-open-settings aria-controls="settings-drawer" aria-expanded="false" title="Settings" aria-label="Settings">
-            <i class="ph ph-gear text-lg" aria-hidden="true"></i>
-            <span class="sr-only">Settings</span>
-          </button>
-        </div>
-      </div>
-    </header>
+  <body class="min-h-screen bg-base-100 font-sans text-base-content antialiased">
+    <SiteHeader showSettings sourceLabel="Local publishing" />
 
     <main class="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 lg:py-12">
-      <a class="text-sm font-medium text-muted transition-colors hover:text-accent dark:text-zinc-400 dark:hover:text-orange-300" href="/">Back to catalog</a>
+      <a class="btn btn-ghost btn-sm -ml-3" href="/">Back to catalog</a>
 
       <section class="mt-10 max-w-3xl" aria-labelledby="page-title">
-        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Share a resource</p>
-        <h1 id="page-title" class="mt-3 text-3xl font-semibold tracking-tight text-ink sm:text-4xl dark:text-zinc-100">Publish for review.</h1>
-        <p class="mt-4 text-base leading-7 text-muted dark:text-zinc-400">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Share a resource</p>
+        <h1 id="page-title" class="mt-3 text-3xl font-semibold tracking-tight text-base-content sm:text-4xl">Publish for review.</h1>
+        <p class="mt-4 text-base leading-7 text-base-content/60">
           Select a resource directory. AI Directory validates it locally, then opens a pull request against the production registry.
         </p>
       </section>
 
       <section class="mt-12 w-full" aria-labelledby="publish-title">
-        <div class="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5 dark:border-zinc-800">
+        <div class="flex flex-wrap items-end justify-between gap-4 border-b border-base-300 pb-5">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Pull request</p>
-            <h2 id="publish-title" class="mt-2 text-xl font-semibold tracking-tight text-ink dark:text-zinc-100">Resource details</h2>
+            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Pull request</p>
+            <h2 id="publish-title" class="mt-2 text-xl font-semibold tracking-tight text-base-content">Resource details</h2>
           </div>
-          <span class="rounded-full border border-line px-2.5 py-1 text-xs font-medium text-muted dark:border-zinc-700 dark:text-zinc-400">Local API</span>
+          <span class="badge badge-ghost">Local API</span>
         </div>
 
         <form class="mt-6 space-y-6" data-publish-form>
           <div class="grid gap-5 md:grid-cols-[minmax(0,1fr)_10rem]">
-            <fieldset>
-              <legend class="mb-3 text-xs font-semibold text-muted dark:text-zinc-400">Resource ID</legend>
+            <fieldset class="fieldset rounded-box border border-base-300 p-4">
+              <legend class="fieldset-legend">Resource ID</legend>
               <div class="grid gap-4 sm:grid-cols-[10rem_10rem_minmax(0,1fr)]">
-                <label class="block" for="resource-owner">
-                  <span class="mb-2 block text-xs font-medium text-muted dark:text-zinc-500">GitHub user</span>
-                  <input class="block min-h-10 w-full rounded-md border border-line bg-zinc-100 px-3 text-sm text-muted outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-500" id="resource-owner" type="text" placeholder="Loading…" disabled />
+                <label class="fieldset" for="resource-owner">
+                  <span class="fieldset-legend text-xs">GitHub user</span>
+                  <input class="input input-bordered w-full" id="resource-owner" type="text" placeholder="Loading…" disabled />
                 </label>
-                <label class="block" for="resource-type">
-                  <span class="mb-2 block text-xs font-medium text-muted dark:text-zinc-500">Type</span>
-                  <select class="block min-h-10 w-full rounded-md border border-line bg-panel px-3 text-sm text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100" id="resource-type" required>
+                <label class="fieldset" for="resource-type">
+                  <span class="fieldset-legend text-xs">Type</span>
+                  <select class="select select-bordered w-full" id="resource-type" required>
                     <option value="skills">Skill</option>
                     <option value="agents">Agent</option>
                     <option value="rules">Rule</option>
                     <option value="templates">Template</option>
                   </select>
                 </label>
-                <label class="block" for="resource-name">
-                  <span class="mb-2 block text-xs font-medium text-muted dark:text-zinc-500">Name</span>
-                  <input class="block min-h-10 w-full rounded-md border border-line bg-panel px-3 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600" id="resource-name" type="text" placeholder="my-resource" autocomplete="off" required />
+                <label class="fieldset" for="resource-name">
+                  <span class="fieldset-legend text-xs">Name</span>
+                  <input class="input input-bordered w-full" id="resource-name" type="text" placeholder="my-resource" autocomplete="off" required />
                 </label>
               </div>
             </fieldset>
-            <label class="block" for="resource-version">
-              <span class="mb-2 block text-xs font-medium text-muted dark:text-zinc-500">Version</span>
-              <input class="block min-h-10 w-full rounded-md border border-line bg-panel px-3 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600" id="resource-version" name="version" type="text" value="1.0.0" autocomplete="off" required />
+            <label class="fieldset" for="resource-version">
+              <span class="fieldset-legend">Version</span>
+              <input class="input input-bordered w-full" id="resource-version" name="version" type="text" value="1.0.0" autocomplete="off" required />
             </label>
           </div>
 
-          <label class="block rounded-lg border border-dashed border-line bg-panel p-5 transition-colors hover:border-accent dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-orange-400" for="resource-directory">
-            <span class="block text-sm font-semibold text-ink dark:text-zinc-100">Resource directory</span>
-            <span class="mt-1 block text-sm text-muted dark:text-zinc-400">Choose the folder that contains the resource files.</span>
-            <input class="mt-4 block w-full text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-2 file:font-semibold file:text-white hover:file:bg-accent-strong dark:text-zinc-400" id="resource-directory" type="file" data-directory-input multiple required />
-            <span class="mt-3 block text-xs text-muted dark:text-zinc-500" data-file-name>Select a folder containing the resource files.</span>
+          <label class="card cursor-pointer border border-dashed border-base-300 bg-base-100 transition-colors hover:border-primary" for="resource-directory">
+            <div class="card-body p-5">
+              <span class="text-sm font-semibold text-base-content">Resource directory</span>
+              <span class="mt-1 text-sm text-base-content/60">Choose the folder that contains the resource files.</span>
+              <input class="file-input file-input-bordered mt-4 w-full" id="resource-directory" type="file" data-directory-input multiple required />
+              <span class="mt-3 text-xs text-base-content/60" data-file-name>Select a folder containing the resource files.</span>
+            </div>
           </label>
 
-          <div class="rounded-lg border border-line bg-panel p-4 dark:border-zinc-800 dark:bg-zinc-900" aria-live="polite">
-            <strong class="text-sm font-semibold text-ink dark:text-zinc-100" data-file-count>No files selected</strong>
-            <ul class="mt-3 max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-muted dark:text-zinc-400" data-file-list></ul>
+          <div class="card border border-base-300 bg-base-100" aria-live="polite">
+            <div class="card-body p-4">
+              <strong class="text-sm font-semibold text-base-content" data-file-count>No files selected</strong>
+              <ul class="mt-3 max-h-40 space-y-1 overflow-y-auto font-mono text-xs text-base-content/60" data-file-list></ul>
+            </div>
           </div>
 
-          <div class="hidden rounded-lg border border-line bg-panel p-4 dark:border-zinc-800 dark:bg-zinc-900" data-description-editor hidden>
-            <label class="block" for="description-override">
-              <span class="mb-2 block text-sm font-semibold text-ink dark:text-zinc-100">Description</span>
-              <textarea class="block min-h-24 w-full resize-y rounded-md border border-line bg-canvas px-3 py-2 text-sm leading-6 text-ink outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600" id="description-override" rows="3" placeholder="The resource description will appear here after validation."></textarea>
+          <div class="card hidden border border-base-300 bg-base-100" data-description-editor hidden>
+            <div class="card-body p-4">
+            <label class="fieldset" for="description-override">
+              <span class="fieldset-legend">Description</span>
+              <textarea class="textarea textarea-bordered min-h-24 w-full" id="description-override" rows="3" placeholder="The resource description will appear here after validation."></textarea>
             </label>
-            <span class="mt-2 block text-xs text-muted dark:text-zinc-500">Inferred from the resource files. Edit if needed.</span>
+            <span class="mt-2 text-xs text-base-content/60">Inferred from the resource files. Edit if needed.</span>
+            </div>
           </div>
 
           <div class="flex flex-wrap gap-3">
-            <button class="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" type="submit" data-validate-action>Validate resource</button>
-            <button class="hidden min-h-10 items-center rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300" type="button" data-submit-action hidden disabled>
+            <button class="btn btn-primary" type="submit" data-validate-action>Validate resource</button>
+            <button class="btn btn-outline hidden" type="button" data-submit-action hidden disabled>
               Submit pull request
             </button>
           </div>
-          <p class="text-sm text-muted dark:text-zinc-400" data-publish-status role="status"></p>
+          <p class="text-sm text-base-content/60" data-publish-status role="status"></p>
         </form>
 
-        <div class="mt-10 hidden rounded-lg border border-line bg-panel p-5 dark:border-zinc-800 dark:bg-zinc-900" data-publish-review hidden>
-          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Review</p>
-          <h2 class="mt-2 text-lg font-semibold tracking-tight text-ink dark:text-zinc-100">Ready to submit</h2>
+        <div class="card mt-10 hidden border border-base-300 bg-base-100" data-publish-review hidden>
+          <div class="card-body p-5">
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Review</p>
+          <h2 class="mt-2 text-lg font-semibold tracking-tight text-base-content">Ready to submit</h2>
           <dl class="mt-5 grid gap-4 text-sm sm:grid-cols-2">
-            <div class="border-t border-line pt-3 dark:border-zinc-800">
-              <dt class="text-xs font-semibold text-muted dark:text-zinc-500">Resource</dt>
-              <dd class="mt-1 break-all font-mono text-xs text-ink dark:text-zinc-300" data-review-resource></dd>
+            <div class="border-t border-base-300 pt-3">
+              <dt class="text-xs font-semibold text-base-content/60">Resource</dt>
+              <dd class="mt-1 break-all font-mono text-xs text-base-content" data-review-resource></dd>
             </div>
-            <div class="border-t border-line pt-3 dark:border-zinc-800">
-              <dt class="text-xs font-semibold text-muted dark:text-zinc-500">Version</dt>
-              <dd class="mt-1 text-ink dark:text-zinc-300" data-review-version></dd>
+            <div class="border-t border-base-300 pt-3">
+              <dt class="text-xs font-semibold text-base-content/60">Version</dt>
+              <dd class="mt-1 text-base-content" data-review-version></dd>
             </div>
-            <div class="border-t border-line pt-3 dark:border-zinc-800">
-              <dt class="text-xs font-semibold text-muted dark:text-zinc-500">Entry file</dt>
-              <dd class="mt-1 font-mono text-xs text-ink dark:text-zinc-300" data-review-entry></dd>
+            <div class="border-t border-base-300 pt-3">
+              <dt class="text-xs font-semibold text-base-content/60">Entry file</dt>
+              <dd class="mt-1 font-mono text-xs text-base-content" data-review-entry></dd>
             </div>
-            <div class="border-t border-line pt-3 dark:border-zinc-800">
-              <dt class="text-xs font-semibold text-muted dark:text-zinc-500">Files</dt>
-              <dd class="mt-1 text-ink dark:text-zinc-300" data-review-files></dd>
+            <div class="border-t border-base-300 pt-3">
+              <dt class="text-xs font-semibold text-base-content/60">Files</dt>
+              <dd class="mt-1 text-base-content" data-review-files></dd>
             </div>
-            <div class="border-t border-line pt-3 sm:col-span-2 dark:border-zinc-800">
-              <dt class="text-xs font-semibold text-muted dark:text-zinc-500">Description</dt>
-              <dd class="mt-1 leading-6 text-ink dark:text-zinc-300" data-review-description></dd>
+            <div class="border-t border-base-300 pt-3 sm:col-span-2">
+              <dt class="text-xs font-semibold text-base-content/60">Description</dt>
+              <dd class="mt-1 leading-6 text-base-content" data-review-description></dd>
             </div>
           </dl>
-          <p class="mt-5 text-sm leading-6 text-muted dark:text-zinc-400">
+          <p class="mt-5 text-sm leading-6 text-base-content/60">
             The pull request will be unreviewed until the curation team reviews and merges it.
           </p>
-          <a class="mt-4 hidden text-sm font-semibold text-accent hover:text-accent-strong dark:text-orange-300 dark:hover:text-orange-200" data-pull-request-link target="_blank" rel="noreferrer" hidden>
+          <a class="link link-primary mt-4 hidden text-sm font-semibold" data-pull-request-link target="_blank" rel="noreferrer" hidden>
             Open pull request
           </a>
+          </div>
         </div>
       </section>
     </main>
 
     <SettingsDrawer />
 
-    <footer class="mx-auto flex w-full max-w-6xl flex-col gap-2 border-t border-line px-5 py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-8 dark:border-zinc-800 dark:text-zinc-500">
+    <footer class="footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8">
       <p>Backed by the production branch of the resources repository.</p>
-      <a class="font-medium hover:text-accent dark:hover:text-orange-300" href="/">Return to catalog</a>
+      <a class="link link-hover font-medium" href="/">Return to catalog</a>
     </footer>
 
     <script>
