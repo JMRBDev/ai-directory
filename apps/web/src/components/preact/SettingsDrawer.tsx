@@ -62,18 +62,18 @@ export default function SettingsDrawer({ apiUrl }: Props) {
     }
 
     void mutate('/api/config', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ repository: value, scope }),
-      }, (result) => result.source !== result.savedScope
-        ? 'Saved in the ' + result.savedScope + ' config. The ' + result.source + ' setting is still active.'
-        : 'Saved in the ' + result.savedScope + ' config.');
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ repository: value, scope }),
+    }, (result) => result.source !== result.savedScope
+      ? 'Saved in the ' + result.savedScope + ' config. The ' + result.source + ' setting is still active.'
+      : 'Saved in the ' + result.savedScope + ' config.');
   }
 
   function clearSettings() {
     void mutate('/api/config?scope=' + scope, { method: 'DELETE' }, (result) => result.source !== 'none' && result.source !== result.clearedScope
-        ? 'Cleared the ' + result.clearedScope + ' config. The ' + result.source + ' setting is still active.'
-        : 'Cleared the ' + result.clearedScope + ' config.');
+      ? 'Cleared the ' + result.clearedScope + ' config. The ' + result.source + ' setting is still active.'
+      : 'Cleared the ' + result.clearedScope + ' config.');
   }
 
   return (
@@ -97,11 +97,11 @@ export default function SettingsDrawer({ apiUrl }: Props) {
           <fieldset className="fieldset">
             <legend className="fieldset-legend">Save for</legend>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+              <label className="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-checked:border-primary has-checked:bg-primary/10">
                 <input className="radio radio-primary" type="radio" name="settings-scope" value="user" checked={scope === 'user'} onChange={() => setScope('user')} disabled={busy} />
                 This user
               </label>
-              <label className="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+              <label className="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-checked:border-primary has-checked:bg-primary/10">
                 <input className="radio radio-primary" type="radio" name="settings-scope" value="project" checked={scope === 'project'} onChange={() => setScope('project')} disabled={busy} />
                 This project
               </label>

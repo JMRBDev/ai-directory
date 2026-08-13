@@ -9,7 +9,6 @@ type Props = {
   resources: ResourceSummary[];
   apiUrl: string;
   registryError?: string | undefined;
-  source: string;
 };
 
 type ReviewFilter = 'all' | 'reviewed' | 'unreviewed';
@@ -89,7 +88,7 @@ function CatalogCard({
   );
 }
 
-export default function ResourceCatalog({ resources, apiUrl, registryError, source }: Props) {
+export default function ResourceCatalog({ resources, apiUrl, registryError }: Props) {
   const [query, setQuery] = useState('');
   const [activeType, setActiveType] = useState<ResourceType>(resources[0]?.type ?? 'skills');
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
@@ -262,18 +261,8 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
   return (
     <>
       <section id="catalog" className="mt-14" aria-labelledby="catalog-title">
-        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-base-300 pb-5">
-          <div>
-            <h2 id="catalog-title" className="text-xl font-semibold tracking-tight text-base-content">Available resources</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-base-content/60">Browse one resource type at a time, then select what you want to stage for installation.</p>
-          </div>
-          <span className="badge badge-ghost">
-            {source === 'remote' ? 'Configured Git registry' : 'Explicit local index'}
-          </span>
-        </div>
-
         {registryError ? (
-          <div className="alert alert-error mt-6 items-start text-sm" role="alert">
+          <div className="alert alert-error items-start text-sm" role="alert">
             <i className="ph ph-warning-circle text-xl" aria-hidden="true"></i>
             <div>
               <strong className="font-semibold">Could not load the registry.</strong>
@@ -290,7 +279,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
           </div>
         ) : (
           <>
-            <div className="mt-6">
+            <div>
               <div className="tabs tabs-border w-full overflow-x-auto" role="tablist" aria-label="Resource types">
                 {RESOURCE_TYPES.map((option, index) => {
                   const count = resources.filter((resource) => resource.type === option.value).length;
