@@ -24,6 +24,8 @@
     "@ai-directory/contracts": "workspace:*",
     "@ai-directory/registry": "workspace:*",
     "@astrojs/node": "^11.1.0",
-    "@phosphor-icons/web": "^2.1.2"
+    "@astrojs/preact": "^6.0.2",
+    "@phosphor-icons/web": "^2.1.2",
+    "preact": "^10.29.8"
   }
 }

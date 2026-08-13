@@ -1,5 +1,5 @@
 ---
-import ThemeToggle from './ThemeToggle.astro';
+import ThemeToggle from './preact/ThemeToggle';
 
 type Props = {
   showChanges?: boolean;
@@ -45,7 +45,7 @@ const {
           <span class="sr-only">Refresh registry</span>
         </a>
       )}
-      <ThemeToggle />
+      <ThemeToggle client:load />
       {showSettings && (
         <button class="btn btn-ghost btn-square btn-sm text-base-content hover:bg-primary/10 hover:text-primary" type="button" data-open-settings aria-controls="settings-drawer" aria-expanded="false" title="Settings" aria-label="Settings">
           <i class="ph ph-gear text-lg" aria-hidden="true"></i>
