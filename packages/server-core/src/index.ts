@@ -32,11 +32,13 @@ import {
 } from '@ai-directory/installers';
 import { resourceKey } from '@ai-directory/domain';
 import {
+  createRegistrySnapshot,
   readRegistrySourceResource,
   readRegistrySourceIndex,
   resolveRegistrySource,
   submitResource,
   type CommandRunner,
+  type RegistrySnapshot,
   type RegistrySource,
   type ResourceVersion,
   validateResourceDirectory,
@@ -409,8 +411,8 @@ async function buildChangePlan(
   options: ServerOptions,
   cwd: string,
   force: boolean,
+  snapshot: RegistrySnapshot,
 ): Promise<ChangePlan> {
-  const source = registrySource(options, cwd);
   const changes: PlannedFileChange[] = [];
   const conflicts: string[] = [];
   const warnings: string[] = [];
@@ -454,7 +456,7 @@ async function buildChangePlan(
   const loadedOperations = await Promise.all(
     operations.map(async (operation) => ({
       operation,
-      loaded: await readRegistrySourceResource(source, operation.resource, operation.version),
+      loaded: await snapshot.readResource(operation.resource, operation.version),
     })),
   );
   const installGroups = new Map<string, {
@@ -522,6 +524,21 @@ async function buildChangePlan(
           for (const change of result.changes ?? []) {
             await addChange(change, owner, resourceId, harness);
           }
+
+          const previous = manifest.installations.find(
+            (record) =>
+              record.resource === resourceId &&
+              record.harness === harness &&
+              record.scope === operation.scope,
+          );
+          if (previous) {
+            const currentPaths = new Set(result.ownedPaths);
+            for (const path of previous.files) {
+              if (!currentPaths.has(path)) {
+                await addChange({ path, content: null }, owner, resourceId, harness);
+              }
+            }
+          }
         }
       } else {
         for (const record of records) {
@@ -550,14 +567,14 @@ async function applyChangeOperations(
   options: ServerOptions,
   cwd: string,
   force: boolean,
+  snapshot: RegistrySnapshot,
 ): Promise<{ installed: InstallationRecord[]; removed: InstallationRecord[]; warnings: string[] }> {
-  const source = registrySource(options, cwd);
   const installed: InstallationRecord[] = [];
   const removed: InstallationRecord[] = [];
   const warnings: string[] = [];
 
   for (const operation of operations) {
-    const loaded = await readRegistrySourceResource(source, operation.resource, operation.version);
+    const loaded = await snapshot.readResource(operation.resource, operation.version);
     warnings.push(...requestWarnings([loaded.resource, ...loaded.resources]));
     const manifestPath = getInstallManifestPath(operation.scope, cwd);
     const resourceIds = loaded.resources.map((item) => resourceKey(item.resource));
@@ -613,6 +630,20 @@ async function installationResourceIds(
 
   const loaded = await readRegistrySourceResource(source, resource);
   return loaded.resources.map((item) => resourceKey(item.resource));
+}
+
+async function withRegistrySnapshot<T>(
+  options: ServerOptions,
+  cwd: string,
+  action: (snapshot: RegistrySnapshot) => Promise<T>,
+): Promise<T> {
+  const snapshot = await createRegistrySnapshot(registrySource(options, cwd));
+
+  try {
+    return await action(snapshot);
+  } finally {
+    await snapshot.close();
+  }
 }
 
 function requestWarnings(resources: ResourceVersion[]): string[] {
@@ -829,7 +860,9 @@ export function createApp(options: ServerOptions = {}) {
 
     try {
       const request = parseChangeOperations(body);
-      return context.json(await buildChangePlan(request.operations, options, cwd, request.force));
+      const plan = await withRegistrySnapshot(options, cwd, (snapshot) =>
+        buildChangePlan(request.operations, options, cwd, request.force, snapshot));
+      return context.json(plan);
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
     }
@@ -849,13 +882,22 @@ export function createApp(options: ServerOptions = {}) {
 
     try {
       const request = parseChangeOperations(body);
-      const plan = await buildChangePlan(request.operations, options, cwd, request.force);
-      if (plan.conflicts.length > 0 && !request.force) {
-        return context.json({ error: 'The change plan contains conflicts.', ...plan }, 409);
-      }
+      const result = await withRegistrySnapshot(options, cwd, async (snapshot) => {
+        const plan = await buildChangePlan(request.operations, options, cwd, request.force, snapshot);
+        if (plan.conflicts.length > 0 && !request.force) {
+          return { conflict: true as const, plan };
+        }
 
-      const result = await applyChangeOperations(request.operations, options, cwd, request.force);
-      return context.json({ ...result, plan });
+        return {
+          conflict: false as const,
+          plan,
+          result: await applyChangeOperations(request.operations, options, cwd, request.force, snapshot),
+        };
+      });
+      if (result.conflict) {
+        return context.json({ error: 'The change plan contains conflicts.', ...result.plan }, 409);
+      }
+      return context.json({ ...result.result, plan: result.plan });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
     }
