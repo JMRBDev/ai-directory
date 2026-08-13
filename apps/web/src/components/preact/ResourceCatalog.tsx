@@ -99,6 +99,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
   const [scope, setScope] = useState<Scope>('project');
   const [plan, setPlan] = useState<ChangePlan | null>(null);
   const [planStatus, setPlanStatus] = useState('');
+  const [planError, setPlanError] = useState(false);
   const [force, setForce] = useState(false);
   const [applied, setApplied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -184,6 +185,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
     setPlan(null);
     setForce(false);
     setApplied(false);
+    setPlanError(false);
     setPlanStatus('Updating preview…');
 
     try {
@@ -198,7 +200,10 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
         ? 'No changes are needed.'
         : result.changes.length + ' file' + (result.changes.length === 1 ? '' : 's') + ' ready to apply.');
     } catch (cause) {
-      if (currentRequest === requestId.current) setPlanStatus(errorMessage(cause, 'Could not generate the change plan.'));
+      if (currentRequest === requestId.current) {
+        setPlanError(true);
+        setPlanStatus(errorMessage(cause, 'Could not generate the change plan.'));
+      }
     }
   }
 
@@ -236,6 +241,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
   async function applyPlan() {
     if (!plan || !canApply) return;
     setBusy(true);
+    setPlanError(false);
     setPlanStatus('Applying all changes…');
     const operations = selectedResources.map((resource) => ({
       resource: resourceId(resource),
@@ -250,8 +256,10 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
         body: JSON.stringify({ operations, force }),
       });
       setApplied(true);
+      setPlanError(false);
       setPlanStatus('Applied ' + result.plan.changes.length + ' file changes.');
     } catch (cause) {
+      setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
     } finally {
       setBusy(false);
@@ -452,7 +460,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
           <button className="btn btn-ghost btn-sm justify-self-start text-primary" type="button" onClick={() => void requestPlan()} disabled={busy}>Refresh preview</button>
         </div>
 
-        {plan && <PlanView plan={plan} showResource force={force} onForce={setForce} status={planStatus} busy={busy} onApply={() => void applyPlan()} />}
+        {plan && <PlanView plan={plan} showResource force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyPlan()} />}
       </DrawerShell>
     </>
   );

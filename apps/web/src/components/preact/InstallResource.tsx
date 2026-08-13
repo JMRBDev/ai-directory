@@ -29,6 +29,7 @@ export default function InstallResource({
   const [operations, setOperations] = useState<Array<{ resource: string; harnesses: Harness[]; scope: Scope; action: 'install' | 'uninstall' }>>([]);
   const [status, setStatus] = useState(resourceType === 'templates' ? 'Ready to install.' : 'Checking local installations…');
   const [planStatus, setPlanStatus] = useState('');
+  const [planError, setPlanError] = useState(false);
   const [error, setError] = useState(false);
   const [force, setForce] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -87,6 +88,7 @@ export default function InstallResource({
 
   async function reviewChanges(action: Intent) {
     setBusy(true);
+    setPlanError(false);
     showStatus('Preparing change plan…');
     try {
       const targets = targetsFor(action);
@@ -114,6 +116,7 @@ export default function InstallResource({
         : 'No changes are needed.');
       document.querySelector('[data-plan]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (cause) {
+      setPlanError(true);
       showStatus(errorMessage(cause, 'The operation failed.'), true);
     } finally {
       setBusy(false);
@@ -123,6 +126,7 @@ export default function InstallResource({
   async function applyChanges() {
     if (!plan || operations.length === 0 || (plan.conflicts.length > 0 && !force)) return;
     setBusy(true);
+    setPlanError(false);
     setPlanStatus('Applying all changes…');
     try {
       const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
@@ -132,8 +136,10 @@ export default function InstallResource({
       });
       await loadInstallation(harnesses, scope);
       setOperations([]);
+      setPlanError(false);
       setPlanStatus('Applied ' + result.plan.changes.length + ' file changes.');
     } catch (cause) {
+      setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
     } finally {
       setBusy(false);
@@ -190,7 +196,7 @@ export default function InstallResource({
         </div>
       </div>
 
-      {plan && <PlanView plan={plan} title="Review before applying" onClose={() => setPlan(null)} force={force} onForce={setForce} status={planStatus} busy={busy} onApply={() => void applyChanges()} />}
+      {plan && <PlanView plan={plan} title="Review before applying" onClose={() => setPlan(null)} force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyChanges()} />}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {(['project', 'global'] as const).map((commandScope) => (
