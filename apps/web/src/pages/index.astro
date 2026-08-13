@@ -5,6 +5,7 @@ import SiteHeader from '../components/SiteHeader.astro';
 import RegistryHero from '../components/RegistryHero.astro';
 import ShareResourceCard from '../components/ShareResourceCard.astro';
 import ResourceCatalog from '../components/preact/ResourceCatalog';
+import PublishForm from '../components/preact/PublishForm';
 import SettingsDrawer from '../components/preact/SettingsDrawer';
 import '../styles/global.css';
 
@@ -46,6 +47,7 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
     </main>
 
     <SettingsDrawer client:load apiUrl={apiUrl} />
+    <PublishForm client:load apiUrl={apiUrl} />
 
     <footer class="footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8">
       <p>Backed by the production branch of the resources repository.</p>
