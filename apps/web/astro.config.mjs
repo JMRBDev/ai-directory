@@ -7,5 +7,8 @@ export default defineConfig({
   adapter: node({ mode: 'standalone' }),
   vite: {
     plugins: [tailwindcss()],
+    server: {
+      allowedHosts: ['macbook-pro-de-jose.tail406fdf.ts.net'],
+    },
   },
 });

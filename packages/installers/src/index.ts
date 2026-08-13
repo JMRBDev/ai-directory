@@ -26,6 +26,7 @@ export type InstallOptions = {
   cwd?: string;
   homeDirectory?: string;
   force?: boolean;
+  dryRun?: boolean;
   environment?: NodeJS.ProcessEnv;
 };
 
@@ -37,6 +38,12 @@ export type InstallResult = {
   paths: string[];
   ownedPaths: string[];
   fileHashes: Record<string, string>;
+  changes?: InstallChange[];
+};
+
+export type InstallChange = {
+  path: string;
+  content: string | null;
 };
 
 export type InstallationRecord = {
@@ -121,9 +128,9 @@ export async function installOpenCodeResources(
     : undefined;
 
   await assertInstallPlansAvailable(plans, options);
-  await writeInstallPlans(plans);
+  await writeInstallPlans(plans, options.dryRun ?? false);
 
-  if (config) {
+  if (config && !options.dryRun) {
     await writeTextAtomic(config.path, config.content);
   }
 
@@ -138,6 +145,16 @@ export async function installOpenCodeResources(
     ],
     ownedPaths: plan.files.map((file) => file.destination),
     fileHashes: hashesForPlan(plan, fileHashes),
+    ...(options.dryRun
+      ? {
+          changes: [
+            ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
+            ...(plan.resource.resource.type === 'rules' && config
+              ? [{ path: config.path, content: config.content }]
+              : []),
+          ],
+        }
+      : {}),
   }));
 }
 
@@ -157,9 +174,9 @@ export async function installCodexResources(
     : undefined;
 
   await assertInstallPlansAvailable(plans, options);
-  await writeInstallPlans(plans);
+  await writeInstallPlans(plans, options.dryRun ?? false);
 
-  if (guidance) {
+  if (guidance && !options.dryRun) {
     await writeTextAtomic(guidance.path, guidance.content);
   }
 
@@ -177,6 +194,16 @@ export async function installCodexResources(
     ],
     ownedPaths: plan.files.map((file) => file.destination),
     fileHashes: hashesForPlan(plan, fileHashes),
+    ...(options.dryRun
+      ? {
+          changes: [
+            ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
+            ...(plan.resource.resource.type === 'rules' && guidance
+              ? [{ path: guidance.path, content: guidance.content }]
+              : []),
+          ],
+        }
+      : {}),
   }));
 }
 
@@ -200,7 +227,7 @@ async function installResources(
   );
 
   await assertInstallPlansAvailable(plans, options);
-  await writeInstallPlans(plans);
+  await writeInstallPlans(plans, options.dryRun ?? false);
 
   const fileHashes = await hashInstallPlans(plans);
 
@@ -210,6 +237,9 @@ async function installResources(
     paths: plan.files.map((file) => file.destination),
     ownedPaths: plan.files.map((file) => file.destination),
     fileHashes: hashesForPlan(plan, fileHashes),
+    ...(options.dryRun
+      ? { changes: [...plan.files.map((file) => ({ path: file.destination, content: file.content }))] }
+      : {}),
   }));
 }
 
@@ -231,7 +261,7 @@ async function assertInstallPlansAvailable(
 
       destinations.add(file.destination);
 
-      if (!options.force && (await pathExists(file.destination))) {
+      if (!options.dryRun && !options.force && (await pathExists(file.destination))) {
         existing.push(label);
       }
     }
@@ -248,7 +278,9 @@ async function assertInstallPlansAvailable(
   }
 }
 
-async function writeInstallPlans(plans: InstallPlan[]): Promise<void> {
+async function writeInstallPlans(plans: InstallPlan[], dryRun: boolean): Promise<void> {
+  if (dryRun) return;
+
   for (const plan of plans) {
     for (const file of plan.files) {
       await mkdir(dirname(file.destination), { recursive: true });
@@ -458,7 +490,7 @@ export async function assertInstallationFilesUnchanged(
 export async function uninstallInstallation(
   record: InstallationRecord,
   options: InstallOptions,
-): Promise<void> {
+): Promise<InstallChange[]> {
   const files = await ownedInstallationFiles(record, options);
   const normalized: InstallationRecord = {
     ...record,
@@ -469,8 +501,19 @@ export async function uninstallInstallation(
   };
 
   await assertInstallationFilesUnchanged(normalized, options.force ?? false);
-  await removeSharedConfiguration(record, options);
-  await Promise.all(files.map((path) => rm(path, { force: true })));
+  const sharedChanges = await removeSharedConfiguration(record, options);
+
+  if (!options.dryRun) {
+    for (const change of sharedChanges) {
+      if (change.content !== null) await writeTextAtomic(change.path, change.content);
+    }
+    await Promise.all(files.map((path) => rm(path, { force: true })));
+  }
+
+  return [
+    ...sharedChanges,
+    ...files.map((path) => ({ path, content: null })),
+  ];
 }
 
 export async function removeStaleInstallationFiles(
@@ -539,27 +582,31 @@ function selectHashes(
 async function removeSharedConfiguration(
   record: InstallationRecord,
   options: InstallOptions,
-): Promise<void> {
+): Promise<InstallChange[]> {
   const type = resourceType(record.resource);
 
-  if (type !== 'rules') return;
+  if (type !== 'rules') return [];
 
   if (record.harness === 'opencode') {
-    await removeOpenCodeInstruction(record, options);
+    const change = await removeOpenCodeInstruction(record, options);
+    return change ? [change] : [];
   } else if (record.harness === 'codex') {
-    await removeCodexGuidance(record);
+    const change = await removeCodexGuidance(record);
+    return change ? [change] : [];
   }
+
+  return [];
 }
 
 async function removeOpenCodeInstruction(
   record: InstallationRecord,
   options: InstallOptions,
-): Promise<void> {
+): Promise<InstallChange | null> {
   const root = openCodeInstallRoot(options);
   const path = await openCodeConfigPath(root, record.scope, options);
   const current = await readOptionalText(path);
 
-  if (current === null) return;
+  if (current === null) return null;
 
   const errors: Array<{ error: number; offset: number; length: number }> = [];
   const data = parse(current, errors);
@@ -583,14 +630,14 @@ async function removeOpenCodeInstruction(
     throw new Error(`OpenCode config instructions must be an array of strings: ${path}`);
   }
 
-  if (!Array.isArray(currentInstructions)) return;
+  if (!Array.isArray(currentInstructions)) return null;
 
   const entry = toPosixPath(relative(dirname(path), record.destination));
-  if (!currentInstructions.includes(entry)) return;
+  if (!currentInstructions.includes(entry)) return null;
 
-  await writeTextAtomic(
+  return {
     path,
-    applyEdits(
+    content: applyEdits(
       current,
       modify(
         current,
@@ -599,13 +646,13 @@ async function removeOpenCodeInstruction(
         { formattingOptions: { insertSpaces: true, tabSize: 2 } },
       ),
     ),
-  );
+  };
 }
 
-async function removeCodexGuidance(record: InstallationRecord): Promise<void> {
+async function removeCodexGuidance(record: InstallationRecord): Promise<InstallChange | null> {
   const current = await readOptionalText(record.destination);
 
-  if (current === null) return;
+  if (current === null) return null;
 
   const key = record.resource;
   const startMarker = `<!-- ai-directory:rule:${key} -->`;
@@ -613,7 +660,7 @@ async function removeCodexGuidance(record: InstallationRecord): Promise<void> {
   const start = current.indexOf(startMarker);
   const end = current.indexOf(endMarker);
 
-  if (start === -1 && end === -1) return;
+  if (start === -1 && end === -1) return null;
 
   if ((start === -1) !== (end === -1) || end < start) {
     throw new Error(`Codex managed rule block is malformed: ${key}`);
@@ -623,7 +670,10 @@ async function removeCodexGuidance(record: InstallationRecord): Promise<void> {
   const after = current.slice(end + endMarker.length);
   const cleanedBefore = before.endsWith('\n\n') ? before.slice(0, -1) : before;
   const cleanedAfter = after.startsWith('\n') ? after.slice(1) : after;
-  await writeTextAtomic(record.destination, `${cleanedBefore}${cleanedAfter}`);
+  return {
+    path: record.destination,
+    content: `${cleanedBefore}${cleanedAfter}`,
+  };
 }
 
 function resourceType(resource: string): ResourceKind | undefined {

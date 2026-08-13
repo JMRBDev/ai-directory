@@ -232,6 +232,44 @@ describe('local control API', () => {
     });
   });
 
+  it('previews and applies a batch without mutating during the preview', async () => {
+    const cwd = await createTemporaryDirectory();
+    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const request = {
+      operations: [{
+        resource: 'john-doe/skills/typescript-review',
+        action: 'install',
+        harnesses: ['claude-code', 'opencode'],
+        scope: 'project',
+      }],
+    };
+    const skillPath = join(cwd, '.claude', 'skills', 'typescript-review', 'SKILL.md');
+
+    const plan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    expect(plan.status).toBe(200);
+    await expect(plan.json()).resolves.toMatchObject({
+      changes: expect.arrayContaining([
+        expect.objectContaining({ path: skillPath, action: 'added' }),
+      ]),
+      conflicts: [],
+    });
+    await expect(readFile(skillPath, 'utf8')).rejects.toThrow();
+
+    const applied = await app.request('/api/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    expect(applied.status).toBe(200);
+    await expect(readFile(skillPath, 'utf8')).resolves.toContain('TypeScript');
+  });
+
   it('installs and uninstalls a template pack by its template ID', async () => {
     const cwd = await createTemporaryDirectory();
     const app = createApp({ cwd, registryIndexPath: templateIndexPath });
