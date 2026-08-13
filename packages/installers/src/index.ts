@@ -75,6 +75,7 @@ export type ResourceChangePlan = {
   conflicts: string[];
   warnings: string[];
   projectionNotes: string[];
+  fingerprint: string;
 };
 
 export type ResourceChangeOptions = Pick<
@@ -738,6 +739,7 @@ export async function planResourceOperations(
     conflicts: [...new Set(conflicts)],
     warnings: [...new Set(warnings)],
     projectionNotes: [...new Set(projectionNotes)],
+    fingerprint: await fingerprintPaths(resourcePlanPaths(operations, changes, options)),
   };
 }
 
@@ -749,14 +751,17 @@ export async function applyResourceOperations(
 ): Promise<ResourceApplyResult> {
   return withInstallationLocks(operations, options, async () => {
     const plan = planned ?? await planResourceOperations(operations, options, force);
+    if (planned) {
+      const fingerprint = await fingerprintPaths(resourcePlanPaths(operations, plan.changes, options));
+      if (fingerprint !== plan.fingerprint) {
+        throw new Error('Change plan is outdated. Generate a new preview before applying.');
+      }
+    }
     if (plan.conflicts.length > 0 && !force) {
       throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
     }
 
-    const paths = [
-      ...plan.changes.map((change) => change.path),
-      ...operations.map((operation) => installationManifestPath(operation.scope, options)),
-    ];
+    const paths = resourcePlanPaths(operations, plan.changes, options);
     const snapshots = await snapshotFiles(paths);
 
     try {
@@ -1600,6 +1605,27 @@ function installationManifestPath(
   options: ResourceChangeOptions,
 ): string {
   return getInstallManifestPath(scope, options.cwd, options.homeDirectory);
+}
+
+function resourcePlanPaths(
+  operations: ResourceOperation[],
+  changes: PlannedResourceChange[],
+  options: ResourceChangeOptions,
+): string[] {
+  return [
+    ...changes.map((change) => change.path),
+    ...operations.map((operation) => installationManifestPath(operation.scope, options)),
+  ];
+}
+
+async function fingerprintPaths(paths: string[]): Promise<string> {
+  const state = [];
+
+  for (const path of [...new Set(paths)].sort()) {
+    state.push([path, await currentFile(path)] as const);
+  }
+
+  return createHash('sha256').update(JSON.stringify(state)).digest('hex');
 }
 
 type InstallationLock = {

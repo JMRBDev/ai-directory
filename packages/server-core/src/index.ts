@@ -278,6 +278,13 @@ function requestError(body: unknown): string | null {
     return 'force must be a boolean.';
   }
 
+  if (
+    request.planFingerprint !== undefined &&
+    (typeof request.planFingerprint !== 'string' || !request.planFingerprint.trim())
+  ) {
+    return 'planFingerprint must be a non-empty string.';
+  }
+
   return null;
 }
 
@@ -337,6 +344,7 @@ function changePlanError(body: unknown): string | null {
 function parseChangeOperations(body: unknown): {
   operations: ChangeOperation[];
   force: boolean;
+  planFingerprint?: string;
 } {
   const request = body as Record<string, unknown>;
   return {
@@ -345,6 +353,9 @@ function parseChangeOperations(body: unknown): {
       action: (operation as Record<string, unknown>).action as 'install' | 'uninstall',
     })),
     force: request.force === true,
+    ...(typeof request.planFingerprint === 'string'
+      ? { planFingerprint: request.planFingerprint }
+      : {}),
   };
 }
 
@@ -635,6 +646,9 @@ export function createApp(options: ServerOptions = {}) {
           changeOptions(options, cwd),
           request.force,
         );
+        if (request.planFingerprint && request.planFingerprint !== plan.fingerprint) {
+          return { stale: true as const, plan };
+        }
         if (plan.conflicts.length > 0 && !request.force) {
           return { conflict: true as const, plan };
         }
@@ -650,6 +664,12 @@ export function createApp(options: ServerOptions = {}) {
           ),
         };
       });
+      if ('stale' in result && result.stale) {
+        return context.json({
+          error: 'The change plan is outdated. Generate a new preview before applying.',
+          ...result.plan,
+        }, 409);
+      }
       if (result.conflict) {
         return context.json({ error: 'The change plan contains conflicts.', ...result.plan }, 409);
       }

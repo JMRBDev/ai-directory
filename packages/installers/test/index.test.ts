@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
 import {
@@ -15,6 +15,7 @@ import {
   installCodexResources,
   installOpenCodeResources,
   getHarnessAdapter,
+  openCodeInstaller,
   planResourceOperations,
   readInstallationManifest,
   removeStaleInstallationFiles,
@@ -864,7 +865,7 @@ describe('shared resource operations', () => {
     ).resolves.toContain('jose-rosendo/skills/typescript-api-review');
   });
 
-  it('restores earlier harness changes when a later apply step fails', async () => {
+  it('rejects a stale plan before writing files', async () => {
     const projectDirectory = await createTemporaryDirectory();
     const configPath = join(projectDirectory, 'opencode.jsonc');
     const operation = {
@@ -881,9 +882,7 @@ describe('shared resource operations', () => {
     await writeFile(configPath, '{ invalid json\n', 'utf8');
 
     const failure = applyResourceOperations([operation], { cwd: projectDirectory }, false, plan);
-    await expect(failure).rejects.toThrow('Failed to install jose-rosendo/rules/typescript-quality');
-    await expect(failure).rejects.toThrow('All changes were rolled back');
-    await expect(failure).rejects.toThrow('OpenCode config is not a valid object');
+    await expect(failure).rejects.toThrow('Change plan is outdated. Generate a new preview before applying.');
     await expect(
       readFile(join(projectDirectory, '.claude', 'rules', 'typescript-quality.md'), 'utf8'),
     ).rejects.toThrow();
@@ -894,6 +893,36 @@ describe('shared resource operations', () => {
     await expect(
       readFile(join(projectDirectory, '.ai-directory', 'installed.json.lock'), 'utf8'),
     ).rejects.toThrow();
+  });
+
+  it('rolls back earlier harness changes when a later write fails', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const operation = {
+      resource: resourceKey(resource.resource),
+      harnesses: ['claude-code', 'opencode'] as const,
+      scope: 'project' as const,
+      action: 'install' as const,
+      resources: [resource],
+    };
+
+    const plan = await planResourceOperations([operation], { cwd: projectDirectory });
+    const failedInstaller = vi
+      .spyOn(openCodeInstaller, 'install')
+      .mockRejectedValueOnce(new Error('simulated OpenCode failure'));
+
+    try {
+      const failure = applyResourceOperations([operation], { cwd: projectDirectory }, false, plan);
+      await expect(failure).rejects.toThrow('Failed to install jose-rosendo/skills/typescript-api-review');
+      await expect(failure).rejects.toThrow('All changes were rolled back');
+      await expect(
+        readFile(join(projectDirectory, '.claude', 'skills', 'typescript-api-review', 'SKILL.md'), 'utf8'),
+      ).rejects.toThrow();
+      await expect(
+        readFile(join(projectDirectory, '.ai-directory', 'installed.json'), 'utf8'),
+      ).rejects.toThrow();
+    } finally {
+      failedInstaller.mockRestore();
+    }
   });
 });
 
