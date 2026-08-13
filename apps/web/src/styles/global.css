@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@phosphor-icons/web/regular";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
