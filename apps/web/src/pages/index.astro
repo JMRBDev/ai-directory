@@ -1,22 +1,19 @@
 ---
-import { loadRegistry, refreshRegistry, resourceId } from '../lib/registry';
-import ThemeInit from '../components/ThemeInit.astro';
-import SiteHeader from '../components/SiteHeader.astro';
-import RegistryHero from '../components/RegistryHero.astro';
-import ShareResourceCard from '../components/ShareResourceCard.astro';
-import ResourceCatalog from '../components/preact/ResourceCatalog';
-import PublishForm from '../components/preact/PublishForm';
-import SettingsDrawer from '../components/preact/SettingsDrawer';
-import '../styles/global.css';
+import { loadRegistry, refreshRegistry, resourceId } from "../lib/registry";
+import ThemeInit from "../components/ThemeInit.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import ResourceCatalog from "../components/preact/ResourceCatalog";
+import PublishForm from "../components/preact/PublishForm";
+import SettingsDrawer from "../components/preact/SettingsDrawer";
+import "../styles/global.css";
 
-if (Astro.url.searchParams.get('refresh') === '1') await refreshRegistry();
+if (Astro.url.searchParams.get("refresh") === "1") await refreshRegistry();
 const registry = await loadRegistry();
 const resources = (registry.index?.resources ?? [])
-  .filter((resource) => resource.lifecycleStatus === 'active')
+  .filter((resource) => resource.lifecycleStatus === "active")
   .sort((left, right) => resourceId(left).localeCompare(resourceId(right)));
-const reviewedCount = resources.filter((resource) => resource.reviewStatus === 'reviewed').length;
-const resourceTypes = new Set(resources.map((resource) => resource.type)).size;
-const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
+const apiUrl =
+  import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? "http://127.0.0.1:4317";
 ---
 
 <!doctype html>
@@ -24,32 +21,33 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
-    <meta name="description" content="Internal catalog of reusable AI development resources." />
+    <meta
+      name="description"
+      content="Internal catalog of reusable AI development resources."
+    />
     <ThemeInit />
     <title>AI Directory | Internal resource registry</title>
   </head>
-  <body class="min-h-screen bg-base-100 font-sans text-base-content antialiased">
-    <a class="btn btn-primary sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50" href="#catalog">
-      Skip to catalog
-    </a>
+  <body
+    class="min-h-screen bg-base-100 font-sans text-base-content antialiased flex flex-col gap-2"
+  >
     <SiteHeader showChanges showPublish showRefresh showSettings />
 
-    <main class="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8 lg:py-14">
-      <RegistryHero active={resources.length} reviewed={reviewedCount} types={resourceTypes} />
+    <main class="mx-auto w-full max-w-6xl px-5 sm:px-8 flex-1">
       <ResourceCatalog
         client:load
         resources={resources}
         apiUrl={apiUrl}
         registryError={registry.error}
-        source={registry.source}
       />
-      <ShareResourceCard />
     </main>
 
     <SettingsDrawer client:load apiUrl={apiUrl} />
     <PublishForm client:load apiUrl={apiUrl} />
 
-    <footer class="footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8">
+    <footer
+      class="flex justify-between items-center gap-3 footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8"
+    >
       <p>Backed by the production branch of the resources repository.</p>
       <p>Local-first prototype</p>
     </footer>
