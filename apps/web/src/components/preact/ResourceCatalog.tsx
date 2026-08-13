@@ -1,5 +1,5 @@
 import { useRef, useState } from 'preact/hooks';
-import type { ResourceSummary } from '@ai-directory/contracts';
+import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
 import PlanView from './PlanView';
 import { closeDrawers, errorMessage, request } from './api';
 import DrawerShell from './DrawerShell';
@@ -12,8 +12,30 @@ type Props = {
   source: string;
 };
 
+type ReviewFilter = 'all' | 'reviewed' | 'unreviewed';
+type SortOption = 'updated' | 'name' | 'version';
+
+const PAGE_SIZE = 6;
+const RESOURCE_TYPES: Array<{ value: ResourceType; label: string }> = [
+  { value: 'skills', label: 'Skills' },
+  { value: 'agents', label: 'Agents' },
+  { value: 'rules', label: 'Rules' },
+  { value: 'templates', label: 'Templates' },
+];
+
+function resourceTypeLabel(type: ResourceType) {
+  return RESOURCE_TYPES.find((option) => option.value === type)?.label ?? type;
+}
+
 function detailPath(resource: ResourceSummary) {
   return ['/resources', resource.owner, resource.type, resource.name, ''].join('/');
+}
+
+function updatedLabel(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date);
 }
 
 function CatalogCard({
@@ -30,35 +52,41 @@ function CatalogCard({
 
   return (
     <article
-      className="card card-border bg-base-100"
+      className={'card card-border transition-colors hover:border-primary ' + (selected ? 'border-primary bg-primary/5' : 'bg-base-100')}
       data-resource
       data-type={resource.type}
       data-resource-id={id}
       data-search={[id, resource.description].join(' ').toLowerCase()}
     >
-      <div className="card-body gap-3 p-5">
-        <div className="flex items-center justify-between gap-3 text-xs">
-          <label className="label cursor-pointer justify-start gap-2 p-0 text-base-content/60">
+      <div className="card-body gap-4 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <label className="label cursor-pointer justify-start gap-2 p-0 text-sm text-base-content">
             <input
               className="checkbox checkbox-sm"
               type="checkbox"
               checked={selected}
-              aria-label={'Select ' + resource.name}
+              aria-label={'Select ' + id}
               onChange={(event) => onSelect(event.currentTarget.checked)}
             />
-            <span className="font-semibold uppercase tracking-[0.12em] text-primary">{resource.type}</span>
+            <span>{selected ? 'Selected' : 'Select'}</span>
           </label>
-          <span className={'badge ' + (reviewed ? 'badge-success' : 'badge-warning')}>
+          <span className={'badge badge-sm ' + (reviewed ? 'badge-success' : 'badge-warning')}>
             {reviewed ? 'Reviewed' : 'Unreviewed'}
           </span>
         </div>
-        <h3 className="card-title text-lg">
-          <a className="link link-hover" href={detailPath(resource)}>{resource.name}</a>
-        </h3>
-        <p className="line-clamp-2 text-sm leading-6 text-base-content/60">{resource.description}</p>
-        <div className="card-actions mt-1 items-center justify-between text-xs text-base-content/60">
-          <span>{resource.owner} · v{resource.latestVersion}</span>
-          <a className="btn btn-ghost btn-xs" href={detailPath(resource)}>View</a>
+        <div>
+          <h3 className="card-title text-lg">
+            <a className="link link-hover" href={detailPath(resource)}>{resource.name}</a>
+          </h3>
+          <p className="mt-2 line-clamp-3 text-sm leading-6 text-base-content/65">{resource.description}</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-3 text-xs text-base-content/60">
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            <span>{resource.owner}</span>
+            <span>v{resource.latestVersion}</span>
+            <span>Updated {updatedLabel(resource.updatedAt)}</span>
+          </div>
+          <a className="btn btn-ghost btn-xs" href={detailPath(resource)}>Details</a>
         </div>
       </div>
     </article>
@@ -67,7 +95,10 @@ function CatalogCard({
 
 export default function ResourceCatalog({ resources, apiUrl, registryError, source }: Props) {
   const [query, setQuery] = useState('');
-  const [type, setType] = useState('all');
+  const [activeType, setActiveType] = useState<ResourceType>(resources[0]?.type ?? 'skills');
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
+  const [sort, setSort] = useState<SortOption>('updated');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Record<string, Action>>({});
   const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
   const [scope, setScope] = useState<Scope>('project');
@@ -77,20 +108,58 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
   const [applied, setApplied] = useState(false);
   const [busy, setBusy] = useState(false);
   const requestId = useRef(0);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  const visibleResources = resources.filter((resource) => {
+  const activeTypeResources = resources.filter((resource) => resource.type === activeType);
+  const filteredResources = activeTypeResources.filter((resource) => {
     const matchesQuery = [resourceId(resource), resource.description]
       .join(' ')
       .toLowerCase()
       .includes(query.trim().toLowerCase());
-    return matchesQuery && (type === 'all' || resource.type === type);
+    const matchesReview = reviewFilter === 'all' || resource.reviewStatus === reviewFilter;
+    return matchesQuery && matchesReview;
   });
+  const sortedResources = [...filteredResources].sort((left, right) => {
+    if (sort === 'name') return left.name.localeCompare(right.name);
+    if (sort === 'version') return right.latestVersion.localeCompare(left.latestVersion, undefined, { numeric: true });
+    return right.updatedAt.localeCompare(left.updatedAt);
+  });
+  const pageCount = Math.max(1, Math.ceil(sortedResources.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const visibleResources = sortedResources.slice(pageStart, pageStart + PAGE_SIZE);
   const selectedResources = resources.filter((resource) => selected[resourceId(resource)]);
   const canApply = Boolean(plan && plan.changes.length > 0 && (plan.conflicts.length === 0 || force) && !applied);
+  const hasFilters = query.trim().length > 0 || reviewFilter !== 'all' || sort !== 'updated';
+  const activeTypeLabel = resourceTypeLabel(activeType);
 
   function setHeaderCount(value: number) {
     const counter = document.querySelector<HTMLElement>('[data-deck-count]');
     if (counter) counter.textContent = String(value);
+  }
+
+  function changeType(nextType: ResourceType) {
+    setActiveType(nextType);
+    setPage(1);
+  }
+
+  function clearFilters() {
+    setQuery('');
+    setReviewFilter('all');
+    setSort('updated');
+    setPage(1);
+  }
+
+  function moveTab(event: KeyboardEvent, index: number) {
+    const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (!direction) return;
+    event.preventDefault();
+    const nextIndex = (index + direction + RESOURCE_TYPES.length) % RESOURCE_TYPES.length;
+    const nextOption = RESOURCE_TYPES[nextIndex];
+    if (!nextOption) return;
+    const nextType = nextOption.value;
+    changeType(nextType);
+    tabRefs.current[nextIndex]?.focus();
   }
 
   async function requestPlan(
@@ -198,10 +267,13 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
     <>
       <section id="catalog" className="mt-14" aria-labelledby="catalog-title">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-base-300 pb-5">
-          <h2 id="catalog-title" className="text-xl font-semibold tracking-tight text-base-content">Available resources</h2>
-          <p className="text-xs text-base-content/60">
-            Source: {source === 'remote' ? 'configured Git registry' : 'explicit local index'}
-          </p>
+          <div>
+            <h2 id="catalog-title" className="text-xl font-semibold tracking-tight text-base-content">Available resources</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-base-content/60">Browse one resource type at a time, then select what you want to stage for installation.</p>
+          </div>
+          <span className="badge badge-ghost">
+            {source === 'remote' ? 'Configured Git registry' : 'Explicit local index'}
+          </span>
         </div>
 
         {registryError ? (
@@ -222,44 +294,108 @@ export default function ResourceCatalog({ resources, apiUrl, registryError, sour
           </div>
         ) : (
           <>
-            <div className="card card-border mt-6 bg-base-100" role="search">
-              <div className="card-body grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">
-                <label className="fieldset">
-                  <span className="fieldset-legend">Search</span>
-                  <input className="input input-bordered w-full" type="search" placeholder="Name, owner, or description" value={query} onInput={(event) => setQuery(event.currentTarget.value)} />
-                </label>
-                <label className="fieldset">
-                  <span className="fieldset-legend">Type</span>
-                  <select className="select select-bordered w-full" value={type} onChange={(event) => setType(event.currentTarget.value)}>
-                    <option value="all">All types</option>
-                    <option value="skills">Skills</option>
-                    <option value="agents">Agents</option>
-                    <option value="rules">Rules</option>
-                    <option value="templates">Templates</option>
-                  </select>
-                </label>
-                <p className="pb-2 text-xs text-base-content/60" aria-live="polite">{visibleResources.length} result{visibleResources.length === 1 ? '' : 's'}</p>
+            <div className="mt-6">
+              <div className="tabs tabs-border w-full overflow-x-auto" role="tablist" aria-label="Resource types">
+                {RESOURCE_TYPES.map((option, index) => {
+                  const count = resources.filter((resource) => resource.type === option.value).length;
+                  const active = activeType === option.value;
+                  return (
+                    <button
+                      className={'tab min-w-fit gap-2 whitespace-nowrap ' + (active ? 'tab-active' : '')}
+                      id={'resource-tab-' + option.value}
+                      key={option.value}
+                      type="button"
+                      role="tab"
+                      aria-label={option.label + ', ' + count + ' resource' + (count === 1 ? '' : 's')}
+                      aria-selected={active}
+                      aria-controls="resource-tabpanel"
+                      tabIndex={active ? 0 : -1}
+                      ref={(element) => { tabRefs.current[index] = element; }}
+                      onClick={() => changeType(option.value)}
+                      onKeyDown={(event) => moveTab(event, index)}
+                    >
+                      {option.label}
+                      <span className="text-xs text-base-content/60">({count})</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              {visibleResources.map((resource) => (
-                <CatalogCard
-                  key={resourceId(resource)}
-                  resource={resource}
-                  selected={Boolean(selected[resourceId(resource)])}
-                  onSelect={(checked) => selectResource(resource, checked)}
-                />
-              ))}
-            </div>
-            {visibleResources.length === 0 && (
-              <div className="card card-border mt-6 bg-base-100">
-                <div className="card-body p-6">
-                  <strong className="font-semibold text-base-content">No matching resources.</strong>
-                  <p className="mt-2 text-sm text-base-content/60">Change the search text or select a different resource type.</p>
+            <div id="resource-tabpanel" className="mt-5" role="tabpanel" aria-labelledby={'resource-tab-' + activeType} tabIndex={0}>
+              <div className="card card-border bg-base-100" role="search" aria-label={'Search ' + activeTypeLabel}>
+                <div className="card-body gap-4 p-4 sm:p-5">
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_11rem_13rem] md:items-end">
+                    <label className="fieldset">
+                      <span className="fieldset-legend">Search {activeTypeLabel.toLowerCase()}</span>
+                      <input className="input w-full" type="search" placeholder="Name, owner, or description" value={query} onInput={(event) => { setQuery(event.currentTarget.value); setPage(1); }} />
+                    </label>
+                    <label className="fieldset">
+                      <span className="fieldset-legend">Review status</span>
+                      <select className="select w-full" value={reviewFilter} onChange={(event) => { setReviewFilter(event.currentTarget.value as ReviewFilter); setPage(1); }}>
+                        <option value="all">All resources</option>
+                        <option value="reviewed">Reviewed</option>
+                        <option value="unreviewed">Unreviewed</option>
+                      </select>
+                    </label>
+                    <label className="fieldset">
+                      <span className="fieldset-legend">Sort by</span>
+                      <select className="select w-full" value={sort} onChange={(event) => { setSort(event.currentTarget.value as SortOption); setPage(1); }}>
+                        <option value="updated">Recently updated</option>
+                        <option value="name">Name A-Z</option>
+                        <option value="version">Newest version</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-3">
+                    <p className="text-xs text-base-content/60" aria-live="polite">
+                      {sortedResources.length === 0 ? 'No resources found' : 'Showing ' + (pageStart + 1) + '-' + Math.min(pageStart + PAGE_SIZE, sortedResources.length) + ' of ' + sortedResources.length}
+                      {selectedResources.length > 0 && <><span aria-hidden="true"> </span><span className="ml-3 badge badge-primary badge-sm">{selectedResources.length} staged</span></>}
+                    </p>
+                    {hasFilters && <button className="btn btn-ghost btn-xs" type="button" onClick={clearFilters}>Clear filters</button>}
+                  </div>
                 </div>
               </div>
-            )}
+
+              {visibleResources.length > 0 ? (
+                <>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    {visibleResources.map((resource) => (
+                      <CatalogCard
+                        key={resourceId(resource)}
+                        resource={resource}
+                        selected={Boolean(selected[resourceId(resource)])}
+                        onSelect={(checked) => selectResource(resource, checked)}
+                      />
+                    ))}
+                  </div>
+                  {pageCount > 1 && (
+                    <nav className="mt-6 flex flex-wrap items-center justify-between gap-4" aria-label={activeTypeLabel + ' pages'}>
+                      <p className="text-xs text-base-content/60">Page {currentPage} of {pageCount}</p>
+                      <div className="join">
+                        <button className="btn btn-outline btn-sm join-item" type="button" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1}>Previous</button>
+                        <button className="btn btn-outline btn-sm join-item" type="button" onClick={() => setPage(Math.min(pageCount, currentPage + 1))} disabled={currentPage === pageCount}>Next</button>
+                      </div>
+                    </nav>
+                  )}
+                </>
+              ) : (
+                <div className="card card-border mt-5 bg-base-200/30">
+                  <div className="card-body items-start p-6 sm:p-8">
+                    <i className="ph ph-magnifying-glass text-2xl text-base-content/50" aria-hidden="true"></i>
+                    <h3 className="mt-3 text-lg font-semibold text-base-content">
+                      {activeTypeResources.length === 0 ? 'No ' + activeTypeLabel.toLowerCase() + ' yet' : 'No matching ' + activeTypeLabel.toLowerCase()}
+                    </h3>
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-base-content/60">
+                      {activeTypeResources.length === 0
+                        ? 'Use Publish resource to add the first one to this registry.'
+                        : 'Try a different search or review status.'}
+                    </p>
+                    {hasFilters && <button className="btn btn-ghost btn-sm mt-4" type="button" onClick={clearFilters}>Clear filters</button>}
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
       </section>
