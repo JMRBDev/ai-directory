@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { getInstallManifestPath } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
@@ -45,6 +46,47 @@ export type InstallResult = {
 export type InstallChange = {
   path: string;
   content: string | null;
+};
+
+export type ResourceOperation = {
+  resource: string;
+  harnesses: Harness[];
+  scope: InstallScope;
+  action: 'install' | 'uninstall';
+  version?: string;
+  resources?: ResourceVersion[];
+  resourceIds?: string[];
+  warningResources?: ResourceVersion[];
+};
+
+export type PlannedResourceChange = {
+  path: string;
+  action: 'added' | 'modified' | 'removed';
+  resource: string;
+  harness: Harness;
+  scope: InstallScope;
+  before?: string;
+  after?: string;
+};
+
+export type ResourceChangePlan = {
+  operations: ResourceOperation[];
+  changes: PlannedResourceChange[];
+  conflicts: string[];
+  warnings: string[];
+  projectionNotes: string[];
+};
+
+export type ResourceChangeOptions = Pick<
+  InstallOptions,
+  'cwd' | 'homeDirectory' | 'environment'
+>;
+
+export type ResourceApplyResult = {
+  plan: ResourceChangePlan;
+  installed: InstallationRecord[];
+  removed: InstallationRecord[];
+  warnings: string[];
 };
 
 export type InstallationRecord = {
@@ -525,6 +567,235 @@ export async function uninstallInstallation(
     ...sharedChanges,
     ...files.map((path) => ({ path, content: null })),
   ];
+}
+
+export async function planResourceOperations(
+  operations: ResourceOperation[],
+  options: ResourceChangeOptions = {},
+  force = false,
+): Promise<ResourceChangePlan> {
+  const changes: PlannedResourceChange[] = [];
+  const conflicts: string[] = [];
+  const warnings: string[] = [];
+  const projectionNotes: string[] = [];
+  const contents = new Map<string, string | null>();
+
+  async function addChange(
+    change: InstallChange,
+    operation: ResourceOperation,
+    resource: string,
+    harness: Harness,
+  ) {
+    const before = contents.has(change.path)
+      ? contents.get(change.path) ?? null
+      : await currentFile(change.path);
+    contents.set(change.path, before);
+    const action = classifyChange(before, change.content);
+    if (!action) return;
+
+    const existing = changes.find((item) => item.path === change.path);
+    if (existing) {
+      if (existing.after !== previewContent(change.content)) {
+        conflicts.push(`Multiple changes target ${change.path}.`);
+      }
+      return;
+    }
+
+    const planned: PlannedResourceChange = {
+      path: change.path,
+      action,
+      resource,
+      harness,
+      scope: operation.scope,
+    };
+    const beforePreview = previewContent(before);
+    const afterPreview = previewContent(change.content);
+    if (beforePreview !== undefined) planned.before = beforePreview;
+    if (afterPreview !== undefined) planned.after = afterPreview;
+    changes.push(planned);
+  }
+
+  const installGroups = new Map<string, {
+    resources: ResourceVersion[];
+    owners: Map<string, ResourceOperation>;
+  }>();
+
+  for (const operation of operations) {
+    if (operation.action !== 'install') continue;
+    if (!operation.resources || operation.resources.length === 0) {
+      throw new Error(`Install operation has no resources: ${operation.resource}.`);
+    }
+
+    for (const harness of operation.harnesses) {
+      const key = `${operation.scope}:${harness}`;
+      const group = installGroups.get(key) ?? {
+        resources: [],
+        owners: new Map<string, ResourceOperation>(),
+      };
+      for (const resource of operation.resources) {
+        const id = resourceKey(resource.resource);
+        if (!group.owners.has(id)) {
+          group.resources.push(resource);
+          group.owners.set(id, operation);
+        }
+      }
+      installGroups.set(key, group);
+    }
+  }
+
+  const processedInstallGroups = new Set<string>();
+
+  for (const operation of operations) {
+    const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
+    warnings.push(...requestWarnings(operation.warningResources ?? operation.resources ?? []));
+    const manifestPath = getInstallManifestPath(operation.scope, options.cwd);
+    const manifest = await readInstallationManifest(manifestPath);
+
+    for (const harness of operation.harnesses) {
+      const records = manifest.installations.filter(
+        (record) =>
+          record.scope === operation.scope &&
+          record.harness === harness &&
+          resourceIds.includes(record.resource),
+      );
+
+      for (const record of records) {
+        try {
+          await assertInstallationFilesUnchanged(record, force);
+        } catch (error) {
+          conflicts.push(`${record.resource} (${harness}, ${operation.scope}): ${errorMessage(error)}`);
+        }
+      }
+
+      if (operation.action === 'install') {
+        const groupKey = `${operation.scope}:${harness}`;
+        if (processedInstallGroups.has(groupKey)) continue;
+        processedInstallGroups.add(groupKey);
+        const group = installGroups.get(groupKey);
+        const resources = group?.resources ?? operation.resources ?? [];
+        const installer = getHarnessAdapter(harness);
+        const results = await installer.install(
+          resources,
+          operationInstallOptions(operation.scope, options, true, true),
+        );
+
+        for (const [index, result] of results.entries()) {
+          const plannedResource = resources[index];
+          const resourceId = plannedResource ? resourceKey(plannedResource.resource) : operation.resource;
+          const owner = group?.owners.get(resourceId) ?? operation;
+          if (!force) {
+            const ownedByInstallation = new Set(
+              manifest.installations
+                .filter((record) => record.scope === operation.scope && record.harness === harness)
+                .flatMap((record) => record.files),
+            );
+            for (const path of result.ownedPaths) {
+              if (ownedByInstallation.has(path) || (await currentFile(path)) === null) continue;
+              conflicts.push(`Install destination is already occupied: ${path}. Use --force to overwrite.`);
+            }
+          }
+          for (const change of result.changes ?? []) {
+            await addChange(change, owner, resourceId, harness);
+          }
+          if (result.skippedFiles.length > 0) {
+            projectionNotes.push(
+              `${resourceId} · ${harness}: omitted harness-specific files (${result.skippedFiles.join(', ')}).`,
+            );
+          }
+
+          const previous = manifest.installations.find(
+            (record) =>
+              record.resource === resourceId &&
+              record.harness === harness &&
+              record.scope === operation.scope,
+          );
+          if (previous) {
+            const currentPaths = new Set(result.ownedPaths);
+            for (const path of previous.files) {
+              if (!currentPaths.has(path)) {
+                await addChange({ path, content: null }, owner, resourceId, harness);
+              }
+            }
+          }
+        }
+      } else {
+        for (const record of records) {
+          const result = await uninstallInstallation(
+            record,
+            operationInstallOptions(operation.scope, options, force, true),
+          );
+          for (const change of result) {
+            await addChange(change, operation, record.resource, harness);
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    operations: operations.map(publicResourceOperation),
+    changes,
+    conflicts: [...new Set(conflicts)],
+    warnings: [...new Set(warnings)],
+    projectionNotes: [...new Set(projectionNotes)],
+  };
+}
+
+export async function applyResourceOperations(
+  operations: ResourceOperation[],
+  options: ResourceChangeOptions = {},
+  force = false,
+  planned?: ResourceChangePlan,
+): Promise<ResourceApplyResult> {
+  const plan = planned ?? await planResourceOperations(operations, options, force);
+  if (plan.conflicts.length > 0 && !force) {
+    throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
+  }
+
+  const installed: InstallationRecord[] = [];
+  const removed: InstallationRecord[] = [];
+  const warnings = [...plan.warnings];
+
+  for (const operation of operations) {
+    const manifestPath = getInstallManifestPath(operation.scope, options.cwd);
+    if (operation.action === 'install') {
+      const resources = operation.resources ?? [];
+      for (const harness of operation.harnesses) {
+        const installer = getHarnessAdapter(harness);
+        const installations = await installer.install(
+          resources,
+          operationInstallOptions(operation.scope, options, true),
+        );
+        const records = createInstallationRecords(resources, installations, operation.scope, installer.harness);
+        await saveInstallationRecords(
+          manifestPath,
+          records,
+          operationInstallOptions(operation.scope, options, force),
+        );
+        installed.push(...records);
+      }
+    } else {
+      const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
+      const manifest = await readInstallationManifest(manifestPath);
+      const records = manifest.installations.filter(
+        (record) =>
+          record.scope === operation.scope &&
+          operation.harnesses.includes(record.harness) &&
+          resourceIds.includes(record.resource),
+      );
+
+      for (const record of records) {
+        await uninstallInstallation(
+          record,
+          operationInstallOptions(operation.scope, options, force),
+        );
+        await removeInstallationRecord(manifestPath, record);
+        removed.push(record);
+      }
+    }
+  }
+
+  return { plan, installed, removed, warnings: [...new Set(warnings)] };
 }
 
 export async function removeStaleInstallationFiles(
@@ -1207,6 +1478,66 @@ function safeDestination(root: string, resourcePath: string): string {
   }
 
   return destination;
+}
+
+function publicResourceOperation(operation: ResourceOperation): ResourceOperation {
+  return {
+    resource: operation.resource,
+    harnesses: operation.harnesses,
+    scope: operation.scope,
+    action: operation.action,
+    ...(operation.version === undefined ? {} : { version: operation.version }),
+  };
+}
+
+function operationInstallOptions(
+  scope: InstallScope,
+  options: ResourceChangeOptions,
+  force: boolean,
+  dryRun = false,
+): InstallOptions {
+  return {
+    scope,
+    force,
+    dryRun,
+    ...(options.cwd ? { cwd: options.cwd } : {}),
+    ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
+    ...(options.environment ? { environment: options.environment } : {}),
+  };
+}
+
+async function currentFile(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
+  }
+}
+
+function previewContent(content: string | null): string | undefined {
+  if (content === null) return undefined;
+  const limit = 20_000;
+  return content.length > limit ? `${content.slice(0, limit)}\n…` : content;
+}
+
+function classifyChange(
+  before: string | null,
+  after: string | null,
+): PlannedResourceChange['action'] | null {
+  if (after === null) return before === null ? null : 'removed';
+  if (before === null) return 'added';
+  return before === after ? null : 'modified';
+}
+
+function requestWarnings(resources: ResourceVersion[]): string[] {
+  return [...new Set(resources
+    .filter((resource) => resource.resource.reviewStatus === 'unreviewed')
+    .map((resource) => `${resourceKey(resource.resource)}@${resource.version}`))];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function toPosixPath(path: string): string {

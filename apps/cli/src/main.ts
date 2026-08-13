@@ -37,20 +37,14 @@ import {
 } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
 import {
-  assertInstallationFilesUnchanged,
-  createInstallationRecords,
+  applyResourceOperations,
   detectHarnesses,
   discoverLocalResources,
   enrichLocalResources,
-  getHarnessAdapter,
   readInstallationManifest,
-  removeInstallationRecord,
-  saveInstallationRecords,
-  uninstallInstallation,
   type Harness,
   type HarnessDetection,
   type InstallScope,
-  type InstallResult,
   type InstallationRecord,
 } from '@ai-directory/installers';
 import {
@@ -526,7 +520,7 @@ async function promptInstalledHarnesses(
 
 function isForceableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /Use --force|modified|ownership hashes/u.test(message);
+  return /Use --force|modified|ownership hashes|Change plan contains conflicts/u.test(message);
 }
 
 async function withInteractiveForce<T>(
@@ -1155,46 +1149,36 @@ const install = defineCommand({
       const manifestPath = getInstallManifestPath(scope);
       const interactive = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses);
 
-      const installationsByHarness = await withInteractiveForce(
+      const applied = await withInteractiveForce(
         interactive,
         args.force ?? false,
         async (force) => {
-          const resultByHarness: Record<string, InstallResult[]> = {};
-
-          for (const harness of harnesses) {
-            const installer = getHarnessAdapter(harness);
-            const installations = await installer.install(resources, { scope, force });
-            const records = createInstallationRecords(resources, installations, scope, harness);
-            await saveInstallationRecords(manifestPath, records, { scope, force });
-            resultByHarness[harness] = installations;
-          }
-
-          return resultByHarness;
+          return applyResourceOperations(
+            [{
+              resource,
+              harnesses,
+              scope,
+              action: 'install',
+              resources,
+              warningResources: [result, ...resources],
+              ...(args.version === undefined ? {} : { version: args.version }),
+            }],
+            { cwd: process.cwd() },
+            force,
+          );
         },
       );
 
-      if (!installationsByHarness) return;
+      if (!applied) return;
 
-      for (const harness of harnesses) {
-        const installations = installationsByHarness[harness];
-
-        if (!installations) continue;
-
-        for (const [index, installedResource] of resources.entries()) {
-          const installation = installations[index];
-
-          if (!installation) {
-            throw new Error(`Installation result missing for ${resourceKey(installedResource.resource)}.`);
-          }
-
-          console.log(
-            `Location: ${installation.destination} (${resourceKey(installedResource.resource)}@${installedResource.version}, ${harness})`,
-          );
-          console.log(`Files: ${installation.files.join(', ')}`);
-          if (installation.skippedFiles.length > 0) {
-            console.log(`Skipped harness-specific files: ${installation.skippedFiles.join(', ')}`);
-          }
-        }
+      for (const installation of applied.installed) {
+        console.log(
+          `Location: ${installation.destination} (${installation.resource}@${installation.version}, ${installation.harness})`,
+        );
+        console.log(`Files: ${installation.files.join(', ')}`);
+      }
+      for (const note of applied.plan.projectionNotes) {
+        console.log(`Note: ${note}`);
       }
 
       if (result.resource.type === 'templates') {
@@ -1380,23 +1364,6 @@ const update = defineCommand({
             );
           }
 
-          const existingRecords = existing.flatMap((records) =>
-            records.filter(
-              (record): record is NonNullable<typeof record> => record !== undefined,
-            ),
-          );
-          for (const record of existingRecords) {
-            await assertInstallationFilesUnchanged(record, force);
-          }
-
-          for (const entry of [loaded.resource, ...loaded.resources]) {
-            if (entry.resource.reviewStatus === 'unreviewed') {
-              console.warn(
-                `Warning: ${resourceKey(entry.resource)}@${entry.version} has not been reviewed.`,
-              );
-            }
-          }
-
           const changed: Harness[] = [];
 
           for (const [index, harness] of harnesses.entries()) {
@@ -1408,22 +1375,34 @@ const update = defineCommand({
               console.log(`${resource} is already at the latest version for ${harness} (${loaded.resource.version}).`);
               continue;
             }
-
-            const installer = getHarnessAdapter(harness);
-            const installations = await installer.install(loaded.resources, {
-              scope,
-              force: true,
-            });
-            const nextRecords = createInstallationRecords(loaded.resources, installations, scope, harness);
-            await saveInstallationRecords(manifestPath, nextRecords, { scope, force });
             changed.push(harness);
           }
 
-          return { changed, manifestPath, version: loaded.resource.version };
+          const applied = await applyResourceOperations(
+            [{
+              resource,
+              harnesses: changed,
+              scope,
+              action: 'install',
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+              version: loaded.resource.version,
+            }],
+            { cwd: process.cwd() },
+            force,
+          );
+
+          return { applied, changed, version: loaded.resource.version };
         },
       );
 
       if (!updatedHarnesses) return;
+      for (const warning of updatedHarnesses.applied.warnings) {
+        console.warn(`Warning: ${warning} has not been reviewed.`);
+      }
+      for (const note of updatedHarnesses.applied.plan.projectionNotes) {
+        console.log(`Note: ${note}`);
+      }
       if (updatedHarnesses.changed.length > 0) {
         console.log(
           `Updated ${resource} to ${updatedHarnesses.version} for ${updatedHarnesses.changed.join(', ')}.`,
@@ -1544,26 +1523,23 @@ const uninstall = defineCommand({
             );
           }
 
-          const existingRecords = existing.flatMap((records) =>
-            records.filter(
-              (record): record is NonNullable<typeof record> => record !== undefined,
-            ),
+          return applyResourceOperations(
+            [{
+              resource,
+              harnesses,
+              scope,
+              action: 'uninstall',
+              resourceIds,
+            }],
+            { cwd: process.cwd() },
+            force,
           );
-          for (const record of existingRecords) {
-            await assertInstallationFilesUnchanged(record, force);
-          }
-          for (const record of existingRecords) {
-            await uninstallInstallation(record, { scope, force });
-            await removeInstallationRecord(manifestPath, record);
-          }
-
-          return manifestPath;
         },
       );
 
       if (!result) return;
       console.log(`Uninstalled ${resource} for ${harnesses.join(', ')}.`);
-      console.log(`Updated: ${result}`);
+      console.log(`Tracked in: ${getInstallManifestPath(scope)}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;

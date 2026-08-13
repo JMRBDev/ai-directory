@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
@@ -15,20 +15,17 @@ import {
   type ConfigScope,
 } from '@ai-directory/config';
 import {
-  assertInstallationFilesUnchanged,
-  createInstallationRecords,
+  applyResourceOperations,
   discoverLocalResources,
   enrichLocalResources,
-  getHarnessAdapter,
+  planResourceOperations,
   readInstallationManifest,
-  removeInstallationRecord,
-  saveInstallationRecords,
-  uninstallInstallation,
   type Harness,
-  type InstallChange,
-  type InstallOptions,
   type InstallScope,
   type InstallationRecord,
+  type ResourceChangeOptions,
+  type ResourceChangePlan,
+  type ResourceOperation,
 } from '@ai-directory/installers';
 import { resourceKey } from '@ai-directory/domain';
 import {
@@ -40,7 +37,6 @@ import {
   type CommandRunner,
   type RegistrySnapshot,
   type RegistrySource,
-  type ResourceVersion,
   validateResourceDirectory,
 } from '@ai-directory/registry';
 
@@ -71,23 +67,7 @@ type ChangeOperation = ResourceRequest & {
   action: 'install' | 'uninstall';
 };
 
-type PlannedFileChange = {
-  path: string;
-  action: 'added' | 'modified' | 'removed';
-  resource: string;
-  harness: Harness;
-  scope: InstallScope;
-  before?: string;
-  after?: string;
-};
-
-type ChangePlan = {
-  operations: ChangeOperation[];
-  changes: PlannedFileChange[];
-  conflicts: string[];
-  warnings: string[];
-  projectionNotes: string[];
-};
+type ChangePlan = ResourceChangePlan;
 
 type ResourceUpload = {
   resourceId: string;
@@ -246,22 +226,6 @@ async function githubUsername(options: ServerOptions, cwd: string): Promise<stri
   return username;
 }
 
-function installOptions(
-  scope: InstallScope,
-  options: ServerOptions,
-  force: boolean,
-  dryRun = false,
-): InstallOptions {
-  return {
-    scope,
-    force,
-    dryRun,
-    ...(options.cwd ? { cwd: options.cwd } : {}),
-    ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
-    ...(options.environment ? { environment: options.environment } : {}),
-  };
-}
-
 async function readInstallationRecords(
   scopes: InstallScope[],
   cwd: string,
@@ -383,253 +347,6 @@ function parseChangeOperations(body: unknown): {
   };
 }
 
-async function currentFile(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, 'utf8');
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
-    throw error;
-  }
-}
-
-function previewContent(content: string | null): string | undefined {
-  if (content === null) return undefined;
-  const limit = 20_000;
-  return content.length > limit ? `${content.slice(0, limit)}\n…` : content;
-}
-
-function classifyChange(
-  before: string | null,
-  after: string | null,
-): 'added' | 'modified' | 'removed' | null {
-  if (after === null) return before === null ? null : 'removed';
-  if (before === null) return 'added';
-  return before === after ? null : 'modified';
-}
-
-async function buildChangePlan(
-  operations: ChangeOperation[],
-  options: ServerOptions,
-  cwd: string,
-  force: boolean,
-  snapshot: RegistrySnapshot,
-): Promise<ChangePlan> {
-  const changes: PlannedFileChange[] = [];
-  const conflicts: string[] = [];
-  const warnings: string[] = [];
-  const projectionNotes: string[] = [];
-  const contents = new Map<string, string | null>();
-
-  async function addChange(
-    change: InstallChange,
-    operation: ChangeOperation,
-    resource: string,
-    harness: Harness,
-  ) {
-    const before = contents.has(change.path)
-      ? contents.get(change.path) ?? null
-      : await currentFile(change.path);
-    contents.set(change.path, before);
-    const action = classifyChange(before, change.content);
-    if (!action) return;
-
-    const existing = changes.find((item) => item.path === change.path);
-    if (existing) {
-      if (existing.after !== previewContent(change.content)) {
-        conflicts.push(`Multiple changes target ${change.path}.`);
-      }
-      return;
-    }
-
-    const planned: PlannedFileChange = {
-      path: change.path,
-      action,
-      resource,
-      harness,
-      scope: operation.scope,
-    };
-    const beforePreview = previewContent(before);
-    const afterPreview = previewContent(change.content);
-    if (beforePreview !== undefined) planned.before = beforePreview;
-    if (afterPreview !== undefined) planned.after = afterPreview;
-    changes.push(planned);
-  }
-
-  const loadedOperations = await Promise.all(
-    operations.map(async (operation) => ({
-      operation,
-      loaded: await snapshot.readResource(operation.resource, operation.version),
-    })),
-  );
-  const installGroups = new Map<string, {
-    resources: ResourceVersion[];
-    owners: Map<string, ChangeOperation>;
-  }>();
-
-  for (const { operation, loaded } of loadedOperations) {
-    if (operation.action !== 'install') continue;
-    for (const harness of operation.harnesses) {
-      const key = `${operation.scope}:${harness}`;
-      const group = installGroups.get(key) ?? {
-        resources: [] as ResourceVersion[],
-        owners: new Map<string, ChangeOperation>(),
-      };
-      for (const resource of loaded.resources) {
-        const id = resourceKey(resource.resource);
-        if (!group.owners.has(id)) {
-          group.resources.push(resource);
-          group.owners.set(id, operation);
-        }
-      }
-      installGroups.set(key, group);
-    }
-  }
-
-  const processedInstallGroups = new Set<string>();
-
-  for (const { operation, loaded } of loadedOperations) {
-    warnings.push(...requestWarnings([loaded.resource, ...loaded.resources]));
-    const manifestPath = getInstallManifestPath(operation.scope, cwd);
-    const manifest = await readInstallationManifest(manifestPath);
-    const resourceIds = loaded.resources.map((item) => resourceKey(item.resource));
-
-    for (const harness of operation.harnesses) {
-      const records = manifest.installations.filter(
-        (record) =>
-          record.scope === operation.scope &&
-          record.harness === harness &&
-          resourceIds.includes(record.resource),
-      );
-
-      for (const record of records) {
-        try {
-          await assertInstallationFilesUnchanged(record, force);
-        } catch (error) {
-          conflicts.push(`${record.resource} (${harness}, ${operation.scope}): ${errorMessage(error)}`);
-        }
-      }
-
-      if (operation.action === 'install') {
-        const groupKey = `${operation.scope}:${harness}`;
-        if (processedInstallGroups.has(groupKey)) continue;
-        processedInstallGroups.add(groupKey);
-        const group = installGroups.get(groupKey);
-        const installer = getHarnessAdapter(harness);
-        const results = await installer.install(
-          group?.resources ?? loaded.resources,
-          installOptions(operation.scope, { ...options, cwd }, true, true),
-        );
-        for (const [index, result] of results.entries()) {
-          const plannedResource = (group?.resources ?? loaded.resources)[index];
-          const resourceId = plannedResource ? resourceKey(plannedResource.resource) : operation.resource;
-          const owner = group?.owners.get(resourceId) ?? operation;
-          for (const change of result.changes ?? []) {
-            await addChange(change, owner, resourceId, harness);
-          }
-          if (result.skippedFiles.length > 0) {
-            projectionNotes.push(
-              `${resourceId} · ${harness}: omitted harness-specific files (${result.skippedFiles.join(', ')}).`,
-            );
-          }
-
-          const previous = manifest.installations.find(
-            (record) =>
-              record.resource === resourceId &&
-              record.harness === harness &&
-              record.scope === operation.scope,
-          );
-          if (previous) {
-            const currentPaths = new Set(result.ownedPaths);
-            for (const path of previous.files) {
-              if (!currentPaths.has(path)) {
-                await addChange({ path, content: null }, owner, resourceId, harness);
-              }
-            }
-          }
-        }
-      } else {
-        for (const record of records) {
-          const result = await uninstallInstallation(
-            record,
-            installOptions(operation.scope, { ...options, cwd }, force, true),
-          );
-          for (const change of result) {
-            await addChange(change, operation, record.resource, harness);
-          }
-        }
-      }
-    }
-  }
-
-  return {
-    operations,
-    changes,
-    conflicts: [...new Set(conflicts)],
-    warnings: [...new Set(warnings)],
-    projectionNotes: [...new Set(projectionNotes)],
-  };
-}
-
-async function applyChangeOperations(
-  operations: ChangeOperation[],
-  options: ServerOptions,
-  cwd: string,
-  force: boolean,
-  snapshot: RegistrySnapshot,
-): Promise<{ installed: InstallationRecord[]; removed: InstallationRecord[]; warnings: string[] }> {
-  const installed: InstallationRecord[] = [];
-  const removed: InstallationRecord[] = [];
-  const warnings: string[] = [];
-
-  for (const operation of operations) {
-    const loaded = await snapshot.readResource(operation.resource, operation.version);
-    warnings.push(...requestWarnings([loaded.resource, ...loaded.resources]));
-    const manifestPath = getInstallManifestPath(operation.scope, cwd);
-    const resourceIds = loaded.resources.map((item) => resourceKey(item.resource));
-
-    for (const harness of operation.harnesses) {
-      const installer = getHarnessAdapter(harness);
-      if (operation.action === 'install') {
-        const results = await installer.install(
-          loaded.resources,
-          installOptions(operation.scope, { ...options, cwd }, true),
-        );
-        const records = createInstallationRecords(
-          loaded.resources,
-          results,
-          operation.scope,
-          installer.harness,
-        );
-        await saveInstallationRecords(
-          manifestPath,
-          records,
-          installOptions(operation.scope, { ...options, cwd }, force),
-        );
-        installed.push(...records);
-      } else {
-        const manifest = await readInstallationManifest(manifestPath);
-        const records = manifest.installations.filter(
-          (record) =>
-            record.scope === operation.scope &&
-            record.harness === harness &&
-            resourceIds.includes(record.resource),
-        );
-
-        for (const record of records) {
-          await uninstallInstallation(
-            record,
-            installOptions(operation.scope, { ...options, cwd }, force),
-          );
-          await removeInstallationRecord(manifestPath, record);
-          removed.push(record);
-        }
-      }
-    }
-  }
-
-  return { installed, removed, warnings: [...new Set(warnings)] };
-}
-
 async function installationResourceIds(
   resource: string,
   source: RegistrySource,
@@ -654,10 +371,26 @@ async function withRegistrySnapshot<T>(
   }
 }
 
-function requestWarnings(resources: ResourceVersion[]): string[] {
-  return [...new Set(resources
-    .filter((resource) => resource.resource.reviewStatus === 'unreviewed')
-    .map((resource) => `${resourceKey(resource.resource)}@${resource.version}`))];
+function changeOptions(options: ServerOptions, cwd: string): ResourceChangeOptions {
+  return {
+    cwd,
+    ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
+    ...(options.environment ? { environment: options.environment } : {}),
+  };
+}
+
+async function resolveResourceOperations(
+  operations: ChangeOperation[],
+  snapshot: RegistrySnapshot,
+): Promise<ResourceOperation[]> {
+  return Promise.all(operations.map(async (operation) => {
+    const loaded = await snapshot.readResource(operation.resource, operation.version);
+    return {
+      ...operation,
+      resources: loaded.resources,
+      warningResources: [loaded.resource, ...loaded.resources],
+    };
+  }));
 }
 
 async function jsonBody(context: { req: { json: <T>() => Promise<T> } }): Promise<unknown> {
@@ -868,8 +601,12 @@ export function createApp(options: ServerOptions = {}) {
 
     try {
       const request = parseChangeOperations(body);
-      const plan = await withRegistrySnapshot(options, cwd, (snapshot) =>
-        buildChangePlan(request.operations, options, cwd, request.force, snapshot));
+      const plan = await withRegistrySnapshot(options, cwd, async (snapshot) =>
+        planResourceOperations(
+          await resolveResourceOperations(request.operations, snapshot),
+          changeOptions(options, cwd),
+          request.force,
+        ));
       return context.json(plan);
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
@@ -891,7 +628,12 @@ export function createApp(options: ServerOptions = {}) {
     try {
       const request = parseChangeOperations(body);
       const result = await withRegistrySnapshot(options, cwd, async (snapshot) => {
-        const plan = await buildChangePlan(request.operations, options, cwd, request.force, snapshot);
+        const operations = await resolveResourceOperations(request.operations, snapshot);
+        const plan = await planResourceOperations(
+          operations,
+          changeOptions(options, cwd),
+          request.force,
+        );
         if (plan.conflicts.length > 0 && !request.force) {
           return { conflict: true as const, plan };
         }
@@ -899,7 +641,12 @@ export function createApp(options: ServerOptions = {}) {
         return {
           conflict: false as const,
           plan,
-          result: await applyChangeOperations(request.operations, options, cwd, request.force, snapshot),
+          result: await applyResourceOperations(
+            operations,
+            changeOptions(options, cwd),
+            request.force,
+            plan,
+          ),
         };
       });
       if (result.conflict) {
@@ -930,28 +677,22 @@ export function createApp(options: ServerOptions = {}) {
         request.resource,
         request.version,
       );
-      const optionsForInstall = installOptions(request.scope, { ...options, cwd }, request.force);
-      const records: InstallationRecord[] = [];
-
-      for (const harness of request.harnesses) {
-        const installer = getHarnessAdapter(harness);
-        const installations = await installer.install(loaded.resources, optionsForInstall);
-        const nextRecords = createInstallationRecords(
-          loaded.resources,
-          installations,
-          request.scope,
-          installer.harness,
-        );
-        const manifestPath = getInstallManifestPath(request.scope, cwd);
-        await saveInstallationRecords(manifestPath, nextRecords, optionsForInstall);
-        records.push(...nextRecords);
-      }
+      const result = await applyResourceOperations(
+        [{
+          ...request,
+          action: 'install',
+          resources: loaded.resources,
+          warningResources: [loaded.resource, ...loaded.resources],
+        }],
+        changeOptions(options, cwd),
+        request.force,
+      );
 
       return context.json({
         resource: loaded.resource,
         harnesses: request.harnesses,
-        records,
-        warnings: requestWarnings([loaded.resource, ...loaded.resources]),
+        records: result.installed,
+        warnings: result.warnings,
       });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
@@ -1003,9 +744,6 @@ export function createApp(options: ServerOptions = {}) {
           (record): record is NonNullable<typeof record> => record !== undefined,
         ),
       );
-      for (const record of existingRecords) {
-        await assertInstallationFilesUnchanged(record, request.force);
-      }
 
       const updatedHarnesses = request.harnesses.filter((_, index) =>
         loaded.resources.some(
@@ -1023,31 +761,23 @@ export function createApp(options: ServerOptions = {}) {
         });
       }
 
-      const records: InstallationRecord[] = [];
-      const optionsForInstall = installOptions(request.scope, { ...options, cwd }, true);
-
-      for (const harness of updatedHarnesses) {
-        const installer = getHarnessAdapter(harness);
-        const installations = await installer.install(loaded.resources, optionsForInstall);
-        const nextRecords = createInstallationRecords(
-          loaded.resources,
-          installations,
-          request.scope,
-          installer.harness,
-        );
-        await saveInstallationRecords(
-          manifestPath,
-          nextRecords,
-          installOptions(request.scope, { ...options, cwd }, request.force),
-        );
-        records.push(...nextRecords);
-      }
+      const result = await applyResourceOperations(
+        [{
+          ...request,
+          harnesses: updatedHarnesses,
+          action: 'install',
+          resources: loaded.resources,
+          warningResources: [loaded.resource, ...loaded.resources],
+        }],
+        changeOptions(options, cwd),
+        request.force,
+      );
 
       return context.json({
         updated: true,
         harnesses: updatedHarnesses,
-        records,
-        warnings: requestWarnings([loaded.resource, ...loaded.resources]),
+        records: result.installed,
+        warnings: result.warnings,
       });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
@@ -1094,23 +824,17 @@ export function createApp(options: ServerOptions = {}) {
         );
       }
 
-      const existingRecords = existing.flatMap((records) =>
-        records.filter(
-          (record): record is NonNullable<typeof record> => record !== undefined,
-        ),
+      const result = await applyResourceOperations(
+        [{
+          ...request,
+          action: 'uninstall',
+          resourceIds,
+        }],
+        changeOptions(options, cwd),
+        request.force,
       );
-      for (const record of existingRecords) {
-        await assertInstallationFilesUnchanged(record, request.force);
-      }
-      for (const record of existingRecords) {
-        await uninstallInstallation(
-          record,
-          installOptions(request.scope, { ...options, cwd }, request.force),
-        );
-        await removeInstallationRecord(manifestPath, record);
-      }
 
-      return context.json({ removed: existingRecords, harnesses: request.harnesses });
+      return context.json({ removed: result.removed, harnesses: request.harnesses });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
     }
