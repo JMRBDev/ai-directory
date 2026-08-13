@@ -102,8 +102,8 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
 
       {resource.reviewStatus === 'unreviewed' && (
         <div class="mt-6 max-w-3xl rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-warning dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" role="status">
-          This resource is unreviewed. You can install it, but inspect its contents before using
-          it in a project.
+          This resource is unreviewed. You can stage it, but inspect its contents before applying
+          it to a project.
         </div>
       )}
 
@@ -120,8 +120,8 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         <h2 id="install-title" class="mt-2 text-xl font-semibold tracking-tight text-ink dark:text-zinc-100">Use this resource locally</h2>
         {resource.type === 'templates' && (
           <div class="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-warning dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" role="status">
-            This template installs its component resources as one pack. You can update or uninstall
-            the pack from here later.
+            This template stages its component resources as one pack. Review the complete file
+            change before applying it.
           </div>
         )}
         <div class="mt-6 rounded-lg border border-line bg-panel p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -152,12 +152,12 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
             </label>
           </div>
           <div class="mt-6 flex flex-wrap gap-3">
-            <button class="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" type="button" data-install-action>Install resource</button>
+            <button class="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" type="button" data-install-action>Review install</button>
             <button class="hidden min-h-10 items-center rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300" type="button" data-update-action hidden>
-              Update resource
+              Review update
             </button>
             <button class="hidden min-h-10 items-center rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-orange-400 dark:hover:text-orange-300" type="button" data-uninstall-action hidden>
-              Uninstall
+              Review uninstall
             </button>
             <button class="hidden min-h-10 items-center rounded-md border border-amber-300 px-4 py-2 text-sm font-semibold text-warning transition-colors hover:bg-warning-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/40" type="button" data-force-action hidden>
               Continue with force
@@ -166,6 +166,36 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
           <p class="mt-4 text-sm text-muted dark:text-zinc-400" data-install-status role="status">
             Checking local installations…
           </p>
+        </div>
+        <div class="mt-5 hidden rounded-lg border border-line bg-panel p-5 dark:border-zinc-800 dark:bg-zinc-900" data-detail-plan hidden>
+          <div class="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4 dark:border-zinc-800">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Change plan</p>
+              <h3 class="mt-2 text-lg font-semibold tracking-tight text-ink dark:text-zinc-100">Review before applying</h3>
+            </div>
+            <button class="text-sm font-semibold text-muted hover:text-accent dark:text-zinc-400 dark:hover:text-orange-300" type="button" data-detail-plan-close>Close</button>
+          </div>
+          <div class="mt-4 grid grid-cols-3 divide-x divide-line border-y border-line py-4 dark:divide-zinc-800 dark:border-zinc-800">
+            <div class="pr-4"><strong class="block text-xl font-semibold text-ink dark:text-zinc-100" data-detail-count="added">0</strong><span class="mt-1 block text-xs text-muted dark:text-zinc-500">Added</span></div>
+            <div class="px-4"><strong class="block text-xl font-semibold text-ink dark:text-zinc-100" data-detail-count="modified">0</strong><span class="mt-1 block text-xs text-muted dark:text-zinc-500">Modified</span></div>
+            <div class="pl-4"><strong class="block text-xl font-semibold text-ink dark:text-zinc-100" data-detail-count="removed">0</strong><span class="mt-1 block text-xs text-muted dark:text-zinc-500">Removed</span></div>
+          </div>
+          <div class="mt-4 space-y-4" data-detail-plan-lists>
+            <section class="hidden" data-detail-section="added"><h4 class="text-sm font-semibold text-ink dark:text-zinc-100">Added files</h4><ul class="mt-2 space-y-2" data-detail-list="added"></ul></section>
+            <section class="hidden" data-detail-section="modified"><h4 class="text-sm font-semibold text-ink dark:text-zinc-100">Modified files</h4><ul class="mt-2 space-y-2" data-detail-list="modified"></ul></section>
+            <section class="hidden" data-detail-section="removed"><h4 class="text-sm font-semibold text-ink dark:text-zinc-100">Removed files</h4><ul class="mt-2 space-y-2" data-detail-list="removed"></ul></section>
+            <p class="hidden rounded-md border border-line bg-canvas p-3 text-sm text-muted dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400" data-detail-empty>No file changes are needed.</p>
+          </div>
+          <div class="mt-4 hidden rounded-md border border-amber-200 bg-warning-soft p-4 text-sm text-warning dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" data-detail-conflicts role="alert"></div>
+          <div class="mt-4 hidden rounded-md border border-amber-200 bg-warning-soft p-4 text-sm text-warning dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300" data-detail-warnings></div>
+          <label class="mt-4 hidden items-start gap-3 rounded-md border border-line p-4 text-sm text-ink dark:border-zinc-700 dark:text-zinc-200" data-detail-force-label>
+            <input class="mt-0.5 size-4 accent-accent" type="checkbox" data-detail-force-input />
+            <span><strong class="font-semibold">Allow overwrite or removal of locally changed files</strong><span class="mt-1 block text-xs text-muted dark:text-zinc-400">Use this only after checking the affected files.</span></span>
+          </label>
+          <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p class="text-sm text-muted dark:text-zinc-400" data-detail-plan-status role="status"></p>
+            <button class="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" type="button" data-detail-apply disabled>Apply changes</button>
+          </div>
         </div>
         <div class="mt-5 grid gap-3 sm:grid-cols-2">
           <div class="rounded-md bg-ink p-4 dark:bg-zinc-900">
@@ -218,6 +248,16 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         scope: string;
       };
       type Action = 'install' | 'update' | 'uninstall';
+      type DetailChange = {
+        path: string;
+        action: 'added' | 'modified' | 'removed';
+        resource: string;
+        harness: string;
+        scope: string;
+        before?: string;
+        after?: string;
+      };
+      type DetailPlan = { changes: DetailChange[]; conflicts: string[]; warnings: string[] };
 
       const panel = document.querySelector<HTMLElement>('[data-resource-install]');
       const apiBase = panel?.dataset.apiUrl ?? 'http://127.0.0.1:4317';
@@ -241,8 +281,15 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
       const uninstall = document.querySelector<HTMLButtonElement>('[data-uninstall-action]');
       const force = document.querySelector<HTMLButtonElement>('[data-force-action]');
       const status = document.querySelector<HTMLElement>('[data-install-status]');
-      let forceAction: Action | null = null;
+      const detailPlan = document.querySelector<HTMLElement>('[data-detail-plan]');
+      const detailPlanClose = document.querySelector<HTMLButtonElement>('[data-detail-plan-close]');
+      const detailApply = document.querySelector<HTMLButtonElement>('[data-detail-apply]');
+      const detailForceLabel = document.querySelector<HTMLElement>('[data-detail-force-label]');
+      const detailForceInput = document.querySelector<HTMLInputElement>('[data-detail-force-input]');
+      const detailPlanStatus = document.querySelector<HTMLElement>('[data-detail-plan-status]');
       let currentRecords: Installation[] = [];
+      let currentOperations: Array<{ resource: string; harnesses: string[]; scope: string; action: 'install' | 'uninstall' }> = [];
+      let currentPlan: DetailPlan | null = null;
 
       function setHidden(element: HTMLElement | null, hidden: boolean) {
         if (!element) return;
@@ -275,7 +322,6 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         setHidden(update, selected.length === 0 || installed.length === 0);
         setHidden(uninstall, selected.length === 0 || installed.length === 0);
         setHidden(force, true);
-        forceAction = null;
 
         if (selected.length === 0) {
           showStatus('Select at least one harness.');
@@ -341,13 +387,76 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
         if (scope) scope.disabled = busy;
       }
 
-      async function run(action: Action, useForce = false) {
-        if (useForce && !window.confirm('This may overwrite or remove local changes. Continue?')) {
-          return;
+      function appendDetailChange(list: HTMLElement, change: DetailChange) {
+        const item = document.createElement('li');
+        item.className = 'rounded-md border border-line bg-canvas p-3 dark:border-zinc-800 dark:bg-zinc-950';
+        const header = document.createElement('div');
+        header.className = 'flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between';
+        const path = document.createElement('span');
+        path.className = 'break-all font-mono text-xs font-semibold text-ink dark:text-zinc-200';
+        path.textContent = change.path;
+        const meta = document.createElement('span');
+        meta.className = 'text-xs text-muted dark:text-zinc-500';
+        meta.textContent = `${change.harness} · ${change.scope}`;
+        header.append(path, meta);
+        item.append(header);
+        const content = change.after ?? change.before;
+        if (content) {
+          const details = document.createElement('details');
+          details.className = 'mt-3 border-t border-line pt-3 dark:border-zinc-800';
+          const summary = document.createElement('summary');
+          summary.className = 'cursor-pointer text-xs font-semibold text-accent';
+          summary.textContent = change.action === 'modified' ? 'View file change' : 'View file content';
+          const pre = document.createElement('pre');
+          pre.className = 'mt-3 max-h-64 overflow-auto rounded-md bg-ink p-3 font-mono text-xs leading-5 text-zinc-100 dark:bg-zinc-900';
+          pre.textContent = change.action === 'modified'
+            ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}`
+            : content;
+          details.append(summary, pre);
+          item.append(details);
         }
+        list.append(item);
+      }
 
+      function renderDetailPlan(plan: DetailPlan) {
+        currentPlan = plan;
+        setHidden(detailPlan, false);
+        for (const action of ['added', 'modified', 'removed'] as const) {
+          const changes = plan.changes.filter((change) => change.action === action);
+          const total = document.querySelector<HTMLElement>(`[data-detail-count="${action}"]`);
+          const section = document.querySelector<HTMLElement>(`[data-detail-section="${action}"]`);
+          const list = document.querySelector<HTMLElement>(`[data-detail-list="${action}"]`);
+          if (total) total.textContent = String(changes.length);
+          setHidden(section, changes.length === 0);
+          list?.replaceChildren();
+          if (list) for (const change of changes) appendDetailChange(list, change);
+        }
+        setHidden(document.querySelector<HTMLElement>('[data-detail-empty]'), plan.changes.length !== 0);
+        const conflicts = document.querySelector<HTMLElement>('[data-detail-conflicts]');
+        if (conflicts) {
+          conflicts.textContent = plan.conflicts.length > 0
+            ? `Review required: ${plan.conflicts.join(' ')}`
+            : '';
+          setHidden(conflicts, plan.conflicts.length === 0);
+        }
+        const warnings = document.querySelector<HTMLElement>('[data-detail-warnings]');
+        if (warnings) {
+          warnings.textContent = plan.warnings.length > 0
+            ? `Unreviewed resources: ${plan.warnings.join(', ')}`
+            : '';
+          setHidden(warnings, plan.warnings.length === 0);
+        }
+        setHidden(detailForceLabel, plan.conflicts.length === 0);
+        if (detailForceInput) detailForceInput.checked = false;
+        if (detailApply) detailApply.disabled = plan.changes.length === 0 || plan.conflicts.length > 0;
+        if (detailPlanStatus) detailPlanStatus.textContent = plan.changes.length === 0
+          ? 'No changes are needed.'
+          : `${plan.changes.length} file${plan.changes.length === 1 ? '' : 's'} ready to apply.`;
+      }
+
+      async function run(action: Action) {
         setBusy(true);
-        showStatus('Working…');
+        showStatus('Preparing change plan…');
 
         try {
           const targets = targetHarnesses(action);
@@ -357,38 +466,23 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
             return;
           }
 
-          const body = {
+          currentOperations = [{
             resource: resourceKey,
             harnesses: targets,
-            scope: scope?.value,
-            ...(useForce ? { force: true } : {}),
-          };
-          const result = action === 'uninstall'
-            ? await request(
-                `/api/installed?resource=${encodeURIComponent(resourceKey)}&harnesses=${encodeURIComponent(targets.join(','))}&scope=${encodeURIComponent(scope?.value ?? '')}${useForce ? '&force=true' : ''}`,
-                { method: 'DELETE' },
-              )
-            : await request(`/api/${action}`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(body),
-              });
-          const warnings = Array.isArray(result.warnings) ? result.warnings : [];
-          await loadInstallation();
-          if (warnings.length > 0) {
-            showStatus(`Completed with warning. Unreviewed: ${warnings.join(', ')}`);
-          }
+            scope: scope?.value ?? 'project',
+            action: action === 'uninstall' ? 'uninstall' : 'install',
+          }];
+          const result = await request('/api/plan', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ operations: currentOperations }),
+          });
+          renderDetailPlan(result as DetailPlan);
+          showStatus('Review the file changes, then apply them together.');
+          detailPlan?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } catch (error) {
           const message = error instanceof Error ? error.message : 'The operation failed.';
           showStatus(message, true);
-
-          if (action !== 'install' && /modified|ownership hashes/u.test(message)) {
-            forceAction = action;
-            if (force) {
-              setHidden(force, false);
-              force.textContent = action === 'update' ? 'Force update' : 'Force uninstall';
-            }
-          }
         } finally {
           setBusy(false);
         }
@@ -397,8 +491,29 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:
       install?.addEventListener('click', () => run('install'));
       update?.addEventListener('click', () => run('update'));
       uninstall?.addEventListener('click', () => run('uninstall'));
-      force?.addEventListener('click', () => {
-        if (forceAction) void run(forceAction, true);
+      detailPlanClose?.addEventListener('click', () => setHidden(detailPlan, true));
+      detailForceInput?.addEventListener('change', () => {
+        if (detailApply && currentPlan) detailApply.disabled = currentPlan.changes.length === 0 || (currentPlan.conflicts.length > 0 && !detailForceInput.checked);
+      });
+      detailApply?.addEventListener('click', async () => {
+        if (currentOperations.length === 0 || !currentPlan) return;
+        const forceChanges = detailForceInput?.checked === true;
+        if (currentPlan.conflicts.length > 0 && !forceChanges) return;
+        detailApply.disabled = true;
+        if (detailPlanStatus) detailPlanStatus.textContent = 'Applying all changes…';
+        try {
+          const result = await request('/api/apply', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ operations: currentOperations, force: forceChanges }),
+          });
+          await loadInstallation();
+          currentOperations = [];
+          if (detailPlanStatus) detailPlanStatus.textContent = `Applied ${result.plan.changes.length} file change${result.plan.changes.length === 1 ? '' : 's'}.`;
+        } catch (error) {
+          if (detailPlanStatus) detailPlanStatus.textContent = error instanceof Error ? error.message : 'Could not apply the change plan.';
+          detailApply.disabled = false;
+        }
       });
       for (const harness of harnesses) {
         harness.addEventListener('change', () => void loadInstallation());
