@@ -1,4 +1,5 @@
 ---
+import { DEFAULT_API_URL } from '@ai-directory/config';
 import type { ResourceSummary } from '@ai-directory/contracts';
 import {
   loadRegistry,
@@ -38,7 +39,7 @@ const { version, componentResources, source, fileError } = {
 } satisfies Props;
 const title = `${resource.name} | AI Directory`;
 const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
-const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? 'http://127.0.0.1:4317';
+const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? DEFAULT_API_URL;
 ---
 
 <!doctype html>

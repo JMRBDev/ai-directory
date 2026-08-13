@@ -249,7 +249,6 @@ async function findExecutable(
         await access(candidate, constants.X_OK);
         return candidate;
       } catch {
-        // Continue searching the PATH.
       }
     }
   }
