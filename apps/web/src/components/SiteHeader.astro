@@ -3,6 +3,7 @@ import ThemeToggle from './preact/ThemeToggle';
 
 type Props = {
   showChanges?: boolean;
+  showInstalled?: boolean;
   showPublish?: boolean;
   showRefresh?: boolean;
   showSettings?: boolean;
@@ -11,6 +12,7 @@ type Props = {
 
 const {
   showChanges = false,
+  showInstalled = false,
   showPublish = false,
   showRefresh = false,
   showSettings = false,
@@ -29,6 +31,12 @@ const {
       {showChanges && (
         <label class="btn btn-sm gap-2" for="change-deck-toggle">
           Changes <span class="badge badge-primary badge-xs tabular-nums" data-deck-count>0</span>
+        </label>
+      )}
+      {showInstalled && (
+        <label class="btn btn-ghost btn-square btn-sm text-base-content hover:bg-primary/10 hover:text-primary" for="installed-drawer-toggle" title="Installed resources" aria-label="Installed resources">
+          <i class="ph ph-package text-lg" aria-hidden="true"></i>
+          <span class="sr-only">Installed resources</span>
         </label>
       )}
       {sourceLabel && <span class="badge badge-ghost hidden sm:inline-flex">{sourceLabel}</span>}

@@ -460,7 +460,16 @@ export function readRegistrySourceIndex(source: RegistrySource): Promise<Registr
     : readRemoteRegistryIndex({
         repositoryUrl: source.repositoryUrl,
         baseBranch: source.baseBranch,
-      });
+    });
+}
+
+export function isResourceVersionOutdated(
+  currentVersion: string,
+  latestVersion: string,
+): boolean {
+  return isValidVersion(currentVersion) !== null
+    && isValidVersion(latestVersion) !== null
+    && isGreaterVersion(latestVersion, currentVersion);
 }
 
 export function readRegistrySourceResource(

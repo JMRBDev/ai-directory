@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -229,6 +229,51 @@ describe('local control API', () => {
 
     await expect(app.request('/api/installed?scope=project').then((response) => response.json())).resolves.toEqual({
       installations: [],
+    });
+  });
+
+  it('discovers managed and unmanaged project resources', async () => {
+    const cwd = await createTemporaryDirectory();
+    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+
+    await mkdir(join(cwd, '.claude', 'skills', 'local-skill'), { recursive: true });
+    await writeFile(
+      join(cwd, '.claude', 'skills', 'local-skill', 'SKILL.md'),
+      '# Local skill\n',
+      'utf8',
+    );
+
+    const install = await app.request('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        resource: 'john-doe/skills/typescript-review',
+        harnesses: ['claude-code'],
+        scope: 'project',
+      }),
+    });
+    expect(install.status).toBe(200);
+
+    const response = await app.request('/api/local-resources?scope=project');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      resources: expect.arrayContaining([
+        expect.objectContaining({
+          resource: 'john-doe/skills/typescript-review',
+          harness: 'claude-code',
+          scope: 'project',
+          state: 'managed',
+          registryState: 'current',
+          latestVersion: '1.2.0',
+        }),
+        expect.objectContaining({
+          type: 'skills',
+          name: 'local-skill',
+          harness: 'claude-code',
+          scope: 'project',
+          state: 'unmanaged',
+        }),
+      ]),
     });
   });
 

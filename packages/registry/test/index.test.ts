@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createRegistrySnapshot,
+  isResourceVersionOutdated,
   publishResource,
   readRemoteRegistryIndex,
   readRemoteResource,
@@ -69,6 +70,12 @@ describe('readRegistryIndex', () => {
     expect(() => resolveRegistrySource({})).toThrow(
       'No registry source configured. Run `aid setup` or pass `--index <path>`.',
     );
+  });
+
+  it('compares resource versions using semantic versioning', () => {
+    expect(isResourceVersionOutdated('1.2.0', '1.10.0')).toBe(true);
+    expect(isResourceVersionOutdated('1.10.0', '1.2.0')).toBe(false);
+    expect(isResourceVersionOutdated('1.2.0', '1.2.0')).toBe(false);
   });
 
   it('reads an index from a temporary sparse checkout', async () => {

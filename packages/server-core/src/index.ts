@@ -17,6 +17,8 @@ import {
 import {
   assertInstallationFilesUnchanged,
   createInstallationRecords,
+  discoverLocalResources,
+  enrichLocalResources,
   getHarnessAdapter,
   readInstallationManifest,
   removeInstallationRecord,
@@ -31,6 +33,7 @@ import {
 import { resourceKey } from '@ai-directory/domain';
 import {
   readRegistrySourceResource,
+  readRegistrySourceIndex,
   resolveRegistrySource,
   submitResource,
   type CommandRunner,
@@ -254,6 +257,19 @@ function installOptions(
     ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
     ...(options.environment ? { environment: options.environment } : {}),
   };
+}
+
+async function readInstallationRecords(
+  scopes: InstallScope[],
+  cwd: string,
+): Promise<InstallationRecord[]> {
+  return (
+    await Promise.all(
+      scopes.map(async (scope) =>
+        (await readInstallationManifest(getInstallManifestPath(scope, cwd))).installations,
+      ),
+    )
+  ).flat();
 }
 
 function requestError(body: unknown): string | null {
@@ -750,15 +766,53 @@ export function createApp(options: ServerOptions = {}) {
     const scopes: InstallScope[] = requestedScope
       ? [requestedScope]
       : ['project', 'global'];
-    const installations = (
-      await Promise.all(
-        scopes.map(async (scope) =>
-          (await readInstallationManifest(getInstallManifestPath(scope, cwd))).installations,
-        ),
-      )
-    ).flat();
+    const installations = await readInstallationRecords(scopes, cwd);
 
     return context.json({ installations });
+  });
+
+  app.get('/api/local-resources', async (context) => {
+    const requestedScope = context.req.query('scope');
+
+    if (requestedScope !== undefined && !isInstallScope(requestedScope)) {
+      return context.json({ error: 'scope must be project or global.' }, 400);
+    }
+
+    const scopes: InstallScope[] = requestedScope
+      ? [requestedScope]
+      : ['project', 'global'];
+
+    try {
+      const records = await readInstallationRecords(scopes, cwd);
+      const resources = await discoverLocalResources({
+        cwd,
+        ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
+        ...(options.environment ? { environment: options.environment } : {}),
+        scopes,
+        records,
+      });
+
+      let registryError: string | undefined;
+      let enriched = resources;
+
+      if (resources.some((resource) => resource.resource)) {
+        try {
+          enriched = enrichLocalResources(
+            resources,
+            await readRegistrySourceIndex(registrySource(options, cwd)),
+          );
+        } catch (caught) {
+          registryError = errorMessage(caught);
+        }
+      }
+
+      return context.json({
+        resources: enriched,
+        ...(registryError ? { registryError } : {}),
+      });
+    } catch (caught) {
+      return context.json({ error: errorMessage(caught) }, 400);
+    }
   });
 
   app.post('/api/plan', async (context) => {

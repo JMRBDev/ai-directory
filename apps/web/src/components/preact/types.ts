@@ -1,4 +1,4 @@
-import type { ResourceSummary } from '@ai-directory/contracts';
+import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
 
 export type Harness = 'claude-code' | 'opencode' | 'codex';
 export type Scope = 'project' | 'global';
@@ -35,4 +35,21 @@ export type Installation = {
   version: string;
   harness: string;
   scope: string;
+};
+
+export type LocalResourceState = 'managed' | 'modified' | 'missing' | 'unmanaged';
+export type LocalResourceRegistryState = 'current' | 'outdated' | 'unknown';
+
+export type LocalResource = {
+  resource?: string;
+  type: Exclude<ResourceType, 'templates'>;
+  name: string;
+  harness: Harness;
+  scope: Scope;
+  path: string;
+  files: string[];
+  state: LocalResourceState;
+  registryState: LocalResourceRegistryState;
+  version?: string;
+  latestVersion?: string;
 };

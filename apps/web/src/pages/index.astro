@@ -5,6 +5,7 @@ import SiteHeader from "../components/SiteHeader.astro";
 import ResourceCatalog from "../components/preact/ResourceCatalog";
 import PublishForm from "../components/preact/PublishForm";
 import SettingsDrawer from "../components/preact/SettingsDrawer";
+import LocalResourcesDrawer from "../components/preact/LocalResourcesDrawer";
 import "../styles/global.css";
 
 if (Astro.url.searchParams.get("refresh") === "1") await refreshRegistry();
@@ -31,7 +32,7 @@ const apiUrl =
   <body
     class="min-h-screen bg-base-100 font-sans text-base-content antialiased flex flex-col gap-2"
   >
-    <SiteHeader showChanges showPublish showRefresh showSettings />
+    <SiteHeader showChanges showInstalled showPublish showRefresh showSettings />
 
     <main class="mx-auto w-full max-w-6xl px-5 sm:px-8 flex-1">
       <ResourceCatalog
@@ -44,6 +45,7 @@ const apiUrl =
 
     <SettingsDrawer client:load apiUrl={apiUrl} />
     <PublishForm client:load apiUrl={apiUrl} />
+    <LocalResourcesDrawer client:load apiUrl={apiUrl} />
 
     <footer
       class="flex justify-between items-center gap-3 footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8"

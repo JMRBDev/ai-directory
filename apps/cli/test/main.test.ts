@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, rmSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -83,6 +83,25 @@ describe('CLI', () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('jane-doe/agents/api-reviewer');
     expect(result.stdout).toContain('john-doe/skills/typescript-review');
+  });
+
+  it('discovers local resources in the current project', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-installed-'));
+    const skillDirectory = join(cwd, '.claude', 'skills', 'local-skill');
+
+    try {
+      mkdirSync(skillDirectory, { recursive: true });
+      writeFileSync(join(skillDirectory, 'SKILL.md'), '# Local skill\n', 'utf8');
+
+      const result = runAid(['installed', '--scope', 'project'], cwd);
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain('local/skills/local-skill');
+      expect(result.stdout).toContain('unmanaged');
+      expect(result.stdout).toContain('unknown');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it('creates a skill scaffold', () => {
