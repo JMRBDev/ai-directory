@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
 import {
+  createInstallationRecords,
+  discoverLocalResources,
+  enrichLocalResources,
   installClaudeCodeResource,
   installClaudeCodeResources,
   installCodexResources,
@@ -233,6 +236,133 @@ describe('installClaudeCodeResource', () => {
         cwd: projectDirectory,
       }),
     ).rejects.toThrow('Unsafe resource file path');
+  });
+});
+
+describe('local resource discovery', () => {
+  it('finds unmanaged skills, agents, and rules in known harness locations', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+
+    await mkdir(join(projectDirectory, '.claude', 'skills', 'local-skill'), { recursive: true });
+    await writeFile(
+      join(projectDirectory, '.claude', 'skills', 'local-skill', 'SKILL.md'),
+      '# Local skill\n',
+      'utf8',
+    );
+    await mkdir(join(homeDirectory, '.config', 'opencode', 'agents'), { recursive: true });
+    await writeFile(
+      join(homeDirectory, '.config', 'opencode', 'agents', 'local-agent.md'),
+      '# Local agent\n',
+      'utf8',
+    );
+    await mkdir(join(projectDirectory, '.ai-directory', 'rules'), { recursive: true });
+    await writeFile(
+      join(projectDirectory, '.ai-directory', 'rules', 'local-rule.md'),
+      '# Local rule\n',
+      'utf8',
+    );
+
+    const resources = await discoverLocalResources({
+      cwd: projectDirectory,
+      homeDirectory,
+      environment: { PATH: '' },
+    });
+
+    expect(resources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'skills',
+        name: 'local-skill',
+        harness: 'claude-code',
+        scope: 'project',
+        state: 'unmanaged',
+      }),
+      expect.objectContaining({
+        type: 'agents',
+        name: 'local-agent',
+        harness: 'opencode',
+        scope: 'global',
+        state: 'unmanaged',
+      }),
+      expect.objectContaining({
+        type: 'rules',
+        name: 'local-rule',
+        harness: 'codex',
+        scope: 'project',
+        state: 'unmanaged',
+      }),
+    ]));
+  });
+
+  it('reports managed resources as current, modified, or missing', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const installation = await installClaudeCodeResource(resource, {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+    const [record] = createInstallationRecords(
+      [resource],
+      [installation],
+      'project',
+      'claude-code',
+    );
+
+    await expect(
+      discoverLocalResources({ cwd: projectDirectory, homeDirectory, records: [record] }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        resource: resourceKey(resource.resource),
+        state: 'managed',
+        version: '1.0.0',
+      }),
+    ]);
+
+    await writeFile(join(installation.destination, 'SKILL.md'), '# Changed locally\n', 'utf8');
+    await expect(
+      discoverLocalResources({ cwd: projectDirectory, homeDirectory, records: [record] }),
+    ).resolves.toEqual([
+      expect.objectContaining({ state: 'modified' }),
+    ]);
+
+    await rm(installation.destination, { recursive: true, force: true });
+    await expect(
+      discoverLocalResources({ cwd: projectDirectory, homeDirectory, records: [record] }),
+    ).resolves.toEqual([
+      expect.objectContaining({ state: 'missing' }),
+    ]);
+  });
+
+  it('enriches managed resources with registry freshness', async () => {
+    const projectDirectory = await createTemporaryDirectory();
+    const installation = await installClaudeCodeResource(resource, {
+      scope: 'project',
+      cwd: projectDirectory,
+    });
+    const [record] = createInstallationRecords(
+      [resource],
+      [installation],
+      'project',
+      'claude-code',
+    );
+    const discovered = await discoverLocalResources({
+      cwd: projectDirectory,
+      homeDirectory: await createTemporaryDirectory(),
+      records: [record],
+    });
+
+    expect(enrichLocalResources(discovered, {
+      schemaVersion: 1,
+      resources: [{ ...resource.resource, latestVersion: '1.2.0' }],
+    })).toEqual([
+      expect.objectContaining({
+        registryState: 'outdated',
+        latestVersion: '1.2.0',
+      }),
+    ]);
+    expect(enrichLocalResources(discovered, null)).toEqual([
+      expect.objectContaining({ registryState: 'unknown' }),
+    ]);
   });
 });
 

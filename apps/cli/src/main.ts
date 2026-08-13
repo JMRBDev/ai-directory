@@ -40,6 +40,8 @@ import {
   assertInstallationFilesUnchanged,
   createInstallationRecords,
   detectHarnesses,
+  discoverLocalResources,
+  enrichLocalResources,
   getHarnessAdapter,
   readInstallationManifest,
   removeInstallationRecord,
@@ -1212,7 +1214,7 @@ const install = defineCommand({
 const installed = defineCommand({
   meta: {
     name: 'installed',
-    description: 'List installed resources',
+    description: 'Discover local resources and their installation state',
   },
   args: {
     scope: {
@@ -1237,20 +1239,32 @@ const installed = defineCommand({
       )
         .flat()
         .sort((left, right) => left.resource.localeCompare(right.resource));
+      let resources = await discoverLocalResources({ scopes, records });
+
+      try {
+        resources = enrichLocalResources(
+          resources,
+          await readRegistrySourceIndex(getRegistrySource()),
+        );
+      } catch {
+        // Local discovery remains useful when the registry is unavailable.
+      }
 
       if (args.json) {
-        console.log(JSON.stringify(records, null, 2));
+        console.log(JSON.stringify(resources, null, 2));
         return;
       }
 
-      if (records.length === 0) {
-        console.log('No installed resources found.');
+      if (resources.length === 0) {
+        console.log('No local resources found.');
         return;
       }
 
-      for (const record of records) {
+      for (const resource of resources) {
+        const id = resource.resource ?? `local/${resource.type}/${resource.name}`;
+        const version = resource.version ? `v${resource.version}` : '-';
         console.log(
-          `${record.resource}\t${record.version}\t${record.harness}\t${record.scope}\t${record.destination}`,
+          `${id}\t${resource.state}\t${resource.registryState}\t${resource.harness}\t${resource.scope}\t${version}\t${resource.path}`,
         );
       }
     } catch (error) {

@@ -86,6 +86,14 @@ export function getHarnessAdapter(value: string): HarnessAdapter {
 export { getHarnessDefinition, getHarnessDefinitions } from './harnesses.js';
 export { resolveHarnessPaths };
 export { detectHarnesses } from './harnesses.js';
+export { discoverLocalResources } from './discovery.js';
+export { enrichLocalResources } from './discovery.js';
+export type {
+  LocalResource,
+  LocalResourceRegistryState,
+  LocalResourceState,
+  ResourceDiscoveryOptions,
+} from './discovery.js';
 
 export async function installClaudeCodeResource(
   resource: ResourceVersion,
