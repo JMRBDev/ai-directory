@@ -140,7 +140,7 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
       const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operations: [operation], force }),
+        body: JSON.stringify({ operations: [operation], force, planFingerprint: plan.fingerprint }),
       });
       setPlan(null);
       setOperation(null);

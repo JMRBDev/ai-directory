@@ -132,7 +132,7 @@ export default function InstallResource({
       const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operations, force }),
+        body: JSON.stringify({ operations, force, planFingerprint: plan.fingerprint }),
       });
       await loadInstallation(harnesses, scope);
       setOperations([]);

@@ -253,7 +253,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
       const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operations, force }),
+        body: JSON.stringify({ operations, force, planFingerprint: plan.fingerprint }),
       });
       setApplied(true);
       setPlanError(false);

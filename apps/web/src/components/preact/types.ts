@@ -37,6 +37,7 @@ export type ChangePlan = {
   conflicts: string[];
   warnings: string[];
   projectionNotes: string[];
+  fingerprint: string;
   operations?: ChangeOperation[];
 };
 

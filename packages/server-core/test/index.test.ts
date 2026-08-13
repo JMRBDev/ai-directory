@@ -324,7 +324,8 @@ describe('local control API', () => {
     });
 
     expect(plan.status).toBe(200);
-    await expect(plan.json()).resolves.toMatchObject({
+    const planned = await plan.json() as { fingerprint: string; changes: Array<{ path: string; action: string }>; conflicts: string[] };
+    expect(planned).toMatchObject({
       changes: expect.arrayContaining([
         expect.objectContaining({ path: skillPath, action: 'added' }),
       ]),
@@ -335,11 +336,46 @@ describe('local control API', () => {
     const applied = await app.request('/api/apply', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(request),
+      body: JSON.stringify({ ...request, planFingerprint: planned.fingerprint }),
     });
 
     expect(applied.status).toBe(200);
     await expect(readFile(skillPath, 'utf8')).resolves.toContain('TypeScript');
+  });
+
+  it('rejects applying a plan after its files change', async () => {
+    const cwd = await createTemporaryDirectory();
+    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const request = {
+      operations: [{
+        resource: 'john-doe/skills/typescript-review',
+        action: 'install',
+        harnesses: ['claude-code'],
+        scope: 'project',
+      }],
+    };
+    const skillPath = join(cwd, '.claude', 'skills', 'typescript-review', 'SKILL.md');
+
+    const plan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    const planned = await plan.json() as { fingerprint: string };
+    await mkdir(join(cwd, '.claude', 'skills', 'typescript-review'), { recursive: true });
+    await writeFile(skillPath, '# External change\n', 'utf8');
+
+    const applied = await app.request('/api/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...request, planFingerprint: planned.fingerprint }),
+    });
+
+    expect(applied.status).toBe(409);
+    await expect(applied.json()).resolves.toMatchObject({
+      error: 'The change plan is outdated. Generate a new preview before applying.',
+    });
+    await expect(readFile(skillPath, 'utf8')).resolves.toBe('# External change\n');
   });
 
   it('previews stale files removed by a newer harness projection', async () => {
