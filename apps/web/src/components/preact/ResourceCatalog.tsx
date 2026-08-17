@@ -120,6 +120,7 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
   const [selected, setSelected] = useState<Record<string, Action>>({});
   const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
   const [plan, setPlan] = useState<ChangePlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
   const [planStatus, setPlanStatus] = useState('');
   const [planError, setPlanError] = useState(false);
   const [force, setForce] = useState(false);
@@ -213,10 +214,10 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
       action: nextSelected[resourceId(resource)] ?? 'install',
       harnesses: nextHarnesses,
     }));
-    setPlan(null);
     setForce(false);
     setApplied(false);
     setPlanError(false);
+    setPlanLoading(true);
     setPlanStatus('Updating preview…');
 
     try {
@@ -233,6 +234,8 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
         setPlanError(true);
         setPlanStatus(errorMessage(cause, 'Could not generate the change plan.'));
       }
+    } finally {
+      if (currentRequest === requestId.current) setPlanLoading(false);
     }
   }
 
@@ -469,11 +472,31 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
             <i className="ph ph-info text-lg" aria-hidden="true"></i>
             <span>Select resources from the catalog to stage changes here.</span>
           </div>
+        ) : plan ? (
+          <PlanView
+            plan={plan}
+            showResource
+            homeDir={homeDir}
+            actions={selected}
+            onRemove={(resource) => {
+              const resourceSummary = resources.find((candidate) => resourceId(candidate) === resource);
+              if (resourceSummary) selectResource(resourceSummary, false);
+            }}
+            force={force}
+            onForce={setForce}
+            status={planStatus}
+            statusError={planError}
+            busy={busy || planLoading}
+            onApply={() => void applyPlan()}
+          />
         ) : (
-          plan && <PlanView plan={plan} showResource homeDir={homeDir} actions={selected} onRemove={(resource) => {
-            const resourceSummary = resources.find((candidate) => resourceId(candidate) === resource);
-            if (resourceSummary) selectResource(resourceSummary, false);
-          }} force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyPlan()} />
+          <div className="card card-border mt-5 bg-base-100" role="status" aria-live="polite">
+            <div className="card-body gap-3 p-5">
+              <span className="skeleton h-4 w-2/5"></span>
+              <span className="skeleton h-4 w-4/5"></span>
+              <span className="skeleton h-4 w-3/5"></span>
+            </div>
+          </div>
         )}
       </DrawerShell>
     </>
