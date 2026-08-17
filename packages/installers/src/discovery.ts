@@ -27,6 +27,7 @@ export type LocalResource = {
   registryState: LocalResourceRegistryState;
   version?: string;
   latestVersion?: string;
+  scope?: 'user' | 'project';
 };
 
 export type ResourceDiscoveryOptions = HarnessPathOptions & {
@@ -37,7 +38,8 @@ export async function discoverLocalResources(
   options: ResourceDiscoveryOptions = {},
 ): Promise<LocalResource[]> {
   const records = options.records ?? [];
-  const managed = await Promise.all(records.map(localResourceFromRecord));
+  const fileRecords = records.filter((record) => record.kind !== 'mcp');
+  const managed = await Promise.all(fileRecords.map(localResourceFromRecord));
   const managedRecords = records.filter((record) => resourceType(record.resource));
   const discovered: LocalResource[] = [];
 

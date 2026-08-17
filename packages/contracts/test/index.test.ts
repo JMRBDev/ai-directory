@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mcpServerManifestSchema,
   registryIndexSchema,
   resourceIdSchema,
   templateManifestSchema,
@@ -54,6 +55,60 @@ describe('template manifest contract', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe('MCP server manifest contract', () => {
+  it('accepts a remote HTTP server with env-backed headers', () => {
+    expect(
+      mcpServerManifestSchema.parse({
+        name: 'github',
+        description: 'GitHub MCP server.',
+        transport: 'http',
+        url: 'https://api.githubcopilot.com/mcp/',
+        headers: {
+          Authorization: 'Bearer {env:GITHUB_PAT}',
+          'X-MCP-Insiders': 'true',
+        },
+        env: [{ name: 'GITHUB_PAT', required: true }],
+      }),
+    ).toMatchObject({ name: 'github', transport: 'http' });
+  });
+
+  it('accepts a stdio server with env passthrough', () => {
+    expect(
+      mcpServerManifestSchema.parse({
+        name: 'db',
+        description: 'Database MCP server.',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@bytebase/dbhub'],
+        env: [{ name: 'DATABASE_URL', required: true }],
+      }),
+    ).toMatchObject({ name: 'db', transport: 'stdio' });
+  });
+
+  it('rejects an HTTP server without a url', () => {
+    expect(
+      mcpServerManifestSchema.safeParse({
+        name: 'broken',
+        description: 'Broken.',
+        transport: 'http',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a remote server that declares an env variable it never references', () => {
+    expect(
+      mcpServerManifestSchema.safeParse({
+        name: 'broken',
+        description: 'Broken.',
+        transport: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer {env:OTHER}' },
+        env: [{ name: 'TOKEN', required: true }],
+      }).success,
+    ).toBe(false);
   });
 });
 

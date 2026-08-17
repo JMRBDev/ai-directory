@@ -15,10 +15,12 @@ import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import {
   RESOURCE_ENTRY_FILES,
+  mcpServerManifestSchema,
   registryIndexSchema,
   resourceIdSchema,
   resourceVersionSchema,
   templateManifestSchema,
+  type McpServerManifest,
   type ResourceType,
   type ResourceSummary,
   type RegistryIndex,
@@ -631,6 +633,22 @@ export async function validateResourceDirectory(
     });
   }
 
+  if (resource.type === 'mcp-servers') {
+    readMcpServerManifest({
+      resource: {
+        ...resource,
+        description: 'Local resource validation',
+        latestVersion: options.version,
+        reviewStatus: 'unreviewed',
+        lifecycleStatus: 'active',
+        visibility: 'public',
+        updatedAt: 'local',
+      },
+      version: options.version,
+      files,
+    });
+  }
+
   return { sourceDirectory, resource, entryFile, files, description };
 }
 
@@ -864,6 +882,58 @@ export function readTemplateManifest(resource: ResourceVersion): TemplateManifes
   if (result.data.name !== resource.resource.name) {
     throw new Error(
       `Template manifest name does not match resource name: ${result.data.name} !== ${resource.resource.name}`,
+    );
+  }
+
+  return result.data;
+}
+
+export function readMcpServerManifest(resource: ResourceVersion): McpServerManifest {
+  if (resource.resource.type !== 'mcp-servers') {
+    throw new Error(`Resource is not an MCP server: ${resourceKey(resource.resource)}`);
+  }
+
+  const entryFile = resource.files.find((file) => file.path === 'MCP.md');
+
+  if (!entryFile) {
+    throw new Error(`MCP server is missing MCP.md: ${resourceKey(resource.resource)}`);
+  }
+
+  const frontmatter = entryFile.content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+
+  if (!frontmatter) {
+    throw new Error(
+      `MCP manifest is missing YAML frontmatter: ${resourceKey(resource.resource)}@${resource.version}`,
+    );
+  }
+
+  let data: unknown;
+  const yaml = frontmatter[1] ?? '';
+
+  try {
+    data = parseYaml(yaml);
+  } catch (error) {
+    throw new Error(
+      `MCP manifest is not valid YAML: ${resourceKey(resource.resource)}@${resource.version}`,
+      { cause: error },
+    );
+  }
+
+  const result = mcpServerManifestSchema.safeParse(data);
+
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `${issue.path.join('.') || 'manifest'}: ${issue.message}`)
+      .join('; ');
+
+    throw new Error(
+      `MCP manifest is invalid (${resourceKey(resource.resource)}@${resource.version}): ${issues}`,
+    );
+  }
+
+  if (result.data.name !== resource.resource.name) {
+    throw new Error(
+      `MCP manifest name does not match resource name: ${result.data.name} !== ${resource.resource.name}`,
     );
   }
 

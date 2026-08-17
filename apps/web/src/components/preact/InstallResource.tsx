@@ -2,7 +2,16 @@ import { useState } from 'preact/hooks';
 import { useMountEffect } from './useMountEffect';
 import PlanView from './PlanView';
 import { errorMessage, request } from './api';
-import { harnessOptions, type Action, type ChangePlan, type Harness, type Installation } from './types';
+import {
+  harnessOptions,
+  scopeOptions,
+  type Action,
+  type ChangeOperation,
+  type ChangePlan,
+  type Harness,
+  type Installation,
+  type InstallScope,
+} from './types';
 
 type Props = {
   apiUrl: string;
@@ -24,10 +33,12 @@ export default function InstallResource({
   installBase,
 }: Props) {
   const trackedResources = componentResources.length > 0 ? componentResources : [resourceKey];
+  const isMcp = resourceType === 'mcp-servers';
   const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
+  const [scope, setScope] = useState<InstallScope>('user');
   const [records, setRecords] = useState<Installation[]>([]);
   const [plan, setPlan] = useState<ChangePlan | null>(null);
-  const [operations, setOperations] = useState<Array<{ resource: string; harnesses: Harness[]; action: 'install' | 'uninstall' }>>([]);
+  const [operations, setOperations] = useState<ChangeOperation[]>([]);
   const [status, setStatus] = useState(resourceType === 'templates' ? 'Ready to install.' : 'Checking local installations…');
   const [planStatus, setPlanStatus] = useState('');
   const [planError, setPlanError] = useState(false);
@@ -36,7 +47,7 @@ export default function InstallResource({
   const [busy, setBusy] = useState(false);
 
   useMountEffect(() => {
-    if (resourceType !== 'templates') void loadInstallation(['claude-code']);
+    if (resourceType !== 'templates') void loadInstallation(['claude-code'], scope);
   });
 
   function showStatus(message: string, isError = false) {
@@ -63,7 +74,7 @@ export default function InstallResource({
     }
   }
 
-  async function loadInstallation(nextHarnesses = harnesses) {
+  async function loadInstallation(nextHarnesses = harnesses, nextScope = scope) {
     if (nextHarnesses.length === 0) {
       updateInstallation([], nextHarnesses);
       return;
@@ -73,7 +84,8 @@ export default function InstallResource({
       // SAFETY: The installation manifest stores harness values from the known set.
       const nextRecords = (result.installations ?? []).filter(
         (item) => trackedResources.includes(item.resource)
-          && nextHarnesses.includes(item.harness as Harness),
+          && nextHarnesses.includes(item.harness as Harness)
+          && (!isMcp || item.scope === nextScope),
       );
       setHarnesses(nextHarnesses);
       updateInstallation(nextRecords, nextHarnesses);
@@ -98,11 +110,13 @@ export default function InstallResource({
         return;
       }
 
-      const nextOperations = [{
+      const nextOperation: ChangeOperation = {
         resource: resourceKey,
         harnesses: targets,
-        action: action === 'uninstall' ? 'uninstall' as const : 'install' as const,
-      }];
+        action: action === 'uninstall' ? 'uninstall' : 'install',
+      };
+      if (isMcp) nextOperation.scope = scope;
+      const nextOperations = [nextOperation];
       const result = await request<ChangePlan>(apiUrl, '/api/plan', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -129,15 +143,19 @@ export default function InstallResource({
     setPlanError(false);
     setPlanStatus('Applying all changes…');
     try {
-      const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
+      const result = await request<{ plan: ChangePlan; warnings?: string[] }>(apiUrl, '/api/apply', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ operations, force, planFingerprint: plan.fingerprint }),
       });
-      await loadInstallation(harnesses);
+      await loadInstallation(harnesses, scope);
       setOperations([]);
       setPlanError(false);
-      setPlanStatus('Applied ' + result.plan.changes.length + ' file changes.');
+      const warnings = result.warnings ?? [];
+      setPlanStatus(
+        'Applied ' + result.plan.changes.length + ' file change' + (result.plan.changes.length === 1 ? '' : 's') + '.'
+        + (warnings.length ? '\n' + warnings.join('\n') : ''),
+      );
     } catch (cause) {
       setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
@@ -179,6 +197,22 @@ export default function InstallResource({
                 ))}
               </div>
             </fieldset>
+            {isMcp && (
+              <fieldset className="fieldset">
+                <legend className="fieldset-legend">Scope</legend>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {scopeOptions.map((option) => (
+                    <label className="label cursor-pointer justify-start gap-2" key={option.value}>
+                      <input className="radio radio-primary" type="radio" name="mcp-install-scope" value={option.value} checked={scope === option.value} onChange={() => { setScope(option.value); void loadInstallation(harnesses, option.value); }} disabled={busy} />
+                      <span>
+                        {option.label}
+                        <span className="block text-xs text-base-content/60">{option.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
             {missing.length > 0 && <button className="btn btn-primary" type="button" onClick={() => void reviewChanges('install')} disabled={busy}>Review install</button>}

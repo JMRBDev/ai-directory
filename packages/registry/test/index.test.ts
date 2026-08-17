@@ -7,6 +7,7 @@ import {
   createRegistrySnapshot,
   isResourceVersionOutdated,
   publishResource,
+  readMcpServerManifest,
   readRemoteRegistryIndex,
   readRemoteResource,
   resolveRegistrySource,
@@ -24,6 +25,7 @@ const fixturePath = fileURLToPath(new URL('./fixtures/index.json', import.meta.u
 const invalidIndexPath = fileURLToPath(new URL('./fixtures/invalid-index.json', import.meta.url));
 const duplicateIndexPath = fileURLToPath(new URL('./fixtures/duplicate-index.json', import.meta.url));
 const templateIndexPath = fileURLToPath(new URL('./fixtures/template-index.json', import.meta.url));
+const mcpIndexPath = fileURLToPath(new URL('./fixtures/mcp-index.json', import.meta.url));
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -344,6 +346,19 @@ describe('readRegistryIndex', () => {
       'john-doe/skills/typescript-review',
       'jane-doe/agents/api-reviewer',
     ]);
+  });
+
+  it('loads an MCP server manifest from the entry file', async () => {
+    const server = await readResourceVersion(mcpIndexPath, 'john-doe/mcp-servers/github');
+
+    expect(readMcpServerManifest(server)).toEqual({
+      name: 'github',
+      description: 'GitHub MCP server for repository workflows.',
+      transport: 'http',
+      url: 'https://api.githubcopilot.com/mcp/',
+      headers: { Authorization: 'Bearer {env:GITHUB_PAT}' },
+      env: [{ name: 'GITHUB_PAT', required: true, description: 'GitHub personal access token' }],
+    });
   });
 
   it('reports an unknown resource clearly', async () => {
