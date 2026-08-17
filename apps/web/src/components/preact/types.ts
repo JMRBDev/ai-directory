@@ -14,6 +14,12 @@ export function resourceId(resource: Pick<ResourceSummary, 'owner' | 'type' | 'n
   return [resource.owner, resource.type, resource.name].join('/');
 }
 
+export function shortenHomePath(path: string, homeDir?: string) {
+  if (!homeDir) return path;
+  const prefix = homeDir.replace(/\/+$/, '') + '/';
+  return path.startsWith(prefix) ? '~/'.concat(path.slice(prefix.length)) : path;
+}
+
 export type PlanChange = {
   path: string;
   action: 'added' | 'modified' | 'removed';

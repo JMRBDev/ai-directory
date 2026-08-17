@@ -6,6 +6,7 @@ import { harnessOptions, type Action, type ChangePlan, type Harness, type Instal
 
 type Props = {
   apiUrl: string;
+  homeDir: string;
   resourceKey: string;
   resourceType: string;
   componentResources: string[];
@@ -16,6 +17,7 @@ type Intent = Action | 'update';
 
 export default function InstallResource({
   apiUrl,
+  homeDir,
   resourceKey,
   resourceType,
   componentResources,
@@ -202,7 +204,7 @@ export default function InstallResource({
         </div>
       </div>
 
-      {plan && <PlanView plan={plan} title="Review before applying" onClose={() => setPlan(null)} force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyChanges()} />}
+      {plan && <PlanView plan={plan} title="Review before applying" onClose={() => setPlan(null)} homeDir={homeDir} force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyChanges()} />}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {(['project', 'global'] as const).map((commandScope) => (
