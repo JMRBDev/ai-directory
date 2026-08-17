@@ -18,6 +18,10 @@ const resources = (registry.index?.resources ?? [])
 const apiUrl =
   import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? DEFAULT_API_URL;
 const homeDir = homedir();
+
+if (Astro.url.searchParams.get("refresh") === "1") {
+  void fetch(apiUrl + "/api/refresh", { method: "POST" }).catch(() => undefined);
+}
 ---
 
 <!doctype html>
