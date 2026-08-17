@@ -443,6 +443,42 @@ function containerKey(harness: Harness): 'mcp' | 'mcpServers' {
   return harness === 'claude-code' ? 'mcpServers' : 'mcp';
 }
 
+export type DiscoveredMcpServer = {
+  harness: Harness;
+  server: string;
+  path: string;
+};
+
+export async function discoverMcpServers(
+  options: InstallOptions = {},
+): Promise<DiscoveredMcpServer[]> {
+  const harnesses: Harness[] = ['claude-code', 'opencode', 'codex'];
+  const results: DiscoveredMcpServer[] = [];
+
+  for (const harness of harnesses) {
+    const path = await mcpConfigPath(harness, 'user', options);
+    const content = await currentFile(path);
+    if (content === null) continue;
+
+    for (const server of mcpServerNames(harness, content, path)) {
+      results.push({ harness, server, path });
+    }
+  }
+
+  return results;
+}
+
+function mcpServerNames(harness: Harness, content: string, path: string): string[] {
+  try {
+    if (harness === 'codex') {
+      return Object.keys(readTomlConfig(content, path).mcp_servers ?? {});
+    }
+    return Object.keys(readJsonConfig(content, path)[containerKey(harness)] ?? {});
+  } catch {
+    return [];
+  }
+}
+
 function mcpEntryFor(harness: Harness, manifest: McpServerManifest): McpEntryResult {
   switch (harness) {
     case 'claude-code': return { entry: claudeMcpEntry(manifest), notes: [] };

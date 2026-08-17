@@ -1,12 +1,14 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ResourceVersion } from '@ai-directory/registry';
 import {
   applyMcpOperations,
+  discoverLocalResources,
   planMcpOperations,
   readInstallationManifest,
+  type InstallationRecord,
 } from '../src/index.js';
 
 const MCP_ENTRY = `---
@@ -294,6 +296,59 @@ env:
     );
 
     expect(plan.envNotes.join('\n')).not.toContain('CONTEXT7_API_KEY');
+  });
+
+  it('discovers unmanaged MCP servers in user configs', async () => {
+    const directory = await createTemporaryDirectory();
+    const home = join(directory, 'home');
+    const openCodePath = join(home, '.config', 'opencode', 'opencode.json');
+    await mkdir(dirname(openCodePath), { recursive: true });
+    await writeFile(
+      openCodePath,
+      JSON.stringify({ mcp: { 'manual-tools': { type: 'remote', url: 'https://manual.example.com/mcp' } } }),
+      'utf8',
+    );
+
+    const resources = await discoverLocalResources({ homeDirectory: home });
+    const mcp = resources.find((resource) => resource.type === 'mcp-servers');
+
+    expect(mcp).toMatchObject({
+      name: 'manual-tools',
+      harness: 'opencode',
+      state: 'unmanaged',
+      path: openCodePath,
+    });
+    expect(mcp?.resource).toBeUndefined();
+  });
+
+  it('does not list managed MCP servers as unmanaged', async () => {
+    const directory = await createTemporaryDirectory();
+    const home = join(directory, 'home');
+    const openCodePath = join(home, '.config', 'opencode', 'opencode.json');
+    await mkdir(dirname(openCodePath), { recursive: true });
+    await writeFile(
+      openCodePath,
+      JSON.stringify({ mcp: { 'manual-tools': { type: 'remote', url: 'https://manual.example.com/mcp' } } }),
+      'utf8',
+    );
+
+    const record: InstallationRecord = {
+      resource: 'jose-rosendo/mcp-servers/manual-tools',
+      version: '1.0.0',
+      harness: 'opencode',
+      destination: openCodePath,
+      files: [openCodePath],
+      kind: 'mcp',
+      scope: 'user',
+      installedAt: new Date().toISOString(),
+    };
+    const resources = await discoverLocalResources({ homeDirectory: home, records: [record] });
+
+    expect(
+      resources.some(
+        (resource) => resource.type === 'mcp-servers' && resource.name === 'manual-tools',
+      ),
+    ).toBe(false);
   });
 
   it('rejects a server name reserved by Claude Code', async () => {

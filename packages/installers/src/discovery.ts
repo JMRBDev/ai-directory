@@ -5,6 +5,7 @@ import type { RegistryIndex } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/domain';
 import { isResourceVersionOutdated } from '@ai-directory/registry';
 import type { InstallationRecord, ResourceKind } from './index.js';
+import { discoverMcpServers } from './mcp.js';
 import {
   getHarnessDefinitions,
   resolveHarnessPaths,
@@ -52,6 +53,27 @@ export async function discoverLocalResources(
         (candidate) => !matchesManagedRecord(candidate, managedRecords),
       ),
     );
+  }
+
+  const managedMcpRecords = records.filter((record) => record.kind === 'mcp');
+  const discoveredMcpServers = await discoverMcpServers(options);
+  for (const server of discoveredMcpServers) {
+    if (managedMcpRecords.some((record) =>
+      record.harness === server.harness
+      && resourceName(record.resource) === server.server
+      && resolve(record.destination) === resolve(server.path),
+    )) {
+      continue;
+    }
+    discovered.push({
+      type: 'mcp-servers',
+      name: server.server,
+      harness: server.harness,
+      path: server.path,
+      files: [server.path],
+      state: 'unmanaged',
+      registryState: 'unknown',
+    });
   }
 
   return [...managed, ...discovered].sort((left, right) =>
