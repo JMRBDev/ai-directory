@@ -12,7 +12,6 @@ import {
   getRepositorySetting,
   readConfigFile,
   writeConfigFile,
-  type ConfigScope,
 } from '@ai-directory/config';
 import {
   applyResourceOperations,
@@ -23,7 +22,9 @@ import {
   type Harness,
   type InstallScope,
   type InstallationRecord,
+  type LocalResource,
   type ResourceChangeOptions,
+  type ResourceDiscoveryOptions,
   type ResourceOperation,
 } from '@ai-directory/installers';
 import { resourceKey } from '@ai-directory/domain';
@@ -36,8 +37,12 @@ import {
   type CommandRunner,
   type RegistrySnapshot,
   type RegistrySource,
+  type RegistrySourceOptions,
+  type ResourceDirectoryValidationOptions,
+  type SubmitResourceOptions,
   validateResourceDirectory,
 } from '@ai-directory/registry';
+import { z } from 'zod';
 
 const execFileAsync = promisify(execFile);
 
@@ -49,12 +54,37 @@ export type ServerOptions = {
   commandRunner?: CommandRunner;
 };
 
-type ConfigRequest = {
-  repository?: unknown;
-  scope?: unknown;
-};
+type JsonValue = string | boolean | number | null | JsonValue[] | { [key: string]: JsonValue };
+type RequestBody = Record<string, JsonValue | undefined>;
+type MultipartValue = string | File | Array<string | File>;
+type MultipartBody = Record<string, MultipartValue>;
 
-type ResourceRequest = {
+const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
+const installScopeSchema = z.enum(['project', 'global']);
+const configScopeSchema = z.enum(['user', 'project']);
+
+const harnessListSchema = z
+  .union([
+    z.array(harnessSchema),
+    z.string(),
+    harnessSchema,
+  ])
+  .transform((value) => {
+    const items = Array.isArray(value) ? value : value.split(',').map((item) => item.trim()).filter(Boolean);
+    return [...new Set(items)];
+  })
+  .pipe(z.array(harnessSchema).min(1));
+
+const resourceRequestObjectSchema = z.object({
+  resource: z.string().trim().min(1),
+  harnesses: harnessListSchema.optional(),
+  harness: harnessListSchema.optional(),
+  scope: installScopeSchema,
+  version: z.string().trim().min(1).optional(),
+  force: z.boolean().default(false),
+});
+
+type ResourceRequestData = {
   resource: string;
   harnesses: Harness[];
   scope: InstallScope;
@@ -62,71 +92,178 @@ type ResourceRequest = {
   force: boolean;
 };
 
-type ChangeOperation = ResourceRequest & {
-  action: 'install' | 'uninstall';
-};
+function resourceRequestFrom(data: {
+  resource: string;
+  harnesses?: Harness[] | undefined;
+  harness?: Harness[] | undefined;
+  scope: InstallScope;
+  version?: string | undefined;
+  force: boolean;
+}): ResourceRequestData {
+  const harnesses = data.harnesses ?? data.harness ?? [];
+  const result: ResourceRequestData = {
+    resource: data.resource,
+    harnesses,
+    scope: data.scope,
+    force: data.force,
+  };
+  if (data.version !== undefined) result.version = data.version;
 
-type ResourceUpload = {
+  return result;
+}
+
+function requireHarnesses(data: { harnesses?: unknown; harness?: unknown }) {
+  return data.harnesses !== undefined || data.harness !== undefined;
+}
+
+const resourceRequestSchema = resourceRequestObjectSchema
+  .refine(requireHarnesses, {
+    message: 'harnesses must include one or more of claude-code, opencode, or codex.',
+  })
+  .transform(resourceRequestFrom);
+
+type ChangeOperationData = ResourceRequestData & { action: 'install' | 'uninstall' };
+
+const changeOperationSchema = resourceRequestObjectSchema
+  .extend({
+    action: z.enum(['install', 'uninstall']),
+  })
+  .refine(requireHarnesses, {
+    message: 'harnesses must include one or more of claude-code, opencode, or codex.',
+  })
+  .transform((data) => ({ ...resourceRequestFrom(data), action: data.action }));
+
+const changePlanRequestSchema = z.object({
+  operations: z.array(changeOperationSchema).min(1),
+  force: z.boolean().default(false),
+  planFingerprint: z.string().trim().min(1).optional(),
+});
+
+type ChangePlanRequestData = z.infer<typeof changePlanRequestSchema>;
+
+const configRequestSchema = z.object({
+  repository: z.string().trim().min(1),
+  scope: configScopeSchema,
+});
+
+interface ResourceUpload {
   resourceId: string;
   version: string;
   description?: string;
   files: File[];
-};
+}
 
-type UploadResult = {
+interface UploadResult {
   sourceDirectory: string;
   files: string[];
-};
-
-function isConfigScope(value: unknown): value is ConfigScope {
-  return value === 'user' || value === 'project';
 }
 
-function isInstallScope(value: unknown): value is InstallScope {
-  return value === 'project' || value === 'global';
+function requestErrorMessage(issues: z.ZodIssue[]): string {
+  for (const issue of issues) {
+    if (issue.code === 'custom') return issue.message;
+    const field = issue.path[issue.path.length - 1];
+    if (field === 'resource') return 'resource must be a non-empty string.';
+    if (field === 'harness' || field === 'harnesses') {
+      return issue.code === 'too_small'
+        ? 'harnesses must include one or more of claude-code, opencode, or codex.'
+        : 'harnesses must include only claude-code, opencode, or codex.';
+    }
+    if (field === 'scope') return 'scope must be project or global.';
+    if (field === 'version') {
+      return issue.code === 'invalid_type'
+        ? 'version must be a string.'
+        : 'version must be a non-empty string.';
+    }
+    if (field === 'force') return 'force must be a boolean.';
+  }
+
+  return 'Request body must be a JSON object.';
 }
 
-function isHarness(value: unknown): value is Harness {
-  return value === 'claude-code' || value === 'opencode' || value === 'codex';
+function changePlanErrorMessage(issues: z.ZodIssue[]): string {
+  for (const issue of issues) {
+    if (issue.code === 'custom') return issue.message;
+    if (issue.path.length === 0) return 'Request body must be a JSON object.';
+    const field = issue.path[issue.path.length - 1];
+    if (issue.path[0] === 'operations' && issue.path.length === 1) {
+      return 'operations must include one or more resource changes.';
+    }
+    if (issue.path[0] === 'operations' && issue.path.length === 2) {
+      return 'Each operation must be a JSON object.';
+    }
+    if (issue.path[0] === 'operations' && field === 'action') {
+      return 'Each operation action must be install or uninstall.';
+    }
+    if (issue.path[0] === 'operations') {
+      return requestErrorMessage([issue]);
+    }
+    if (field === 'force') return 'force must be a boolean.';
+    if (field === 'planFingerprint') return 'planFingerprint must be a non-empty string.';
+  }
+
+  return 'Request body must be a JSON object.';
 }
 
-function isFile(value: unknown): value is File {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'arrayBuffer' in value &&
-    typeof value.arrayBuffer === 'function' &&
-    'name' in value &&
-    typeof value.name === 'string'
-  );
+function requestError(body: RequestBody): string | null {
+  const result = resourceRequestSchema.safeParse(body);
+  return result.success ? null : requestErrorMessage(result.error.issues);
 }
 
-function uploadFiles(value: unknown): File[] {
-  const values = Array.isArray(value) ? value : [value];
-  return values.filter(isFile);
+function parseResourceRequest(body: RequestBody): ResourceRequestData {
+  return resourceRequestSchema.parse(body);
 }
 
-function uploadText(body: Record<string, unknown>, key: string): string {
+function duplicateOperationError(operations: ChangeOperationData[]): string | null {
+  const keys = new Set<string>();
+  for (const operation of operations) {
+    for (const harness of operation.harnesses) {
+      const key = `${operation.scope}:${harness}:${operation.resource}`;
+      if (keys.has(key)) return `The operation is listed more than once: ${key}.`;
+      keys.add(key);
+    }
+  }
+
+  return null;
+}
+
+function changePlanError(body: RequestBody): string | null {
+  const result = changePlanRequestSchema.safeParse(body);
+  if (!result.success) return changePlanErrorMessage(result.error.issues);
+
+  return duplicateOperationError(result.data.operations);
+}
+
+function parseChangeOperations(body: RequestBody): ChangePlanRequestData {
+  return changePlanRequestSchema.parse(body);
+}
+
+function uploadText(body: MultipartBody, key: string): string {
   const value = body[key];
-  return typeof value === 'string' ? value.trim() : '';
+  if (value === undefined || Array.isArray(value) || value instanceof File) return '';
+  return value.trim();
 }
 
-function parseResourceUpload(body: Record<string, unknown>): ResourceUpload | string {
+function uploadFiles(value: MultipartValue): File[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values.filter((item): item is File => item instanceof File);
+}
+
+type ResourceUploadResult = { ok: true; upload: ResourceUpload } | { ok: false; error: string };
+
+function parseResourceUpload(body: MultipartBody): ResourceUploadResult {
   const resourceId = uploadText(body, 'resourceId');
   const version = uploadText(body, 'version');
   const description = uploadText(body, 'description');
-  const files = uploadFiles(body['files[]'] ?? body.files);
+  const files = uploadFiles(body['files[]'] ?? body.files ?? []);
 
-  if (!resourceId) return 'resourceId must be a non-empty string.';
-  if (!version) return 'version must be a non-empty string.';
-  if (files.length === 0) return 'files must include a resource directory.';
+  if (!resourceId) return { ok: false, error: 'resourceId must be a non-empty string.' };
+  if (!version) return { ok: false, error: 'version must be a non-empty string.' };
+  if (files.length === 0) return { ok: false, error: 'files must include a resource directory.' };
 
-  return {
-    resourceId,
-    version,
-    files,
-    ...(description ? { description } : {}),
-  };
+  const upload: ResourceUpload = { resourceId, version, files };
+  if (description) upload.description = description;
+
+  return { ok: true, upload };
 }
 
 function uploadPath(file: File): string[] {
@@ -181,12 +318,6 @@ async function withResourceUpload<T>(
   }
 }
 
-function harnessValues(value: unknown): string[] {
-  if (typeof value === 'string') return value.split(',').map((item) => item.trim()).filter(Boolean);
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
-  return [];
-}
-
 function configResponse(cwd: string) {
   const setting = getRepositorySetting(undefined, cwd);
 
@@ -201,13 +332,12 @@ function registrySource(options: ServerOptions, cwd: string): RegistrySource {
   const indexPath = configuredIndex?.trim()
     ? resolve(cwd, configuredIndex.trim())
     : undefined;
+  const repositoryValue = getRepositorySetting(undefined, cwd).value;
+  const sourceOptions: RegistrySourceOptions = {};
+  if (indexPath) sourceOptions.indexPath = indexPath;
+  if (repositoryValue) sourceOptions.repositoryUrl = repositoryValue;
 
-  return resolveRegistrySource({
-    ...(indexPath ? { indexPath } : {}),
-    ...(getRepositorySetting(undefined, cwd).value
-      ? { repositoryUrl: getRepositorySetting(undefined, cwd).value }
-      : {}),
-  });
+  return resolveRegistrySource(sourceOptions);
 }
 
 async function githubUsername(options: ServerOptions, cwd: string): Promise<string> {
@@ -237,125 +367,6 @@ async function readInstallationRecords(
   ).flat();
 }
 
-function requestError(body: unknown): string | null {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return 'Request body must be a JSON object.';
-  }
-
-  const request = body as Record<string, unknown>;
-
-  if (typeof request.resource !== 'string' || !request.resource.trim()) {
-    return 'resource must be a non-empty string.';
-  }
-
-  const rawHarnesses = request.harnesses ?? request.harness;
-  const harnesses = harnessValues(rawHarnesses);
-
-  if (harnesses.length === 0) {
-    return 'harnesses must include one or more of claude-code, opencode, or codex.';
-  }
-
-  if (harnesses.some((harness) => !isHarness(harness))) {
-    return 'harnesses must include only claude-code, opencode, or codex.';
-  }
-
-  if (!isInstallScope(request.scope)) {
-    return 'scope must be project or global.';
-  }
-
-  if (request.version !== undefined && typeof request.version !== 'string') {
-    return 'version must be a string.';
-  }
-
-  if (typeof request.version === 'string' && !request.version.trim()) {
-    return 'version must be a non-empty string.';
-  }
-
-  if (request.force !== undefined && typeof request.force !== 'boolean') {
-    return 'force must be a boolean.';
-  }
-
-  if (
-    request.planFingerprint !== undefined &&
-    (typeof request.planFingerprint !== 'string' || !request.planFingerprint.trim())
-  ) {
-    return 'planFingerprint must be a non-empty string.';
-  }
-
-  return null;
-}
-
-function parseResourceRequest(body: unknown): ResourceRequest {
-  const request = body as Record<string, unknown>;
-
-  return {
-    resource: (request.resource as string).trim(),
-    harnesses: [...new Set(harnessValues(request.harnesses ?? request.harness))] as Harness[],
-    scope: request.scope as InstallScope,
-    ...(request.version !== undefined
-      ? { version: (request.version as string).trim() }
-      : {}),
-    force: request.force === true,
-  };
-}
-
-function changePlanError(body: unknown): string | null {
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return 'Request body must be a JSON object.';
-  }
-
-  const request = body as Record<string, unknown>;
-  if (!Array.isArray(request.operations) || request.operations.length === 0) {
-    return 'operations must include one or more resource changes.';
-  }
-
-  if (request.force !== undefined && typeof request.force !== 'boolean') {
-    return 'force must be a boolean.';
-  }
-
-  const keys = new Set<string>();
-  for (const operation of request.operations) {
-    if (typeof operation !== 'object' || operation === null || Array.isArray(operation)) {
-      return 'Each operation must be a JSON object.';
-    }
-
-    const value = operation as Record<string, unknown>;
-    if (value.action !== 'install' && value.action !== 'uninstall') {
-      return 'Each operation action must be install or uninstall.';
-    }
-
-    const error = requestError(operation);
-    if (error) return error;
-
-    const parsed = parseResourceRequest(operation);
-    for (const harness of parsed.harnesses) {
-      const key = `${parsed.scope}:${harness}:${parsed.resource}`;
-      if (keys.has(key)) return `The operation is listed more than once: ${key}.`;
-      keys.add(key);
-    }
-  }
-
-  return null;
-}
-
-function parseChangeOperations(body: unknown): {
-  operations: ChangeOperation[];
-  force: boolean;
-  planFingerprint?: string;
-} {
-  const request = body as Record<string, unknown>;
-  return {
-    operations: (request.operations as unknown[]).map((operation) => ({
-      ...parseResourceRequest(operation),
-      action: (operation as Record<string, unknown>).action as 'install' | 'uninstall',
-    })),
-    force: request.force === true,
-    ...(typeof request.planFingerprint === 'string'
-      ? { planFingerprint: request.planFingerprint }
-      : {}),
-  };
-}
-
 async function installationResourceIds(
   resource: string,
   source: RegistrySource,
@@ -381,15 +392,15 @@ async function withRegistrySnapshot<T>(
 }
 
 function changeOptions(options: ServerOptions, cwd: string): ResourceChangeOptions {
-  return {
-    cwd,
-    ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
-    ...(options.environment ? { environment: options.environment } : {}),
-  };
+  const result: ResourceChangeOptions = { cwd };
+  if (options.homeDirectory) result.homeDirectory = options.homeDirectory;
+  if (options.environment) result.environment = options.environment;
+
+  return result;
 }
 
 async function resolveResourceOperations(
-  operations: ChangeOperation[],
+  operations: ChangeOperationData[],
   snapshot: RegistrySnapshot,
 ): Promise<ResourceOperation[]> {
   return Promise.all(operations.map(async (operation) => {
@@ -402,8 +413,8 @@ async function resolveResourceOperations(
   }));
 }
 
-async function jsonBody(context: { req: { json: <T>() => Promise<T> } }): Promise<unknown> {
-  return context.req.json<unknown>();
+async function jsonBody(context: { req: { json: <T>() => Promise<T> } }): Promise<RequestBody> {
+  return context.req.json<RequestBody>();
 }
 
 export function createApp(options: ServerOptions = {}) {
@@ -424,7 +435,7 @@ export function createApp(options: ServerOptions = {}) {
   app.get('/api/config', (context) => context.json(configResponse(cwd)));
 
   app.put('/api/config', async (context) => {
-    let body: unknown;
+    let body: RequestBody;
 
     try {
       body = await jsonBody(context);
@@ -432,59 +443,62 @@ export function createApp(options: ServerOptions = {}) {
       return context.json({ error: 'Request body must be valid JSON.' }, 400);
     }
 
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      return context.json({ error: 'Request body must be a JSON object.' }, 400);
+    const result = configRequestSchema.safeParse(body);
+
+    if (!result.success) {
+      const issue = result.error.issues[0];
+      const error = issue?.path[0] === 'repository'
+        ? 'repository must be a non-empty string.'
+        : issue?.path[0] === 'scope'
+          ? 'scope must be user or project.'
+          : 'Request body must be a JSON object.';
+      return context.json({ error }, 400);
     }
 
-    const request = body as ConfigRequest;
-
-    if (typeof request.repository !== 'string' || !request.repository.trim()) {
-      return context.json({ error: 'repository must be a non-empty string.' }, 400);
-    }
-
-    if (!isConfigScope(request.scope)) {
-      return context.json({ error: 'scope must be user or project.' }, 400);
-    }
-
+    const request = result.data;
     const path = getConfigPath(request.scope, cwd);
     const current = readConfigFile(path);
-    await writeConfigFile(path, { ...current, repository: request.repository.trim() });
+    await writeConfigFile(path, { ...current, repository: request.repository });
 
     return context.json({ ...configResponse(cwd), savedScope: request.scope });
   });
 
   app.delete('/api/config', async (context) => {
-    const scope = context.req.query('scope');
+    const scopeResult = configScopeSchema.safeParse(context.req.query('scope'));
 
-    if (!isConfigScope(scope)) {
+    if (!scopeResult.success) {
       return context.json({ error: 'scope must be user or project.' }, 400);
     }
 
+    const scope = scopeResult.data;
     await clearConfigFile(getConfigPath(scope, cwd));
     return context.json({ ...configResponse(cwd), clearedScope: scope });
   });
 
   app.post('/api/validate', async (context) => {
-    let body: Record<string, unknown>;
+    let body: MultipartBody;
 
     try {
-      body = await context.req.parseBody({ all: true }) as Record<string, unknown>;
+      body = await context.req.parseBody<{ all: true }, MultipartBody>({ all: true });
     } catch {
       return context.json({ error: 'Request body must be a valid multipart form.' }, 400);
     }
 
-    const upload = parseResourceUpload(body);
-    if (typeof upload === 'string') return context.json({ error: upload }, 400);
+    const uploadResult = parseResourceUpload(body);
+    if (!uploadResult.ok) return context.json({ error: uploadResult.error }, 400);
+    const upload = uploadResult.upload;
 
     try {
-      const result = await withResourceUpload(upload, (sourceDirectory) =>
-        validateResourceDirectory({
+      const result = await withResourceUpload(upload, (sourceDirectory) => {
+        const options: ResourceDirectoryValidationOptions = {
           sourceDirectory,
           resourceId: upload.resourceId,
           version: upload.version,
-          ...(upload.description ? { description: upload.description } : {}),
-        }),
-      );
+        };
+        if (upload.description) options.description = upload.description;
+
+        return validateResourceDirectory(options);
+      });
 
       return context.json({
         resource: `${result.resource.owner}/${result.resource.type}/${result.resource.name}`,
@@ -499,16 +513,17 @@ export function createApp(options: ServerOptions = {}) {
   });
 
   app.post('/api/submit', async (context) => {
-    let body: Record<string, unknown>;
+    let body: MultipartBody;
 
     try {
-      body = await context.req.parseBody({ all: true }) as Record<string, unknown>;
+      body = await context.req.parseBody<{ all: true }, MultipartBody>({ all: true });
     } catch {
       return context.json({ error: 'Request body must be a valid multipart form.' }, 400);
     }
 
-    const upload = parseResourceUpload(body);
-    if (typeof upload === 'string') return context.json({ error: upload }, 400);
+    const uploadResult = parseResourceUpload(body);
+    if (!uploadResult.ok) return context.json({ error: uploadResult.error }, 400);
+    const upload = uploadResult.upload;
 
     try {
       const source = registrySource(options, cwd);
@@ -519,17 +534,19 @@ export function createApp(options: ServerOptions = {}) {
         );
       }
 
-      const result = await withResourceUpload(upload, (sourceDirectory) =>
-        submitResource({
+      const result = await withResourceUpload(upload, (sourceDirectory) => {
+        const submitOptions: SubmitResourceOptions = {
           repositoryUrl: source.repositoryUrl,
           baseBranch: source.baseBranch,
           sourceDirectory,
           resourceId: upload.resourceId,
           version: upload.version,
-          ...(upload.description ? { description: upload.description } : {}),
-          ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
-        }),
-      );
+        };
+        if (upload.description) submitOptions.description = upload.description;
+        if (options.commandRunner) submitOptions.commandRunner = options.commandRunner;
+
+        return submitResource(submitOptions);
+      });
 
       return context.json(result);
     } catch (caught) {
@@ -538,14 +555,14 @@ export function createApp(options: ServerOptions = {}) {
   });
 
   app.get('/api/installed', async (context) => {
-    const requestedScope = context.req.query('scope');
+    const scopeResult = installScopeSchema.safeParse(context.req.query('scope'));
 
-    if (requestedScope !== undefined && !isInstallScope(requestedScope)) {
+    if (context.req.query('scope') !== undefined && !scopeResult.success) {
       return context.json({ error: 'scope must be project or global.' }, 400);
     }
 
-    const scopes: InstallScope[] = requestedScope
-      ? [requestedScope]
+    const scopes: InstallScope[] = scopeResult.success
+      ? [scopeResult.data]
       : ['project', 'global'];
     const installations = await readInstallationRecords(scopes, cwd, options.homeDirectory);
 
@@ -553,25 +570,26 @@ export function createApp(options: ServerOptions = {}) {
   });
 
   app.get('/api/local-resources', async (context) => {
-    const requestedScope = context.req.query('scope');
+    const scopeResult = installScopeSchema.safeParse(context.req.query('scope'));
 
-    if (requestedScope !== undefined && !isInstallScope(requestedScope)) {
+    if (context.req.query('scope') !== undefined && !scopeResult.success) {
       return context.json({ error: 'scope must be project or global.' }, 400);
     }
 
-    const scopes: InstallScope[] = requestedScope
-      ? [requestedScope]
+    const scopes: InstallScope[] = scopeResult.success
+      ? [scopeResult.data]
       : ['project', 'global'];
 
     try {
       const records = await readInstallationRecords(scopes, cwd, options.homeDirectory);
-      const resources = await discoverLocalResources({
+      const discoveryOptions: ResourceDiscoveryOptions = {
         cwd,
-        ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
-        ...(options.environment ? { environment: options.environment } : {}),
         scopes,
         records,
-      });
+      };
+      if (options.homeDirectory) discoveryOptions.homeDirectory = options.homeDirectory;
+      if (options.environment) discoveryOptions.environment = options.environment;
+      const resources = await discoverLocalResources(discoveryOptions);
 
       let registryError: string | undefined;
       let enriched = resources;
@@ -587,17 +605,22 @@ export function createApp(options: ServerOptions = {}) {
         }
       }
 
-      return context.json({
-        resources: enriched,
-        ...(registryError ? { registryError } : {}),
-      });
+      interface LocalResourcesResponse {
+        resources: LocalResource[];
+        registryError?: string;
+      }
+
+      const response: LocalResourcesResponse = { resources: enriched };
+      if (registryError) response.registryError = registryError;
+
+      return context.json(response);
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
     }
   });
 
   app.post('/api/plan', async (context) => {
-    let body: unknown;
+    let body: RequestBody;
 
     try {
       body = await jsonBody(context);
@@ -623,7 +646,7 @@ export function createApp(options: ServerOptions = {}) {
   });
 
   app.post('/api/apply', async (context) => {
-    let body: unknown;
+    let body: RequestBody;
 
     try {
       body = await jsonBody(context);
@@ -677,7 +700,7 @@ export function createApp(options: ServerOptions = {}) {
   });
 
   app.post('/api/install', async (context) => {
-    let body: unknown;
+    let body: RequestBody;
 
     try {
       body = await jsonBody(context);
@@ -718,7 +741,7 @@ export function createApp(options: ServerOptions = {}) {
   });
 
   app.post('/api/update', async (context) => {
-    let body: unknown;
+    let body: RequestBody;
 
     try {
       body = await jsonBody(context);
@@ -866,6 +889,6 @@ function queryBoolean(value: string | undefined): boolean | string | undefined {
   return value === 'true' ? true : value === 'false' ? false : value;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }

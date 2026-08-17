@@ -69,6 +69,7 @@ export default function InstallResource({
     }
     try {
       const result = await request<{ installations?: Installation[] }>(apiUrl, '/api/installed?scope=' + encodeURIComponent(nextScope));
+      // SAFETY: The installation manifest stores harness values from the known set.
       const nextRecords = (result.installations ?? []).filter(
         (item) => trackedResources.includes(item.resource)
           && nextHarnesses.includes(item.harness as Harness)
@@ -181,7 +182,12 @@ export default function InstallResource({
             </fieldset>
             <label className="fieldset">
               <span className="fieldset-legend">Scope</span>
-              <select className="select select-bordered w-full" value={scope} onChange={(event) => { const next = event.currentTarget.value as Scope; setScope(next); void loadInstallation(harnesses, next); }} disabled={busy}>
+              <select className="select select-bordered w-full" value={scope} onChange={(event) => {
+                // SAFETY: The select options are exactly the Scope values.
+                const next = event.currentTarget.value as Scope;
+                setScope(next);
+                void loadInstallation(harnesses, next);
+              }} disabled={busy}>
                 <option value="project">This project</option>
                 <option value="global">All projects</option>
               </select>

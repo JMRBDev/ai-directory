@@ -324,6 +324,7 @@ describe('local control API', () => {
     });
 
     expect(plan.status).toBe(200);
+    // SAFETY: The plan endpoint is contract-tested and returns this exact shape.
     const planned = await plan.json() as { fingerprint: string; changes: Array<{ path: string; action: string }>; conflicts: string[] };
     expect(planned).toMatchObject({
       changes: expect.arrayContaining([
@@ -361,6 +362,7 @@ describe('local control API', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(request),
     });
+    // SAFETY: The plan endpoint is contract-tested and returns this exact shape.
     const planned = await plan.json() as { fingerprint: string };
     await mkdir(join(cwd, '.claude', 'skills', 'typescript-review'), { recursive: true });
     await writeFile(skillPath, '# External change\n', 'utf8');
@@ -394,6 +396,7 @@ describe('local control API', () => {
     await mkdir(join(cwd, '.claude', 'skills', 'typescript-review', 'agents'), { recursive: true });
     await writeFile(stalePath, 'interface:\n  display_name: "Legacy"\n', 'utf8');
     const manifestPath = getInstallManifestPath('project', cwd);
+    // SAFETY: The apply endpoint writes the manifest to disk; the written file matches the contract.
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       installations: Array<{ resource: string; files: string[]; fileHashes: Record<string, string> }>;
     };

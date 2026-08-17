@@ -5,6 +5,7 @@ import { getInstallManifestPath } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
+import { z } from 'zod';
 import {
   resolveHarnessPaths,
   type Harness,
@@ -48,7 +49,7 @@ export type InstallChange = {
   content: string | null;
 };
 
-export type ResourceOperation = {
+export interface ResourceOperation {
   resource: string;
   harnesses: Harness[];
   scope: InstallScope;
@@ -57,7 +58,7 @@ export type ResourceOperation = {
   resources?: ResourceVersion[];
   resourceIds?: string[];
   warningResources?: ResourceVersion[];
-};
+}
 
 export type PlannedResourceChange = {
   path: string;
@@ -90,21 +91,25 @@ export type ResourceApplyResult = {
   warnings: string[];
 };
 
-export type InstallationRecord = {
-  resource: string;
-  version: string;
-  harness: Harness;
-  scope: InstallScope;
-  destination: string;
-  files: string[];
-  fileHashes?: Record<string, string>;
-  installedAt: string;
-};
+export const installationRecordSchema = z.object({
+  resource: z.string().min(1),
+  version: z.string().min(1),
+  harness: z.enum(['claude-code', 'opencode', 'codex']),
+  scope: z.enum(['project', 'global']),
+  destination: z.string().min(1),
+  files: z.array(z.string().min(1)),
+  fileHashes: z.record(z.string(), z.string()).optional(),
+  installedAt: z.string().min(1),
+});
 
-export type InstallationManifest = {
-  schemaVersion: 1;
-  installations: InstallationRecord[];
-};
+export type InstallationRecord = z.infer<typeof installationRecordSchema>;
+
+export const installationManifestSchema = z.object({
+  schemaVersion: z.literal(1),
+  installations: z.array(installationRecordSchema),
+});
+
+export type InstallationManifest = z.infer<typeof installationManifestSchema>;
 
 export type ResourceInstallationMode = 'native' | 'translated' | 'configured';
 
@@ -118,13 +123,11 @@ export type HarnessAdapter = {
 };
 
 export function getHarnessAdapter(value: string): HarnessAdapter {
-  const adapter = harnessAdapters[value as Harness];
-
-  if (!adapter) {
+  if (value !== 'claude-code' && value !== 'opencode' && value !== 'codex') {
     throw new Error(`Unsupported harness: ${value}`);
   }
 
-  return adapter;
+  return harnessAdapters[value];
 }
 
 export { getHarnessDefinition, getHarnessDefinitions } from './harnesses.js';
@@ -188,27 +191,28 @@ export async function installOpenCodeResources(
 
   const fileHashes = await hashInstallPlans(plans);
 
-  return plans.map((plan) => ({
-    destination: plan.destination,
-    files: plan.files.map((file) => file.path),
-    skippedFiles: plan.skippedFiles,
-    paths: [
-      ...plan.files.map((file) => file.destination),
-      ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
-    ],
-    ownedPaths: plan.files.map((file) => file.destination),
-    fileHashes: hashesForPlan(plan, fileHashes),
-    ...(options.dryRun
-      ? {
-          changes: [
-            ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
-            ...(plan.resource.resource.type === 'rules' && config
-              ? [{ path: config.path, content: config.content }]
-              : []),
-          ],
-        }
-      : {}),
-  }));
+  return plans.map((plan) => {
+    const result: InstallResult = {
+      destination: plan.destination,
+      files: plan.files.map((file) => file.path),
+      skippedFiles: plan.skippedFiles,
+      paths: [
+        ...plan.files.map((file) => file.destination),
+        ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
+      ],
+      ownedPaths: plan.files.map((file) => file.destination),
+      fileHashes: hashesForPlan(plan, fileHashes),
+    };
+    if (options.dryRun) {
+      result.changes = [
+        ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
+        ...(plan.resource.resource.type === 'rules' && config
+          ? [{ path: config.path, content: config.content }]
+          : []),
+      ];
+    }
+    return result;
+  });
 }
 
 export async function installCodexResources(
@@ -235,30 +239,31 @@ export async function installCodexResources(
 
   const fileHashes = await hashInstallPlans(plans);
 
-  return plans.map((plan) => ({
-    destination:
-      plan.resource.resource.type === 'rules' && guidance
-        ? guidance.path
-        : plan.destination,
-    files: plan.files.map((file) => file.path),
-    skippedFiles: plan.skippedFiles,
-    paths: [
-      ...plan.files.map((file) => file.destination),
-      ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
-    ],
-    ownedPaths: plan.files.map((file) => file.destination),
-    fileHashes: hashesForPlan(plan, fileHashes),
-    ...(options.dryRun
-      ? {
-          changes: [
-            ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
-            ...(plan.resource.resource.type === 'rules' && guidance
-              ? [{ path: guidance.path, content: guidance.content }]
-              : []),
-          ],
-        }
-      : {}),
-  }));
+  return plans.map((plan) => {
+    const result: InstallResult = {
+      destination:
+        plan.resource.resource.type === 'rules' && guidance
+          ? guidance.path
+          : plan.destination,
+      files: plan.files.map((file) => file.path),
+      skippedFiles: plan.skippedFiles,
+      paths: [
+        ...plan.files.map((file) => file.destination),
+        ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
+      ],
+      ownedPaths: plan.files.map((file) => file.destination),
+      fileHashes: hashesForPlan(plan, fileHashes),
+    };
+    if (options.dryRun) {
+      result.changes = [
+        ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
+        ...(plan.resource.resource.type === 'rules' && guidance
+          ? [{ path: guidance.path, content: guidance.content }]
+          : []),
+      ];
+    }
+    return result;
+  });
 }
 
 async function installResources(
@@ -285,17 +290,20 @@ async function installResources(
 
   const fileHashes = await hashInstallPlans(plans);
 
-  return plans.map((plan) => ({
-    destination: plan.destination,
-    files: plan.files.map((file) => file.path),
-    skippedFiles: plan.skippedFiles,
-    paths: plan.files.map((file) => file.destination),
-    ownedPaths: plan.files.map((file) => file.destination),
-    fileHashes: hashesForPlan(plan, fileHashes),
-    ...(options.dryRun
-      ? { changes: [...plan.files.map((file) => ({ path: file.destination, content: file.content }))] }
-      : {}),
-  }));
+  return plans.map((plan) => {
+    const result: InstallResult = {
+      destination: plan.destination,
+      files: plan.files.map((file) => file.path),
+      skippedFiles: plan.skippedFiles,
+      paths: plan.files.map((file) => file.destination),
+      ownedPaths: plan.files.map((file) => file.destination),
+      fileHashes: hashesForPlan(plan, fileHashes),
+    };
+    if (options.dryRun) {
+      result.changes = plan.files.map((file) => ({ path: file.destination, content: file.content }));
+    }
+    return result;
+  });
 }
 
 async function assertInstallPlansAvailable(
@@ -358,7 +366,7 @@ async function hashInstallPlans(plans: InstallPlan[]): Promise<Record<string, st
 function hashesForPlan(
   plan: InstallPlan,
   hashes: Record<string, string>,
-): Record<string, string> {
+) {
   const result: Record<string, string> = {};
 
   for (const file of plan.files) {
@@ -403,11 +411,11 @@ export const codexInstaller: HarnessAdapter = {
   install: installCodexResources,
 };
 
-const harnessAdapters: Record<Harness, HarnessAdapter> = {
+const harnessAdapters = {
   'claude-code': claudeCodeInstaller,
   opencode: openCodeInstaller,
   codex: codexInstaller,
-};
+} satisfies Record<Harness, HarnessAdapter>;
 
 export async function readInstallationManifest(path: string): Promise<InstallationManifest> {
   let data: unknown;
@@ -419,11 +427,13 @@ export async function readInstallationManifest(path: string): Promise<Installati
     throw new Error(`Installation manifest is not valid JSON: ${path}`, { cause: error });
   }
 
-  if (!isInstallationManifest(data)) {
+  const result = installationManifestSchema.safeParse(data);
+
+  if (!result.success) {
     throw new Error(`Installation manifest is invalid: ${path}`);
   }
 
-  return data;
+  return result.data;
 }
 
 export async function updateInstallationManifest(
@@ -549,10 +559,10 @@ export async function uninstallInstallation(
   const normalized: InstallationRecord = {
     ...record,
     files,
-    ...(record.fileHashes
-      ? { fileHashes: selectHashes(files, record.fileHashes) }
-      : {}),
   };
+  if (record.fileHashes) {
+    normalized.fileHashes = selectHashes(files, record.fileHashes);
+  }
 
   await assertInstallationFilesUnchanged(normalized, options.force ?? false);
   const sharedChanges = await removeSharedConfiguration(record, options);
@@ -849,10 +859,10 @@ export async function removeStaleInstallationFiles(
     const staleRecord: InstallationRecord = {
       ...record,
       files: stale,
-      ...(record.fileHashes
-        ? { fileHashes: selectHashes(stale, record.fileHashes) }
-        : {}),
     };
+    if (record.fileHashes) {
+      staleRecord.fileHashes = selectHashes(stale, record.fileHashes);
+    }
 
     await assertInstallationFilesUnchanged(staleRecord, options?.force ?? false);
     await Promise.all(stale.map((path) => rm(path, { force: true })));
@@ -885,7 +895,7 @@ async function ownedInstallationFiles(
 function selectHashes(
   paths: string[],
   hashes: Record<string, string>,
-): Record<string, string> {
+) {
   const selected: Record<string, string> = {};
 
   for (const path of paths) {
@@ -915,6 +925,27 @@ async function removeSharedConfiguration(
   return [];
 }
 
+function readOpenCodeInstructions(current: string, path: string): string[] | undefined {
+  const errors: Array<{ error: number; offset: number; length: number }> = [];
+  const data = parse(current, errors);
+
+  if (errors.length > 0) {
+    throw new Error(`OpenCode config is not a valid object: ${path}`);
+  }
+
+  const result = openCodeConfigSchema.safeParse(data);
+
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    if (issue?.path[0] === 'instructions') {
+      throw new Error(`OpenCode config instructions must be an array of strings: ${path}`);
+    }
+    throw new Error(`OpenCode config is not a valid object: ${path}`);
+  }
+
+  return result.data.instructions;
+}
+
 async function removeOpenCodeInstruction(
   record: InstallationRecord,
   options: InstallOptions,
@@ -925,29 +956,8 @@ async function removeOpenCodeInstruction(
 
   if (current === null) return null;
 
-  const errors: Array<{ error: number; offset: number; length: number }> = [];
-  const data = parse(current, errors);
-
-  if (
-    errors.length > 0 ||
-    typeof data !== 'object' ||
-    data === null ||
-    Array.isArray(data)
-  ) {
-    throw new Error(`OpenCode config is not a valid object: ${path}`);
-  }
-
-  const currentInstructions = 'instructions' in data ? data.instructions : undefined;
-
-  if (
-    currentInstructions !== undefined &&
-    (!Array.isArray(currentInstructions) ||
-      currentInstructions.some((entry) => typeof entry !== 'string'))
-  ) {
-    throw new Error(`OpenCode config instructions must be an array of strings: ${path}`);
-  }
-
-  if (!Array.isArray(currentInstructions)) return null;
+  const currentInstructions = readOpenCodeInstructions(current, path);
+  if (!currentInstructions) return null;
 
   const entry = toPosixPath(relative(dirname(path), record.destination));
   if (!currentInstructions.includes(entry)) return null;
@@ -1004,53 +1014,9 @@ function installationKey(record: InstallationRecord): string {
   return `${record.scope}:${record.harness}:${record.resource}`;
 }
 
-function isInstallationManifest(value: unknown): value is InstallationManifest {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    'schemaVersion' in value &&
-    value.schemaVersion === 1 &&
-    'installations' in value &&
-    Array.isArray(value.installations) &&
-    value.installations.every(isInstallationRecord)
-  );
-}
-
-function isInstallationRecord(value: unknown): value is InstallationRecord {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'resource' in value &&
-    typeof value.resource === 'string' &&
-    'version' in value &&
-    typeof value.version === 'string' &&
-    'harness' in value &&
-    isHarness(value.harness) &&
-    'scope' in value &&
-    isInstallScope(value.scope) &&
-    'destination' in value &&
-    typeof value.destination === 'string' &&
-    'files' in value &&
-    Array.isArray(value.files) &&
-    value.files.every((file) => typeof file === 'string') &&
-    (!('fileHashes' in value) ||
-      (typeof value.fileHashes === 'object' &&
-        value.fileHashes !== null &&
-        !Array.isArray(value.fileHashes) &&
-        Object.values(value.fileHashes).every((hash) => typeof hash === 'string'))) &&
-    'installedAt' in value &&
-    typeof value.installedAt === 'string'
-  );
-}
-
-function isHarness(value: unknown): value is Harness {
-  return value === 'claude-code' || value === 'opencode' || value === 'codex';
-}
-
-function isInstallScope(value: unknown): value is InstallScope {
-  return value === 'project' || value === 'global';
-}
+const openCodeConfigSchema = z.object({
+  instructions: z.array(z.string()).optional(),
+});
 
 type InstallPlan = {
   resource: ResourceVersion;
@@ -1331,27 +1297,7 @@ async function prepareOpenCodeInstructions(
     };
   }
 
-  const errors: Array<{ error: number; offset: number; length: number }> = [];
-  const data = parse(current, errors);
-
-  if (
-    errors.length > 0 ||
-    typeof data !== 'object' ||
-    data === null ||
-    Array.isArray(data)
-  ) {
-    throw new Error(`OpenCode config is not a valid object: ${path}`);
-  }
-
-  const currentInstructions = 'instructions' in data ? data.instructions : undefined;
-
-  if (
-    currentInstructions !== undefined &&
-    (!Array.isArray(currentInstructions) ||
-      currentInstructions.some((entry) => typeof entry !== 'string'))
-  ) {
-    throw new Error(`OpenCode config instructions must be an array of strings: ${path}`);
-  }
+  const currentInstructions = readOpenCodeInstructions(current, path);
 
   const instructions = currentInstructions === undefined
     ? []
@@ -1516,13 +1462,15 @@ function safeDestination(root: string, resourcePath: string): string {
 }
 
 function publicResourceOperation(operation: ResourceOperation): ResourceOperation {
-  return {
+  const result: ResourceOperation = {
     resource: operation.resource,
     harnesses: operation.harnesses,
     scope: operation.scope,
     action: operation.action,
-    ...(operation.version === undefined ? {} : { version: operation.version }),
   };
+  if (operation.version !== undefined) result.version = operation.version;
+
+  return result;
 }
 
 function operationInstallOptions(
@@ -1531,14 +1479,12 @@ function operationInstallOptions(
   force: boolean,
   dryRun = false,
 ): InstallOptions {
-  return {
-    scope,
-    force,
-    dryRun,
-    ...(options.cwd ? { cwd: options.cwd } : {}),
-    ...(options.homeDirectory ? { homeDirectory: options.homeDirectory } : {}),
-    ...(options.environment ? { environment: options.environment } : {}),
-  };
+  const result: InstallOptions = { scope, force, dryRun };
+  if (options.cwd) result.cwd = options.cwd;
+  if (options.homeDirectory) result.homeDirectory = options.homeDirectory;
+  if (options.environment) result.environment = options.environment;
+
+  return result;
 }
 
 type FileSnapshot = {
@@ -1596,8 +1542,8 @@ function requestWarnings(resources: ResourceVersion[]): string[] {
     .map((resource) => `${resourceKey(resource.resource)}@${resource.version}`))];
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function installationManifestPath(
@@ -1637,6 +1583,11 @@ type InstallationLockOwner = {
   token: string;
 };
 
+const installationLockSchema = z.object({
+  pid: z.number().int().positive(),
+  token: z.string(),
+});
+
 async function withInstallationLocks<T>(
   operations: ResourceOperation[],
   options: ResourceChangeOptions,
@@ -1649,20 +1600,47 @@ async function withInstallationLocks<T>(
   )].sort();
   const locks: InstallationLock[] = [];
 
+  let acquisitionError: unknown;
   try {
     for (const path of lockPaths) locks.push(await acquireInstallationLock(path));
-    return await action();
-  } finally {
-    let releaseError: unknown;
-    for (const lock of locks.reverse()) {
-      try {
-        await lock.release();
-      } catch (error) {
-        releaseError ??= error;
-      }
-    }
-    if (releaseError) throw releaseError;
+  } catch (error) {
+    acquisitionError = error;
   }
+
+  if (acquisitionError !== undefined) {
+    await releaseLocks(locks);
+    throw acquisitionError;
+  }
+
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown };
+  try {
+    const value = await action();
+    outcome = { ok: true, value };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+
+  const releaseError = await releaseLocks(locks);
+
+  if (!outcome.ok) throw releaseError ?? outcome.error;
+  if (releaseError) throw releaseError;
+  return outcome.value;
+}
+
+async function releaseLocks(locks: InstallationLock[]): Promise<Error | undefined> {
+  let releaseError: Error | undefined;
+  for (const lock of locks.reverse()) {
+    try {
+      await lock.release();
+    } catch (error) {
+      releaseError ??= toError(error);
+    }
+  }
+  return releaseError;
+}
+
+function toError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
 }
 
 async function acquireInstallationLock(path: string): Promise<InstallationLock> {
@@ -1712,19 +1690,8 @@ async function readInstallationLock(path: string): Promise<InstallationLockOwner
   }
 
   try {
-    const value: unknown = JSON.parse(content);
-    if (
-      typeof value === 'object' &&
-      value !== null &&
-      'pid' in value &&
-      typeof value.pid === 'number' &&
-      Number.isInteger(value.pid) &&
-      value.pid > 0 &&
-      'token' in value &&
-      typeof value.token === 'string'
-    ) {
-      return { pid: value.pid, token: value.token };
-    }
+    const result = installationLockSchema.safeParse(JSON.parse(content));
+    if (result.success) return { pid: result.data.pid, token: result.data.token };
   } catch {
     return null;
   }
@@ -1787,20 +1754,18 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function isMissingPathError(error: unknown): boolean {
+function isMissingPathError(cause: unknown): boolean {
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'ENOENT'
+    cause instanceof Object &&
+    'code' in cause &&
+    cause.code === 'ENOENT'
   );
 }
 
-function isPathExistsError(error: unknown): boolean {
+function isPathExistsError(cause: unknown): boolean {
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'EEXIST'
+    cause instanceof Object &&
+    'code' in cause &&
+    cause.code === 'EEXIST'
   );
 }

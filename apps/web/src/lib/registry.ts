@@ -7,17 +7,18 @@ import {
   resolveRegistrySource,
   type RegistrySnapshot,
   type RegistrySource,
+  type RegistrySourceOptions,
   type ResourceVersion,
 } from '@ai-directory/registry';
 import type { RegistryIndex, ResourceSummary } from '@ai-directory/contracts';
 
-export type RegistryView = {
+export interface RegistryView {
   index: RegistryIndex | null;
   indexPath?: string;
   source: 'local' | 'remote';
   repository?: string;
   error?: string;
-};
+}
 
 type CachedRemoteRegistry = {
   key: string;
@@ -103,10 +104,10 @@ export async function loadRegistry(): Promise<RegistryView> {
   const repository = getRepositorySetting(undefined, getConfigCwd()).value;
 
   try {
-    const source = resolveRegistrySource({
-      ...(indexPath ? { indexPath } : {}),
-      ...(repository ? { repositoryUrl: repository } : {}),
-    });
+    const sourceOptions: RegistrySourceOptions = {};
+    if (indexPath) sourceOptions.indexPath = indexPath;
+    if (repository) sourceOptions.repositoryUrl = repository;
+    const source = resolveRegistrySource(sourceOptions);
 
     if (source.type === 'local') {
       return {
@@ -123,13 +124,15 @@ export async function loadRegistry(): Promise<RegistryView> {
       source: source.type,
     };
   } catch (error) {
-    return {
+    const view: RegistryView = {
       index: null,
-      ...(indexPath ? { indexPath } : {}),
-      ...(repository ? { repository } : {}),
       source: indexPath ? 'local' : 'remote',
       error: error instanceof Error ? error.message : String(error),
     };
+    if (indexPath) view.indexPath = indexPath;
+    if (repository) view.repository = repository;
+
+    return view;
   }
 }
 
@@ -139,10 +142,10 @@ export async function loadResource(
   repository?: string,
 ): Promise<{ version: ResourceVersion | null; resources: ResourceVersion[]; error?: string }> {
   try {
-    const source = resolveRegistrySource({
-      ...(indexPath ? { indexPath } : {}),
-      ...(repository ? { repositoryUrl: repository } : {}),
-    });
+    const sourceOptions: RegistrySourceOptions = {};
+    if (indexPath) sourceOptions.indexPath = indexPath;
+    if (repository) sourceOptions.repositoryUrl = repository;
+    const source = resolveRegistrySource(sourceOptions);
 
     const result = source.type === 'remote'
       ? await (await getRemoteRegistry(source)).snapshot.readResource(

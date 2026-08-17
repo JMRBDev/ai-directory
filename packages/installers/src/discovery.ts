@@ -274,6 +274,6 @@ async function hashFile(path: string): Promise<string | null> {
   }
 }
 
-function isMissingPathError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+function isMissingPathError(cause: unknown): boolean {
+  return cause instanceof Object && 'code' in cause && cause.code === 'ENOENT';
 }

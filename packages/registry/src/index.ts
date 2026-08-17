@@ -27,6 +27,7 @@ import {
 import { resourceKey } from '@ai-directory/domain';
 import { gt as isGreaterVersion, valid as isValidVersion } from 'semver';
 import { parse as parseYaml } from 'yaml';
+import { z } from 'zod';
 
 export type ResourceFile = {
   path: string;
@@ -89,12 +90,12 @@ export type PublishResourceResult = {
   files: string[];
 };
 
-export type ResourceDirectoryValidationOptions = {
+export interface ResourceDirectoryValidationOptions {
   sourceDirectory: string;
   resourceId: string;
   version: string;
   description?: string;
-};
+}
 
 export type ResourceDirectoryValidationResult = {
   sourceDirectory: string;
@@ -136,6 +137,10 @@ export type SubmitResourceResult = {
 
 const execFileAsync = promisify(execFile);
 
+const yamlMetadataSchema = z.object({
+  description: z.string().optional(),
+});
+
 function oneLine(value: string): string {
   return value.replace(/\s+/gu, ' ').trim();
 }
@@ -145,10 +150,9 @@ export function inferResourceDescription(content: string): string | undefined {
 
   if (frontmatter) {
     try {
-      const metadata = parseYaml(frontmatter[1] ?? '') as { description?: unknown };
-      if (typeof metadata.description === 'string' && metadata.description.trim()) {
-        return oneLine(metadata.description);
-      }
+      const result = yamlMetadataSchema.safeParse(parseYaml(frontmatter[1] ?? ''));
+      const description = result.success ? result.data.description?.trim() : undefined;
+      if (description) return oneLine(description);
     } catch {
       // The resource validator reports malformed template frontmatter separately.
     }
@@ -164,20 +168,6 @@ export function inferResourceDescription(content: string): string | undefined {
 
   const heading = body.match(/^\s*#{1,6}\s+(.+)$/mu)?.[1];
   return heading ? oneLine(heading) : undefined;
-}
-
-function parseRegistryIndex(data: unknown, source: string): RegistryIndex {
-  const result = registryIndexSchema.safeParse(data);
-
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((issue) => `${issue.path.join('.') || 'index'}: ${issue.message}`)
-      .join('; ');
-
-    throw new Error(`Registry index is invalid (${source}): ${issues}`);
-  }
-
-  return result.data;
 }
 
 export async function readRegistryIndex(filePath: string): Promise<RegistryIndex> {
@@ -197,7 +187,17 @@ export async function readRegistryIndex(filePath: string): Promise<RegistryIndex
     throw new Error(`Registry index is not valid JSON: ${filePath}`, { cause: error });
   }
 
-  return parseRegistryIndex(data, filePath);
+  const result = registryIndexSchema.safeParse(data);
+
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `${issue.path.join('.') || 'index'}: ${issue.message}`)
+      .join('; ');
+
+    throw new Error(`Registry index is invalid (${filePath}): ${issues}`);
+  }
+
+  return result.data;
 }
 
 async function readResourceFiles(directory: string, prefix = ''): Promise<ResourceFile[]> {
@@ -283,17 +283,17 @@ export async function validateRemoteRegistry(
 ): Promise<RegistryValidationResult> {
   const index = await readRemoteRegistryIndex(options);
 
-  return validateResourceIndex(index, async (resource) =>
-    (
-      await readRemoteResource({
-        repositoryUrl: options.repositoryUrl,
-        resourceId: resourceKey(resource),
-        version: resource.latestVersion,
-        ...(options.baseBranch ? { baseBranch: options.baseBranch } : {}),
-        ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
-      })
-    ).resource,
-  );
+  return validateResourceIndex(index, async (resource) => {
+    const resourceOptions: RemoteResourceOptions = {
+      repositoryUrl: options.repositoryUrl,
+      resourceId: resourceKey(resource),
+      version: resource.latestVersion,
+    };
+    if (options.baseBranch) resourceOptions.baseBranch = options.baseBranch;
+    if (options.commandRunner) resourceOptions.commandRunner = options.commandRunner;
+
+    return (await readRemoteResource(resourceOptions)).resource;
+  });
 }
 
 export async function readRemoteResource(
@@ -428,11 +428,13 @@ function createRemoteRegistrySnapshot(
   };
 }
 
-export function resolveRegistrySource(options: {
+export interface RegistrySourceOptions {
   indexPath?: string;
   repositoryUrl?: string;
   baseBranch?: string;
-}): RegistrySource {
+}
+
+export function resolveRegistrySource(options: RegistrySourceOptions): RegistrySource {
   if (options.indexPath?.trim()) {
     return { type: 'local', indexPath: options.indexPath.trim() };
   }
@@ -472,12 +474,14 @@ export function readRegistrySourceResource(
   version?: string,
 ): Promise<RemoteResourceResult> {
   if (source.type === 'remote') {
-    return readRemoteResource({
+    const options: RemoteResourceOptions = {
       repositoryUrl: source.repositoryUrl,
       resourceId,
       baseBranch: source.baseBranch,
-      ...(version === undefined ? {} : { version }),
-    });
+    };
+    if (version !== undefined) options.version = version;
+
+    return readRemoteResource(options);
   }
 
   return readResourceVersion(source.indexPath, resourceId, version).then(async (resource) => ({
@@ -501,12 +505,14 @@ export function validateRegistrySource(source: RegistrySource): Promise<Registry
 export async function publishResource(
   options: PublishResourceOptions,
 ): Promise<PublishResourceResult> {
-  const validation = await validateResourceDirectory({
+  const validationOptions: ResourceDirectoryValidationOptions = {
     sourceDirectory: options.sourceDirectory,
     resourceId: options.resourceId,
     version: options.version,
-    ...(options.description ? { description: options.description } : {}),
-  });
+  };
+  if (options.description) validationOptions.description = options.description;
+
+  const validation = await validateResourceDirectory(validationOptions);
   const identity = validation.resource;
   const description = validation.description;
   const index = await readRegistryIndex(options.indexPath);
@@ -942,6 +948,8 @@ function resourcePackagePath(
 function parseResourceId(resourceId: string): Pick<ResourceSummary, 'owner' | 'type' | 'name'> {
   const parts = resourceId.split('/');
 
+  // SAFETY: Callers validate resourceId against resourceIdSchema first, which
+  // requires exactly owner/type/name as non-empty slug segments.
   return {
     owner: parts[0] as string,
     type: parts[1] as ResourceType,
@@ -1033,10 +1041,10 @@ async function runCommand(
   };
 }
 
-function isMissingPathError(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  if ('code' in error && error.code === 'ENOENT') return true;
-  if ('cause' in error) return isMissingPathError(error.cause);
+function isMissingPathError(cause: unknown): boolean {
+  if (!(cause instanceof Object)) return false;
+  if ('code' in cause && cause.code === 'ENOENT') return true;
+  if ('cause' in cause) return isMissingPathError(cause.cause);
 
   return false;
 }

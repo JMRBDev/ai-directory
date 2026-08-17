@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks';
+import { z } from 'zod';
 import { useMountEffect } from './useMountEffect';
 import { closeDrawers, errorMessage, request } from './api';
 import DrawerShell from './DrawerShell';
@@ -19,16 +20,16 @@ type Review = {
   description: string;
 };
 
-type ApiResult = {
-  error?: string;
-  username?: string;
-  pullRequestUrl?: string;
-  resource?: string;
-  version?: string;
-  entryFile?: string;
-  files?: unknown;
-  description?: string;
-};
+const apiResultSchema = z.object({
+  error: z.string().optional(),
+  username: z.string().min(1).optional(),
+  pullRequestUrl: z.string().optional(),
+  resource: z.string().optional(),
+  version: z.string().optional(),
+  entryFile: z.string().optional(),
+  files: z.array(z.string()).optional(),
+  description: z.string().optional(),
+});
 
 function pathFor(file: DirectoryFile) {
   const path = file.webkitRelativePath || file.name;
@@ -61,11 +62,12 @@ export default function PublishForm({ apiUrl }: Props) {
 
   async function loadGithubUsername() {
     try {
-      const result = await request<ApiResult>(apiUrl, '/api/github-user');
-      if (typeof result.username !== 'string') {
+      const result = apiResultSchema.parse(await request<unknown>(apiUrl, '/api/github-user'));
+      const username = result.username?.trim();
+      if (!username) {
         throw new Error(result.error ?? 'Could not determine the GitHub username.');
       }
-      setOwner(result.username);
+      setOwner(username);
       showStatus('Ready to validate.');
     } catch (cause) {
       showStatus(errorMessage(cause, 'Could not determine the GitHub username.'), true);
@@ -79,7 +81,9 @@ export default function PublishForm({ apiUrl }: Props) {
   }
 
   function onFilesChange(event: Event) {
+    // SAFETY: The handler is attached to the resource directory file input.
     const input = event.currentTarget as HTMLInputElement;
+    // SAFETY: A file input produces File objects, which satisfy DirectoryFile.
     setFiles(Array.from(input.files ?? []) as DirectoryFile[]);
     resetValidation();
   }
@@ -94,7 +98,7 @@ export default function PublishForm({ apiUrl }: Props) {
   }
 
   async function submit(path: string) {
-    return request<ApiResult>(apiUrl, path, {
+    return request<unknown>(apiUrl, path, {
       method: 'POST',
       body: formData(),
     });
@@ -114,16 +118,13 @@ export default function PublishForm({ apiUrl }: Props) {
     setBusy(true);
     showStatus('Validating resource…');
     try {
-      const result = await submit('/api/validate');
-      const reviewFiles = Array.isArray(result.files)
-        ? result.files.filter((file): file is string => typeof file === 'string')
-        : [];
+      const result = apiResultSchema.parse(await submit('/api/validate'));
       const nextReview = {
-        resource: String(result.resource ?? [owner, type, name].join('/')),
-        version: String(result.version ?? version),
-        entryFile: String(result.entryFile ?? 'Not found'),
-        files: reviewFiles,
-        description: typeof result.description === 'string' ? result.description.trim() : '',
+        resource: result.resource ?? [owner, type, name].join('/'),
+        version: result.version ?? version,
+        entryFile: result.entryFile ?? 'Not found',
+        files: result.files ?? [],
+        description: (result.description ?? '').trim(),
       };
       setReview(nextReview);
       setDescription(nextReview.description);
@@ -142,8 +143,8 @@ export default function PublishForm({ apiUrl }: Props) {
     setBusy(true);
     showStatus('Creating pull request…');
     try {
-      const result = await submit('/api/submit');
-      const url = typeof result.pullRequestUrl === 'string' ? result.pullRequestUrl : '';
+      const result = apiResultSchema.parse(await submit('/api/submit'));
+      const url = result.pullRequestUrl ?? '';
       setPullRequestUrl(url);
       setValidated(false);
       showStatus(url ? 'Pull request created: ' + url : 'Pull request created.');
