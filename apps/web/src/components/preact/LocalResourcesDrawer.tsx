@@ -11,17 +11,17 @@ type Props = {
 type ScopeFilter = 'all' | Scope;
 type HarnessFilter = 'all' | Harness;
 
-const harnessLabels: Record<Harness, string> = {
+const harnessLabels = {
   'claude-code': 'Claude Code',
   opencode: 'OpenCode',
   codex: 'Codex',
-};
+} satisfies Record<Harness, string>;
 
-const typeLabels: Record<LocalResource['type'], string> = {
+const typeLabels = {
   skills: 'Skill',
   agents: 'Agent',
   rules: 'Rule',
-};
+} satisfies Record<LocalResource['type'], string>;
 
 function stateLabel(state: LocalResource['state']) {
   return state === 'managed'
@@ -183,7 +183,10 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <label className="fieldset">
           <span className="fieldset-legend">Scope</span>
-          <select className="select w-full" value={scope} onChange={(event) => setScope(event.currentTarget.value as ScopeFilter)}>
+          <select className="select w-full" value={scope} onChange={(event) => {
+            // SAFETY: The select options are exactly the ScopeFilter values.
+            setScope(event.currentTarget.value as ScopeFilter);
+          }}>
             <option value="all">All scopes</option>
             <option value="project">This project</option>
             <option value="global">All projects</option>
@@ -191,7 +194,10 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
         </label>
         <label className="fieldset">
           <span className="fieldset-legend">Harness</span>
-          <select className="select w-full" value={harness} onChange={(event) => setHarness(event.currentTarget.value as HarnessFilter)}>
+          <select className="select w-full" value={harness} onChange={(event) => {
+            // SAFETY: The select options are exactly the HarnessFilter values.
+            setHarness(event.currentTarget.value as HarnessFilter);
+          }}>
             <option value="all">All harnesses</option>
             <option value="claude-code">Claude Code</option>
             <option value="opencode">OpenCode</option>

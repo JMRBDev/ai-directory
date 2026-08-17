@@ -37,6 +37,9 @@ import {
   select,
   spinner,
   text,
+  type AutocompleteMultiSelectOptions,
+  type SelectOptions,
+  type TextOptions,
 } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
 import {
@@ -49,6 +52,7 @@ import {
   type HarnessDetection,
   type InstallScope,
   type InstallationRecord,
+  type ResourceOperation,
 } from '@ai-directory/installers';
 import {
   readRemoteRegistryIndex,
@@ -58,6 +62,8 @@ import {
   submitResource,
   validateResourceDirectory,
   validateRegistrySource,
+  type RegistrySourceOptions,
+  type SubmitResourceOptions,
 } from '@ai-directory/registry';
 
 const localIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX;
@@ -71,11 +77,7 @@ const resourceTypeOptions = [
 
 function getRegistrySource(indexPath?: string, repository?: string, baseBranch?: string) {
   const repositoryUrl = resolveRepository(repository);
-  const sourceOptions: {
-    indexPath?: string;
-    repositoryUrl?: string;
-    baseBranch?: string;
-  } = {};
+  const sourceOptions: RegistrySourceOptions = {};
   const localPath = indexPath ?? (repository?.trim() ? undefined : localIndexPath);
 
   if (localPath) sourceOptions.indexPath = localPath;
@@ -104,19 +106,26 @@ function parseHarnesses(value: string | undefined, rawArgs: string[]): Harness[]
     .flatMap((item) => item.split(','))
     .map((item) => item.trim())
     .filter(Boolean);
-  const harnesses = [...new Set(values)];
+  const seen = new Set<string>();
+  const harnesses: Harness[] = [];
+
+  for (const candidate of values) {
+    if (!isHarness(candidate)) {
+      throw new Error(
+        `Unsupported harness. Choose one or more of: claude-code, opencode, codex.`,
+      );
+    }
+    if (!seen.has(candidate)) {
+      seen.add(candidate);
+      harnesses.push(candidate);
+    }
+  }
 
   if (harnesses.length === 0) {
     throw new Error('Select one or more harnesses with --harness.');
   }
 
-  if (harnesses.some((harness) => !isHarness(harness))) {
-    throw new Error(
-      `Unsupported harness. Choose one or more of: claude-code, opencode, codex.`,
-    );
-  }
-
-  return harnesses as Harness[];
+  return harnesses;
 }
 
 function hasHarnessArgument(rawArgs: string[]): boolean {
@@ -140,6 +149,13 @@ function cancelled(message: string): undefined {
   return undefined;
 }
 
+interface SpawnEnvironment extends NodeJS.ProcessEnv {
+  AI_DIRECTORY_CONFIG_CWD: string;
+  AI_DIRECTORY_PORT?: string;
+  AI_DIRECTORY_REGISTRY_INDEX?: string;
+  PUBLIC_AI_DIRECTORY_API_URL?: string;
+}
+
 function isInteractiveTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }
@@ -149,14 +165,16 @@ async function promptRequiredText(
   placeholder: string,
   initialValue?: string,
 ): Promise<string | undefined> {
-  const answer = await text({
+  const options: TextOptions = {
     message,
     placeholder,
-    ...(initialValue ? { initialValue } : {}),
     validate(value) {
       if (!value?.trim()) return 'This value is required.';
     },
-  });
+  };
+  if (initialValue) options.initialValue = initialValue;
+
+  const answer = await text(options);
 
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer.trim();
 }
@@ -354,26 +372,30 @@ async function promptResource(source: ReturnType<typeof resolveRegistrySource>):
 }
 
 async function promptHarnesses(initialValues?: Harness[]): Promise<Harness[] | undefined> {
-  const answer = await autocompleteMultiselect({
+  const options: AutocompleteMultiSelectOptions<Harness> = {
     message: 'Which coding harnesses should be configured?',
     placeholder: 'Type to filter harnesses',
     options: harnessOptions,
-    ...(initialValues ? { initialValues } : {}),
     required: true,
-  });
+  };
+  if (initialValues) options.initialValues = initialValues;
+
+  const answer = await autocompleteMultiselect(options);
 
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
 }
 
 async function promptScope(initialValue?: InstallScope): Promise<InstallScope | undefined> {
-  const answer = await select({
+  const options: SelectOptions<InstallScope> = {
     message: 'Where should this resource be installed?',
     options: [
       { value: 'project' as const, label: 'This project', hint: 'Available in the current project' },
       { value: 'global' as const, label: 'All projects', hint: 'Available in your user setup' },
     ],
-    ...(initialValue ? { initialValue } : {}),
-  });
+  };
+  if (initialValue) options.initialValue = initialValue;
+
+  const answer = await select(options);
 
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
 }
@@ -514,8 +536,8 @@ async function promptInstalledHarnesses(
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
 }
 
-function isForceableError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+function isForceableError(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
   return /Use --force|modified|ownership hashes|Change plan contains conflicts/u.test(message);
 }
 
@@ -1035,19 +1057,20 @@ const submit = defineCommand({
       }
 
       const source = getRegistrySource(args.index, args.repository, args.base);
-      const result = await submitResource({
-        ...(source.type === 'local' ? { indexPath: source.indexPath } : {}),
+      const submitOptions: SubmitResourceOptions = {
         sourceDirectory: sourcePath,
         resourceId,
         version,
-        ...(description ? { description } : {}),
         baseBranch: args.base,
         remote: args.remote,
-        ...(source.type === 'remote' ? { repositoryUrl: source.repositoryUrl } : {}),
-        ...(args.branch !== undefined ? { branch: args.branch } : {}),
-        ...(args.title !== undefined ? { title: args.title } : {}),
-        ...(args.body !== undefined ? { body: args.body } : {}),
-      });
+      };
+      if (source.type === 'local') submitOptions.indexPath = source.indexPath;
+      if (description) submitOptions.description = description;
+      if (source.type === 'remote') submitOptions.repositoryUrl = source.repositoryUrl;
+      if (args.branch !== undefined) submitOptions.branch = args.branch;
+      if (args.title !== undefined) submitOptions.title = args.title;
+      if (args.body !== undefined) submitOptions.body = args.body;
+      const result = await submitResource(submitOptions);
 
       console.log(
         `Submitted ${resourceKey(result.resource)}@${result.resource.latestVersion} as Unreviewed.`,
@@ -1149,16 +1172,18 @@ const install = defineCommand({
         interactive,
         args.force ?? false,
         async (force) => {
+          const operation: ResourceOperation = {
+            resource,
+            harnesses,
+            scope,
+            action: 'install',
+            resources,
+            warningResources: [result, ...resources],
+          };
+          if (args.version !== undefined) operation.version = args.version;
+
           return applyResourceOperations(
-            [{
-              resource,
-              harnesses,
-              scope,
-              action: 'install',
-              resources,
-              warningResources: [result, ...resources],
-              ...(args.version === undefined ? {} : { version: args.version }),
-            }],
+            [operation],
             { cwd: process.cwd() },
             force,
           );
@@ -1594,14 +1619,15 @@ const web = defineCommand({
     const indexPath = args.index ? resolve(workspaceRoot, args.index) : undefined;
     const apiPort = args['api-port'] ?? String(DEFAULT_API_PORT);
     const apiUrl = `http://${DEFAULT_API_HOST}:${apiPort}`;
+    const apiEnv: SpawnEnvironment = {
+      ...process.env,
+      AI_DIRECTORY_CONFIG_CWD: process.cwd(),
+      AI_DIRECTORY_PORT: apiPort,
+    };
+    if (indexPath) apiEnv.AI_DIRECTORY_REGISTRY_INDEX = indexPath;
     const api = Bun.spawn(['pnpm', '--filter', '@ai-directory/api', 'dev'], {
       cwd: workspaceRoot,
-      env: {
-        ...process.env,
-        AI_DIRECTORY_CONFIG_CWD: process.cwd(),
-        AI_DIRECTORY_PORT: apiPort,
-        ...(indexPath ? { AI_DIRECTORY_REGISTRY_INDEX: indexPath } : {}),
-      },
+      env: apiEnv,
       stderr: 'inherit',
       stdout: 'inherit',
     });
@@ -1623,14 +1649,16 @@ const web = defineCommand({
       console.log(`Local configuration API: ${apiUrl}`);
       console.log(`Registry source: ${indexPath ?? 'configured Git repository'}`);
 
+      const webEnv: SpawnEnvironment = {
+        ...process.env,
+        AI_DIRECTORY_CONFIG_CWD: process.cwd(),
+        PUBLIC_AI_DIRECTORY_API_URL: apiUrl,
+      };
+      if (indexPath) webEnv.AI_DIRECTORY_REGISTRY_INDEX = indexPath;
+
       const child = Bun.spawn(command, {
         cwd: webDirectory,
-        env: {
-          ...process.env,
-          AI_DIRECTORY_CONFIG_CWD: process.cwd(),
-          PUBLIC_AI_DIRECTORY_API_URL: apiUrl,
-          ...(indexPath ? { AI_DIRECTORY_REGISTRY_INDEX: indexPath } : {}),
-        },
+        env: webEnv,
         stderr: 'inherit',
         stdout: 'inherit',
       });
@@ -1697,14 +1725,16 @@ const setup = defineCommand({
       let repository = args.repository?.trim() || existing.value;
 
       if (!args.repository && !nonInteractive) {
-        const answer = await text({
+        const options: TextOptions = {
           message: 'What is the registry Git URL?',
           placeholder: 'git@github.com:company/ai-directory-registry.git',
-          ...(existing.value ? { initialValue: existing.value } : {}),
           validate(value) {
             if (!value?.trim()) return 'A registry Git URL is required.';
           },
-        });
+        };
+        if (existing.value) options.initialValue = existing.value;
+
+        const answer = await text(options);
 
         if (isCancel(answer)) {
           cancel('Setup cancelled.');
@@ -1723,6 +1753,7 @@ const setup = defineCommand({
       let scope: ConfigScope;
 
       if (args.scope) {
+        // SAFETY: citty validates enum args against the ['user', 'project'] options.
         scope = args.scope as ConfigScope;
       } else if (nonInteractive) {
         scope = 'user';
@@ -1740,6 +1771,7 @@ const setup = defineCommand({
           return;
         }
 
+        // SAFETY: select() only returns one of the configured ['user', 'project'] values.
         scope = answer as ConfigScope;
       }
 
@@ -1777,6 +1809,18 @@ const setup = defineCommand({
   },
 });
 
+interface RegistryDiagnostics {
+  ok: boolean;
+  repository: string | null;
+  source: string;
+  branch: string;
+  resourceCount?: number;
+  activeCount?: number;
+  unreviewedCount?: number;
+  harnesses: HarnessDetection[];
+  error?: string;
+}
+
 const doctor = defineCommand({
   meta: {
     name: 'doctor',
@@ -1799,17 +1843,7 @@ const doctor = defineCommand({
   },
   async run({ args }) {
     const setting = getRepositorySetting(args.repository);
-    const diagnostics: {
-      ok: boolean;
-      repository: string | null;
-      source: string;
-      branch: string;
-      resourceCount?: number;
-      activeCount?: number;
-      unreviewedCount?: number;
-      harnesses: HarnessDetection[];
-      error?: string;
-    } = {
+    const diagnostics: RegistryDiagnostics = {
       ok: false,
       repository: setting.value ?? null,
       source: setting.source,
@@ -1915,6 +1949,7 @@ const configGet = defineCommand({
     assertConfigKey(args.key);
 
     if (args.scope) {
+      // SAFETY: citty validates enum args against the ['user', 'project'] options.
       const scope = args.scope as ConfigScope;
       const value = readConfigFile(getConfigPath(scope)).repository;
       console.log(value ?? `Repository is not configured in the ${scope} config.`);
@@ -1956,6 +1991,7 @@ const configSet = defineCommand({
 
     if (!value) throw new Error('Repository URL cannot be empty.');
 
+    // SAFETY: citty validates enum args against the ['user', 'project'] options.
     const scope = args.scope as ConfigScope;
     const path = getConfigPath(scope);
     const current = readConfigFile(path);
@@ -1986,6 +2022,7 @@ const configClear = defineCommand({
   async run({ args }) {
     assertConfigKey(args.key);
 
+    // SAFETY: citty validates enum args against the ['user', 'project'] options.
     const scope = args.scope as ConfigScope;
     const path = getConfigPath(scope);
     await clearConfigFile(path);
@@ -2007,6 +2044,7 @@ const configPath = defineCommand({
     },
   },
   run({ args }) {
+    // SAFETY: citty validates enum args against the ['user', 'project'] options.
     console.log(getConfigPath(args.scope as ConfigScope));
   },
 });

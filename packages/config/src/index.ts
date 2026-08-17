@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { z } from 'zod';
 import envPaths from 'env-paths';
 
 export type ConfigScope = 'user' | 'project';
@@ -9,9 +10,11 @@ export const DEFAULT_API_HOST = '127.0.0.1';
 export const DEFAULT_API_PORT = 4317;
 export const DEFAULT_API_URL = `http://${DEFAULT_API_HOST}:${DEFAULT_API_PORT}`;
 
-export type AiDirectoryConfig = {
-  repository?: string;
-};
+const configSchema = z.object({
+  repository: z.string().trim().min(1).optional(),
+});
+
+export type AiDirectoryConfig = z.infer<typeof configSchema>;
 
 export const CONFIG_OPTIONS = [
   {
@@ -72,17 +75,17 @@ export function readConfigFile(path: string): AiDirectoryConfig {
     throw new Error(`AI Directory config is not valid JSON: ${path}`, { cause: error });
   }
 
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+  const result = configSchema.safeParse(data);
+
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    if (issue?.path[0] === 'repository') {
+      throw new Error(`AI Directory config repository must be a non-empty string: ${path}`);
+    }
     throw new Error(`AI Directory config must be a JSON object: ${path}`);
   }
 
-  const repository = 'repository' in data ? data.repository : undefined;
-
-  if (repository !== undefined && (typeof repository !== 'string' || !repository.trim())) {
-    throw new Error(`AI Directory config repository must be a non-empty string: ${path}`);
-  }
-
-  return repository === undefined ? {} : { repository: repository.trim() };
+  return result.data;
 }
 
 export async function writeConfigFile(path: string, config: AiDirectoryConfig): Promise<void> {

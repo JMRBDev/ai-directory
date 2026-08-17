@@ -54,6 +54,7 @@ function runAid(args: string[], cwd = packageRoot, index = registryIndex): Comma
       stderr: '',
     };
   } catch (error) {
+    // SAFETY: The mocked runner rejects with a Node error carrying these fields.
     const result = error as NodeJS.ErrnoException & {
       status?: number;
       stdout?: string | Buffer;
@@ -236,6 +237,7 @@ describe('CLI', () => {
         ],
         cwd,
       );
+      // SAFETY: The install command writes this exact manifest shape to disk.
       const manifest = JSON.parse(
         readFileSync(join(cwd, '.ai-directory', 'installed.json'), 'utf8'),
       ) as { installations: Array<{ resource: string; harness: string; scope: string }> };

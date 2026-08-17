@@ -345,7 +345,11 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
                     </label>
                     <label className="fieldset">
                       <span className="fieldset-legend">Review status</span>
-                      <select className="select w-full" value={reviewFilter} onChange={(event) => { setReviewFilter(event.currentTarget.value as ReviewFilter); setPage(1); }}>
+                      <select className="select w-full" value={reviewFilter} onChange={(event) => {
+                        // SAFETY: The select options are exactly the ReviewFilter values.
+                        setReviewFilter(event.currentTarget.value as ReviewFilter);
+                        setPage(1);
+                      }}>
                         <option value="all">All resources</option>
                         <option value="reviewed">Reviewed</option>
                         <option value="unreviewed">Unreviewed</option>
@@ -353,7 +357,11 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
                     </label>
                     <label className="fieldset">
                       <span className="fieldset-legend">Installed</span>
-                      <select className="select w-full" value={installedFilter} onChange={(event) => { setInstalledFilter(event.currentTarget.value as InstalledFilter); setPage(1); }}>
+                      <select className="select w-full" value={installedFilter} onChange={(event) => {
+                        // SAFETY: The select options are exactly the InstalledFilter values.
+                        setInstalledFilter(event.currentTarget.value as InstalledFilter);
+                        setPage(1);
+                      }}>
                         <option value="all">All</option>
                         <option value="installed">Installed</option>
                         <option value="not-installed">Not installed</option>
@@ -361,7 +369,11 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
                     </label>
                     <label className="fieldset">
                       <span className="fieldset-legend">Sort by</span>
-                      <select className="select w-full" value={sort} onChange={(event) => { setSort(event.currentTarget.value as SortOption); setPage(1); }}>
+                      <select className="select w-full" value={sort} onChange={(event) => {
+                        // SAFETY: The select options are exactly the SortOption values.
+                        setSort(event.currentTarget.value as SortOption);
+                        setPage(1);
+                      }}>
                         <option value="updated">Recently updated</option>
                         <option value="name">Name A-Z</option>
                         <option value="version">Newest version</option>
@@ -449,7 +461,10 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
                         <span className="break-all font-mono text-xs text-base-content">{id}</span>
                         <button className="btn btn-ghost btn-xs shrink-0" type="button" onClick={() => selectResource(resource, false)}>Remove</button>
                       </div>
-                      <select className="select select-bordered select-sm w-full" value={selected[id] ?? 'install'} aria-label={'Action for ' + id} onChange={(event) => updateAction(id, event.currentTarget.value as Action)}>
+                      <select className="select select-bordered select-sm w-full" value={selected[id] ?? 'install'} aria-label={'Action for ' + id} onChange={(event) => {
+                        // SAFETY: The select options are exactly the Action values.
+                        updateAction(id, event.currentTarget.value as Action);
+                      }}>
                         <option value="install">Install or update</option>
                         <option value="uninstall">Uninstall</option>
                       </select>
@@ -480,7 +495,12 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
           </fieldset>
           <label className="fieldset">
             <span className="fieldset-legend">Scope</span>
-            <select className="select select-bordered w-full" value={scope} onChange={(event) => { const nextScope = event.currentTarget.value as Scope; setScope(nextScope); void requestPlan(selected, harnesses, nextScope); }} disabled={busy}>
+            <select className="select select-bordered w-full" value={scope} onChange={(event) => {
+              // SAFETY: The select options are exactly the Scope values.
+              const nextScope = event.currentTarget.value as Scope;
+              setScope(nextScope);
+              void requestPlan(selected, harnesses, nextScope);
+            }} disabled={busy}>
               <option value="project">This project</option>
               <option value="global">All projects</option>
             </select>

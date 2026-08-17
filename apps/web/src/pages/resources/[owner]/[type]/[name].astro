@@ -13,13 +13,13 @@ import InstallResource from '../../../../components/preact/InstallResource';
 import SettingsDrawer from '../../../../components/preact/SettingsDrawer';
 import '../../../../styles/global.css';
 
-type Props = {
+interface Props {
   resource: ResourceSummary;
   version: Awaited<ReturnType<typeof loadResource>>['version'];
   componentResources: string[];
   source: RegistryView['source'];
   fileError?: string;
-};
+}
 
 const requestedResourceId = [Astro.params.owner, Astro.params.type, Astro.params.name].join('/');
 const registry = await loadRegistry();
@@ -31,13 +31,14 @@ const resource = registry.index?.resources.find(
 if (!resource) return Astro.redirect('/');
 
 const result = await loadResource(registry.indexPath, resource, registry.repository);
-const { version, componentResources, source, fileError } = {
+const props: Props = {
   resource,
   version: result.version,
   componentResources: result.resources.map((item) => resourceId(item.resource)),
   source: registry.source,
-  ...(result.error ? { fileError: result.error } : {}),
-} satisfies Props;
+};
+if (result.error) props.fileError = result.error;
+const { version, componentResources, source, fileError } = props;
 const title = `${resource.name} | AI Directory`;
 const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? DEFAULT_API_URL;

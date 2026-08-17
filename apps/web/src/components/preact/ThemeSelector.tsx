@@ -16,7 +16,7 @@ function valid(value: string | null | undefined): value is Theme {
 }
 
 function readTheme(): Theme {
-  const value = typeof document === 'undefined'
+  const value = globalThis.document === undefined
     ? null
     : document.documentElement.dataset.themePreference;
   if (valid(value)) return value;
