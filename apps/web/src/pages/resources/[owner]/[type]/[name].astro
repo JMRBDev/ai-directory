@@ -1,7 +1,7 @@
 ---
 import { homedir } from 'node:os';
-import { DEFAULT_API_URL } from '@ai-directory/config';
 import type { ResourceSummary } from '@ai-directory/contracts';
+import { resolveApiUrl } from '../../../../lib/api';
 import {
   loadRegistry,
   loadResource,
@@ -42,7 +42,7 @@ if (result.error) props.fileError = result.error;
 const { version, componentResources, source, fileError } = props;
 const title = `${resource.name} | AI Directory`;
 const installBase = `aid install ${resourceId(resource)} --harness claude-code`;
-const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? DEFAULT_API_URL;
+const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astro.url.hostname);
 ---
 
 <!doctype html>
