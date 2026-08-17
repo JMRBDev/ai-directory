@@ -1,6 +1,8 @@
 import { useState } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
 import { closeDrawers, errorMessage, request } from './api';
 import DrawerShell from './DrawerShell';
+import ThemeSelector from './ThemeSelector';
 
 type Props = {
   apiUrl: string;
@@ -12,6 +14,28 @@ type ConfigResponse = {
   savedScope?: string;
   clearedScope?: string;
 };
+
+function Section({
+  id,
+  title,
+  trailing,
+  children,
+}: {
+  id: string;
+  title: string;
+  trailing?: ComponentChildren;
+  children: ComponentChildren;
+}) {
+  return (
+    <section className="py-6 first:pt-0 last:pb-0" aria-labelledby={id}>
+      <div className="flex items-center justify-between gap-4">
+        <h3 id={id} className="text-sm font-semibold text-base-content">{title}</h3>
+        {trailing}
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
 
 export default function SettingsDrawer({ apiUrl }: Props) {
   const [repository, setRepository] = useState('');
@@ -79,41 +103,46 @@ export default function SettingsDrawer({ apiUrl }: Props) {
   return (
     <DrawerShell
       id="settings-drawer-toggle"
-      title="Registry connection"
+      title="Settings"
       onOpen={() => { closeDrawers('change-deck-toggle', 'publish-drawer-toggle'); void loadSettings(); }}
     >
-      <div className="min-h-0 flex-1">
-        <div className="flex items-center justify-between gap-4">
-          <h3 className="text-sm font-semibold text-base-content">Repository</h3>
-          <span className="badge badge-ghost">{source}</span>
-        </div>
+      <div className="min-h-0 flex-1 divide-y divide-base-300">
+        <Section
+          id="settings-registry-title"
+          title="Registry connection"
+          trailing={<span className="badge badge-ghost">{source}</span>}
+        >
+          <form className="space-y-6" onSubmit={saveSettings}>
+            <label className="fieldset">
+              <span className="fieldset-legend">Git URL</span>
+              <input className="input input-bordered w-full" type="text" placeholder="git@github.com:company/ai-directory-registry.git" value={repository} onInput={(event) => setRepository(event.currentTarget.value)} required disabled={busy} />
+            </label>
 
-        <form className="mt-5 space-y-6" onSubmit={saveSettings}>
-          <label className="fieldset">
-            <span className="fieldset-legend">Git URL</span>
-            <input className="input input-bordered w-full" type="text" placeholder="git@github.com:company/ai-directory-registry.git" value={repository} onInput={(event) => setRepository(event.currentTarget.value)} required disabled={busy} />
-          </label>
+            <fieldset className="fieldset">
+              <legend className="fieldset-legend">Save for</legend>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-checked:border-primary has-checked:bg-primary/10">
+                  <input className="radio radio-primary" type="radio" name="settings-scope" value="user" checked={scope === 'user'} onChange={() => setScope('user')} disabled={busy} />
+                  This user
+                </label>
+                <label className="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-checked:border-primary has-checked:bg-primary/10">
+                  <input className="radio radio-primary" type="radio" name="settings-scope" value="project" checked={scope === 'project'} onChange={() => setScope('project')} disabled={busy} />
+                  This project
+                </label>
+              </div>
+            </fieldset>
 
-          <fieldset className="fieldset">
-            <legend className="fieldset-legend">Save for</legend>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-checked:border-primary has-checked:bg-primary/10">
-                <input className="radio radio-primary" type="radio" name="settings-scope" value="user" checked={scope === 'user'} onChange={() => setScope('user')} disabled={busy} />
-                This user
-              </label>
-              <label className="label cursor-pointer justify-start gap-3 rounded-box border border-base-300 px-3 py-3 has-checked:border-primary has-checked:bg-primary/10">
-                <input className="radio radio-primary" type="radio" name="settings-scope" value="project" checked={scope === 'project'} onChange={() => setScope('project')} disabled={busy} />
-                This project
-              </label>
+            <div className="flex flex-wrap gap-3">
+              <button className="btn btn-primary" type="submit" disabled={busy}>Save settings</button>
+              <button className="btn btn-ghost" type="button" onClick={() => void clearSettings()} disabled={busy}>Clear selected scope</button>
             </div>
-          </fieldset>
+            <p className={'text-sm ' + (error ? 'text-error' : 'text-base-content/60')} role="status">{status}</p>
+          </form>
+        </Section>
 
-          <div className="flex flex-wrap gap-3">
-            <button className="btn btn-primary" type="submit" disabled={busy}>Save settings</button>
-            <button className="btn btn-ghost" type="button" onClick={() => void clearSettings()} disabled={busy}>Clear selected scope</button>
-          </div>
-          <p className={'text-sm ' + (error ? 'text-error' : 'text-base-content/60')} role="status">{status}</p>
-        </form>
+        <Section id="settings-appearance-title" title="Appearance">
+          <ThemeSelector />
+        </Section>
       </div>
     </DrawerShell>
   );

@@ -10,6 +10,7 @@ import {
 import ThemeInit from '../../../../components/ThemeInit.astro';
 import SiteHeader from '../../../../components/SiteHeader.astro';
 import InstallResource from '../../../../components/preact/InstallResource';
+import SettingsDrawer from '../../../../components/preact/SettingsDrawer';
 import '../../../../styles/global.css';
 
 type Props = {
@@ -52,7 +53,7 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? DEFAULT_API_URL;
     <title>{title}</title>
   </head>
   <body class="min-h-screen bg-base-100 font-sans text-base-content antialiased">
-    <SiteHeader sourceLabel={source === 'remote' ? 'Configured Git registry' : 'Explicit local index'} />
+    <SiteHeader sourceLabel={source === 'remote' ? 'Configured Git registry' : 'Explicit local index'} showSettings />
 
     <main class="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 lg:py-12">
       <a class="btn btn-ghost btn-sm -ml-3" href="/">Back to catalog</a>
@@ -108,6 +109,7 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? DEFAULT_API_URL;
         componentResources={componentResources}
         installBase={installBase}
       />
+      <SettingsDrawer client:load apiUrl={apiUrl} />
 
       <section class="mt-14 w-full border-t border-base-300 pt-8" aria-labelledby="files-title">
         <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Source</p>
