@@ -10,6 +10,7 @@ type Props = {
 };
 
 type HarnessFilter = 'all' | Harness;
+type SourceFilter = 'all' | 'registry' | 'local';
 
 const harnessLabels = {
   'claude-code': 'Claude Code',
@@ -81,9 +82,12 @@ export default function InstalledResources({ homeDir }: Props) {
     loadLocalResources,
   } = useChangeDeck();
   const [harness, setHarness] = useState<HarnessFilter>('all');
+  const [source, setSource] = useState<SourceFilter>('all');
 
   const visibleResources = localResources.filter((resource) =>
-    harness === 'all' || resource.harness === harness,
+    (harness === 'all' || resource.harness === harness)
+    && (source === 'all'
+      || (source === 'registry' ? resource.resource !== undefined : resource.resource === undefined)),
   );
   const statusText = localLoading
     ? 'Scanning known harness locations…'
@@ -138,6 +142,17 @@ export default function InstalledResources({ homeDir }: Props) {
             <option value="claude-code">Claude Code</option>
             <option value="opencode">OpenCode</option>
             <option value="codex">Codex</option>
+          </select>
+        </label>
+        <label className="fieldset">
+          <span className="fieldset-legend">Source</span>
+          <select className="select w-full" value={source} onChange={(event) => {
+            // SAFETY: The select options are exactly the SourceFilter values.
+            setSource(event.currentTarget.value as SourceFilter);
+          }}>
+            <option value="all">All sources</option>
+            <option value="registry">From this registry</option>
+            <option value="local">Not from this registry</option>
           </select>
         </label>
       </div>

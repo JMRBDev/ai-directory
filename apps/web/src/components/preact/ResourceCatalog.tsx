@@ -40,11 +40,13 @@ function CatalogCard({
   resource,
   stagedAction,
   installed,
+  presentLocally,
   onSelect,
 }: {
   resource: ResourceSummary;
   stagedAction: Action | undefined;
   installed: boolean;
+  presentLocally: boolean;
   onSelect: (checked: boolean) => void;
 }) {
   const id = resourceId(resource);
@@ -104,6 +106,12 @@ function CatalogCard({
               {!isStaged && !installed && (
                 <span className="badge badge-ghost badge-sm">Not installed</span>
               )}
+              {!isStaged && presentLocally && !installed && (
+                <span className="badge badge-soft badge-info badge-sm gap-1" title="A local resource with this name is already configured outside this registry">
+                  <i className="ph ph-wrench text-xs" aria-hidden="true"></i>
+                  Present locally
+                </span>
+              )}
               <span className={'badge badge-soft badge-sm ' + (reviewed ? 'badge-success' : 'badge-warning')}>
                 {reviewed ? 'Reviewed' : 'Unreviewed'}
               </span>
@@ -124,8 +132,13 @@ function CatalogCard({
 }
 
 export default function ResourceCatalog({ resources, registryError }: Props) {
-  const { installations, staged, stage, unstage } = useChangeDeck();
+  const { installations, localResources, staged, stage, unstage } = useChangeDeck();
   const installedIds = new Set(installations.map((item) => item.resource));
+  const locallyPresentKeys = new Set(
+    localResources
+      .filter((resource) => !resource.resource)
+      .map((resource) => resource.type + '/' + resource.name),
+  );
   const [query, setQuery] = useState('');
   const [activeType, setActiveType] = useState<ResourceType>(resources[0]?.type ?? 'skills');
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
@@ -308,6 +321,7 @@ export default function ResourceCatalog({ resources, registryError }: Props) {
                       resource={resource}
                       stagedAction={staged[resourceId(resource)]?.action}
                       installed={installedIds.has(resourceId(resource))}
+                      presentLocally={locallyPresentKeys.has(resource.type + '/' + resource.name)}
                       onSelect={(checked) => selectResource(resource, checked)}
                     />
                   ))}
