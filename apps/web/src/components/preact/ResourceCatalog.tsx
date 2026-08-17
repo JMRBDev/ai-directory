@@ -3,7 +3,8 @@ import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
 import PlanView from './PlanView';
 import { closeDrawers, errorMessage, request } from './api';
 import DrawerShell from './DrawerShell';
-import { harnessOptions, resourceId, type Action, type ChangePlan, type Harness, type Scope } from './types';
+import { useMountEffect } from './useMountEffect';
+import { harnessOptions, resourceId, type Action, type ChangePlan, type Harness, type Installation, type Scope } from './types';
 
 type Props = {
   resources: ResourceSummary[];
@@ -12,6 +13,7 @@ type Props = {
 };
 
 type ReviewFilter = 'all' | 'reviewed' | 'unreviewed';
+type InstalledFilter = 'all' | 'installed' | 'not-installed';
 type SortOption = 'updated' | 'name' | 'version';
 
 const PAGE_SIZE = 6;
@@ -92,6 +94,8 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
   const [query, setQuery] = useState('');
   const [activeType, setActiveType] = useState<ResourceType>(resources[0]?.type ?? 'skills');
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
+  const [installedFilter, setInstalledFilter] = useState<InstalledFilter>('all');
+  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortOption>('updated');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Record<string, Action>>({});
@@ -113,7 +117,10 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
       .toLowerCase()
       .includes(query.trim().toLowerCase());
     const matchesReview = reviewFilter === 'all' || resource.reviewStatus === reviewFilter;
-    return matchesQuery && matchesReview;
+    const isInstalled = installedIds.has(resourceId(resource));
+    const matchesInstalled = installedFilter === 'all'
+      || (installedFilter === 'installed' ? isInstalled : !isInstalled);
+    return matchesQuery && matchesReview && matchesInstalled;
   });
   const sortedResources = [...filteredResources].sort((left, right) => {
     if (sort === 'name') return left.name.localeCompare(right.name);
@@ -126,8 +133,19 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
   const visibleResources = sortedResources.slice(pageStart, pageStart + PAGE_SIZE);
   const selectedResources = resources.filter((resource) => selected[resourceId(resource)]);
   const canApply = Boolean(plan && plan.changes.length > 0 && (plan.conflicts.length === 0 || force) && !applied);
-  const hasFilters = query.trim().length > 0 || reviewFilter !== 'all' || sort !== 'updated';
+  const hasFilters = query.trim().length > 0 || reviewFilter !== 'all' || installedFilter !== 'all' || sort !== 'updated';
   const activeTypeLabel = resourceTypeLabel(activeType);
+
+  async function loadInstalled() {
+    try {
+      const result = await request<{ installations?: Installation[] }>(apiUrl, '/api/installed');
+      setInstalledIds(new Set((result.installations ?? []).map((item) => item.resource)));
+    } catch {
+      setInstalledIds(new Set());
+    }
+  }
+
+  useMountEffect(() => { void loadInstalled(); });
 
   function setHeaderCount(value: number) {
     const counter = document.querySelector<HTMLElement>('[data-deck-count]');
@@ -142,6 +160,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
   function clearFilters() {
     setQuery('');
     setReviewFilter('all');
+    setInstalledFilter('all');
     setSort('updated');
     setPage(1);
   }
@@ -258,6 +277,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
       setApplied(true);
       setPlanError(false);
       setPlanStatus('Applied ' + result.plan.changes.length + ' file changes.');
+      void loadInstalled();
     } catch (cause) {
       setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
@@ -318,7 +338,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
             <div id="resource-tabpanel" className="mt-5" role="tabpanel" aria-labelledby={'resource-tab-' + activeType} tabIndex={0}>
               <div className="card card-border bg-base-100" role="search" aria-label={'Search ' + activeTypeLabel}>
                 <div className="card-body gap-4 p-4 sm:p-5">
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_11rem_13rem] md:items-end">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_11rem_11rem_13rem] xl:items-end">
                     <label className="fieldset">
                       <span className="fieldset-legend">Search {activeTypeLabel.toLowerCase()}</span>
                       <input className="input w-full" type="search" placeholder="Name, owner, or description" value={query} onInput={(event) => { setQuery(event.currentTarget.value); setPage(1); }} />
@@ -329,6 +349,14 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
                         <option value="all">All resources</option>
                         <option value="reviewed">Reviewed</option>
                         <option value="unreviewed">Unreviewed</option>
+                      </select>
+                    </label>
+                    <label className="fieldset">
+                      <span className="fieldset-legend">Installed</span>
+                      <select className="select w-full" value={installedFilter} onChange={(event) => { setInstalledFilter(event.currentTarget.value as InstalledFilter); setPage(1); }}>
+                        <option value="all">All</option>
+                        <option value="installed">Installed</option>
+                        <option value="not-installed">Not installed</option>
                       </select>
                     </label>
                     <label className="fieldset">
@@ -382,7 +410,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
                     <p className="mt-2 max-w-xl text-sm leading-6 text-base-content/60">
                       {activeTypeResources.length === 0
                         ? 'Use Publish resource to add the first one to this registry.'
-                        : 'Try a different search or review status.'}
+                        : 'Try a different search or filter.'}
                     </p>
                     {hasFilters && <button className="btn btn-ghost btn-sm mt-4" type="button" onClick={clearFilters}>Clear filters</button>}
                   </div>

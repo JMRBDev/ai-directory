@@ -1,6 +1,4 @@
 ---
-import ThemeToggle from './preact/ThemeToggle';
-
 type Props = {
   showChanges?: boolean;
   showInstalled?: boolean;
@@ -52,7 +50,6 @@ const {
           <span class="sr-only">Refresh registry</span>
         </a>
       )}
-      <ThemeToggle client:load />
       {showSettings && (
         <label class="btn btn-ghost btn-square btn-sm text-base-content hover:bg-primary/10 hover:text-primary" for="settings-drawer-toggle" title="Settings" aria-label="Settings">
           <i class="ph ph-gear text-lg" aria-hidden="true"></i>
