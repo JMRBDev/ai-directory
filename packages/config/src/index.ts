@@ -38,13 +38,7 @@ export function getConfigPath(scope: ConfigScope, cwd = process.cwd()): string {
   return join(envPaths('ai-directory', { suffix: '' }).config, configFileName);
 }
 
-export function getInstallManifestPath(
-  scope: 'project' | 'global',
-  cwd = process.cwd(),
-  homeDirectory?: string,
-): string {
-  if (scope === 'project') return join(cwd, '.ai-directory', 'installed.json');
-
+export function getInstallManifestPath(homeDirectory?: string): string {
   const dataDirectory = homeDirectory
     ? join(resolve(homeDirectory), '.local', 'share', 'ai-directory')
     : envPaths('ai-directory', { suffix: '' }).data;

@@ -20,7 +20,6 @@ import {
   planResourceOperations,
   readInstallationManifest,
   type Harness,
-  type InstallScope,
   type InstallationRecord,
   type LocalResource,
   type ResourceChangeOptions,
@@ -60,7 +59,6 @@ type MultipartValue = string | File | Array<string | File>;
 type MultipartBody = Record<string, MultipartValue>;
 
 const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
-const installScopeSchema = z.enum(['project', 'global']);
 const configScopeSchema = z.enum(['user', 'project']);
 
 const harnessListSchema = z
@@ -79,7 +77,6 @@ const resourceRequestObjectSchema = z.object({
   resource: z.string().trim().min(1),
   harnesses: harnessListSchema.optional(),
   harness: harnessListSchema.optional(),
-  scope: installScopeSchema,
   version: z.string().trim().min(1).optional(),
   force: z.boolean().default(false),
 });
@@ -87,7 +84,6 @@ const resourceRequestObjectSchema = z.object({
 type ResourceRequestData = {
   resource: string;
   harnesses: Harness[];
-  scope: InstallScope;
   version?: string;
   force: boolean;
 };
@@ -96,7 +92,6 @@ function resourceRequestFrom(data: {
   resource: string;
   harnesses?: Harness[] | undefined;
   harness?: Harness[] | undefined;
-  scope: InstallScope;
   version?: string | undefined;
   force: boolean;
 }): ResourceRequestData {
@@ -104,7 +99,6 @@ function resourceRequestFrom(data: {
   const result: ResourceRequestData = {
     resource: data.resource,
     harnesses,
-    scope: data.scope,
     force: data.force,
   };
   if (data.version !== undefined) result.version = data.version;
@@ -168,7 +162,6 @@ function requestErrorMessage(issues: z.ZodIssue[]): string {
         ? 'harnesses must include one or more of claude-code, opencode, or codex.'
         : 'harnesses must include only claude-code, opencode, or codex.';
     }
-    if (field === 'scope') return 'scope must be project or global.';
     if (field === 'version') {
       return issue.code === 'invalid_type'
         ? 'version must be a string.'
@@ -217,7 +210,7 @@ function duplicateOperationError(operations: ChangeOperationData[]): string | nu
   const keys = new Set<string>();
   for (const operation of operations) {
     for (const harness of operation.harnesses) {
-      const key = `${operation.scope}:${harness}:${operation.resource}`;
+      const key = `${harness}:${operation.resource}`;
       if (keys.has(key)) return `The operation is listed more than once: ${key}.`;
       keys.add(key);
     }
@@ -354,17 +347,9 @@ async function githubUsername(options: ServerOptions, cwd: string): Promise<stri
 }
 
 async function readInstallationRecords(
-  scopes: InstallScope[],
-  cwd: string,
   homeDirectory?: string,
 ): Promise<InstallationRecord[]> {
-  return (
-    await Promise.all(
-      scopes.map(async (scope) =>
-        (await readInstallationManifest(getInstallManifestPath(scope, cwd, homeDirectory))).installations,
-      ),
-    )
-  ).flat();
+  return (await readInstallationManifest(getInstallManifestPath(homeDirectory))).installations;
 }
 
 async function installationResourceIds(
@@ -555,36 +540,16 @@ export function createApp(options: ServerOptions = {}) {
   });
 
   app.get('/api/installed', async (context) => {
-    const scopeResult = installScopeSchema.safeParse(context.req.query('scope'));
-
-    if (context.req.query('scope') !== undefined && !scopeResult.success) {
-      return context.json({ error: 'scope must be project or global.' }, 400);
-    }
-
-    const scopes: InstallScope[] = scopeResult.success
-      ? [scopeResult.data]
-      : ['project', 'global'];
-    const installations = await readInstallationRecords(scopes, cwd, options.homeDirectory);
+    const installations = await readInstallationRecords(options.homeDirectory);
 
     return context.json({ installations });
   });
 
   app.get('/api/local-resources', async (context) => {
-    const scopeResult = installScopeSchema.safeParse(context.req.query('scope'));
-
-    if (context.req.query('scope') !== undefined && !scopeResult.success) {
-      return context.json({ error: 'scope must be project or global.' }, 400);
-    }
-
-    const scopes: InstallScope[] = scopeResult.success
-      ? [scopeResult.data]
-      : ['project', 'global'];
-
     try {
-      const records = await readInstallationRecords(scopes, cwd, options.homeDirectory);
+      const records = await readInstallationRecords(options.homeDirectory);
       const discoveryOptions: ResourceDiscoveryOptions = {
         cwd,
-        scopes,
         records,
       };
       if (options.homeDirectory) discoveryOptions.homeDirectory = options.homeDirectory;
@@ -754,7 +719,7 @@ export function createApp(options: ServerOptions = {}) {
 
     try {
       const request = parseResourceRequest(body);
-      const manifestPath = getInstallManifestPath(request.scope, cwd, options.homeDirectory);
+      const manifestPath = getInstallManifestPath(options.homeDirectory);
       const manifest = await readInstallationManifest(manifestPath);
       const loaded = await readRegistrySourceResource(
         registrySource(options, cwd),
@@ -765,8 +730,7 @@ export function createApp(options: ServerOptions = {}) {
           manifest.installations.find(
             (record) =>
               record.resource === resourceKey(resource.resource) &&
-              record.harness === harness &&
-              record.scope === request.scope,
+              record.harness === harness,
           ),
         ),
       );
@@ -776,7 +740,7 @@ export function createApp(options: ServerOptions = {}) {
           existing[index]?.some((record) => !record),
         );
         throw new Error(
-          `${request.resource} is not installed for ${missing.join(', ')} in the ${request.scope} scope.`,
+          `${request.resource} is not installed for ${missing.join(', ')}.`,
         );
       }
 
@@ -830,7 +794,6 @@ export function createApp(options: ServerOptions = {}) {
       resource: context.req.query('resource'),
       harnesses: context.req.query('harnesses'),
       harness: context.req.query('harness'),
-      scope: context.req.query('scope'),
       force: queryBoolean(context.req.query('force')),
     };
     const error = requestError(rawRequest);
@@ -839,7 +802,7 @@ export function createApp(options: ServerOptions = {}) {
 
     try {
       const request = parseResourceRequest(rawRequest);
-      const manifestPath = getInstallManifestPath(request.scope, cwd, options.homeDirectory);
+      const manifestPath = getInstallManifestPath(options.homeDirectory);
       const manifest = await readInstallationManifest(manifestPath);
       const resourceIds = await installationResourceIds(
         request.resource,
@@ -850,8 +813,7 @@ export function createApp(options: ServerOptions = {}) {
           manifest.installations.find(
             (record) =>
               record.resource === resource &&
-              record.harness === harness &&
-              record.scope === request.scope,
+              record.harness === harness,
           ),
         ),
       );
@@ -861,7 +823,7 @@ export function createApp(options: ServerOptions = {}) {
           existing[index]?.some((record) => !record),
         );
         throw new Error(
-          `${request.resource} is not installed for ${missing.join(', ')} in the ${request.scope} scope.`,
+          `${request.resource} is not installed for ${missing.join(', ')}.`,
         );
       }
 

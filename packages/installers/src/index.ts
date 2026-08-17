@@ -16,15 +16,11 @@ export type {
   HarnessDefinition,
   HarnessDetection,
   HarnessLocation,
-  HarnessPaths,
   HarnessPathContext,
   HarnessPathOptions,
 } from './harnesses.js';
 
-export type InstallScope = 'project' | 'global';
-
 export type InstallOptions = {
-  scope: InstallScope;
   cwd?: string;
   homeDirectory?: string;
   force?: boolean;
@@ -52,7 +48,6 @@ export type InstallChange = {
 export interface ResourceOperation {
   resource: string;
   harnesses: Harness[];
-  scope: InstallScope;
   action: 'install' | 'uninstall';
   version?: string;
   resources?: ResourceVersion[];
@@ -65,7 +60,6 @@ export type PlannedResourceChange = {
   action: 'added' | 'modified' | 'removed';
   resource: string;
   harness: Harness;
-  scope: InstallScope;
   before?: string;
   after?: string;
 };
@@ -95,7 +89,6 @@ export const installationRecordSchema = z.object({
   resource: z.string().min(1),
   version: z.string().min(1),
   harness: z.enum(['claude-code', 'opencode', 'codex']),
-  scope: z.enum(['project', 'global']),
   destination: z.string().min(1),
   files: z.array(z.string().min(1)),
   fileHashes: z.record(z.string(), z.string()).optional(),
@@ -171,12 +164,11 @@ export async function installOpenCodeResources(
   }
 
   const root = openCodeInstallRoot(options);
-  const plans = resources.map((resource) => createOpenCodePlan(root, resource, options.scope));
+  const plans = resources.map((resource) => createOpenCodePlan(root, resource));
   const rules = plans.filter((plan) => plan.resource.resource.type === 'rules');
   const config = rules.length > 0
     ? await prepareOpenCodeInstructions(
         root,
-        options.scope,
         rules.map((plan) => plan.resource),
         options,
       )
@@ -272,7 +264,6 @@ async function installResources(
   createPlanForResource: (
     root: string,
     resource: ResourceVersion,
-    scope: InstallScope,
   ) => InstallPlan,
   getRoot: (options: InstallOptions) => string,
 ): Promise<InstallResult[]> {
@@ -282,7 +273,7 @@ async function installResources(
 
   const root = getRoot(options);
   const plans = resources.map((resource) =>
-    createPlanForResource(root, resource, options.scope),
+    createPlanForResource(root, resource),
   );
 
   await assertInstallPlansAvailable(plans, options);
@@ -458,7 +449,6 @@ export async function updateInstallationManifest(
 export function createInstallationRecords(
   resources: ResourceVersion[],
   installations: InstallResult[],
-  scope: InstallScope,
   harness: Harness,
 ): InstallationRecord[] {
   const installedAt = new Date().toISOString();
@@ -474,7 +464,6 @@ export function createInstallationRecords(
       resource: resourceKey(resource.resource),
       version: resource.version,
       harness,
-      scope,
       destination: installation.destination,
       files: installation.ownedPaths,
       fileHashes: installation.fileHashes,
@@ -617,7 +606,6 @@ export async function planResourceOperations(
       action,
       resource,
       harness,
-      scope: operation.scope,
     };
     const beforePreview = previewContent(before);
     const afterPreview = previewContent(change.content);
@@ -638,8 +626,7 @@ export async function planResourceOperations(
     }
 
     for (const harness of operation.harnesses) {
-      const key = `${operation.scope}:${harness}`;
-      const group = installGroups.get(key) ?? {
+      const group = installGroups.get(harness) ?? {
         resources: [],
         owners: new Map<string, ResourceOperation>(),
       };
@@ -650,7 +637,7 @@ export async function planResourceOperations(
           group.owners.set(id, operation);
         }
       }
-      installGroups.set(key, group);
+      installGroups.set(harness, group);
     }
   }
 
@@ -659,13 +646,12 @@ export async function planResourceOperations(
   for (const operation of operations) {
     const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
     warnings.push(...requestWarnings(operation.warningResources ?? operation.resources ?? []));
-    const manifestPath = installationManifestPath(operation.scope, options);
+    const manifestPath = installationManifestPath(options);
     const manifest = await readInstallationManifest(manifestPath);
 
     for (const harness of operation.harnesses) {
       const records = manifest.installations.filter(
         (record) =>
-          record.scope === operation.scope &&
           record.harness === harness &&
           resourceIds.includes(record.resource),
       );
@@ -674,20 +660,19 @@ export async function planResourceOperations(
         try {
           await assertInstallationFilesUnchanged(record, force);
         } catch (error) {
-          conflicts.push(`${record.resource} (${harness}, ${operation.scope}): ${errorMessage(error)}`);
+          conflicts.push(`${record.resource} (${harness}): ${errorMessage(error)}`);
         }
       }
 
       if (operation.action === 'install') {
-        const groupKey = `${operation.scope}:${harness}`;
-        if (processedInstallGroups.has(groupKey)) continue;
-        processedInstallGroups.add(groupKey);
-        const group = installGroups.get(groupKey);
+        if (processedInstallGroups.has(harness)) continue;
+        processedInstallGroups.add(harness);
+        const group = installGroups.get(harness);
         const resources = group?.resources ?? operation.resources ?? [];
         const installer = getHarnessAdapter(harness);
         const results = await installer.install(
           resources,
-          operationInstallOptions(operation.scope, options, true, true),
+          operationInstallOptions(options, true, true),
         );
 
         for (const [index, result] of results.entries()) {
@@ -697,7 +682,7 @@ export async function planResourceOperations(
           if (!force) {
             const ownedByInstallation = new Set(
               manifest.installations
-                .filter((record) => record.scope === operation.scope && record.harness === harness)
+                .filter((record) => record.harness === harness)
                 .flatMap((record) => record.files),
             );
             for (const path of result.ownedPaths) {
@@ -717,8 +702,7 @@ export async function planResourceOperations(
           const previous = manifest.installations.find(
             (record) =>
               record.resource === resourceId &&
-              record.harness === harness &&
-              record.scope === operation.scope,
+              record.harness === harness,
           );
           if (previous) {
             const currentPaths = new Set(result.ownedPaths);
@@ -733,7 +717,7 @@ export async function planResourceOperations(
         for (const record of records) {
           const result = await uninstallInstallation(
             record,
-            operationInstallOptions(operation.scope, options, force, true),
+            operationInstallOptions(options, force, true),
           );
           for (const change of result) {
             await addChange(change, operation, record.resource, harness);
@@ -781,20 +765,20 @@ export async function applyResourceOperations(
 
       for (const operation of operations) {
         try {
-          const manifestPath = installationManifestPath(operation.scope, options);
+          const manifestPath = installationManifestPath(options);
           if (operation.action === 'install') {
             const resources = operation.resources ?? [];
             for (const harness of operation.harnesses) {
               const installer = getHarnessAdapter(harness);
               const installations = await installer.install(
                 resources,
-                operationInstallOptions(operation.scope, options, true),
+                operationInstallOptions(options, true),
               );
-              const records = createInstallationRecords(resources, installations, operation.scope, installer.harness);
+              const records = createInstallationRecords(resources, installations, installer.harness);
               await saveInstallationRecords(
                 manifestPath,
                 records,
-                operationInstallOptions(operation.scope, options, force),
+                operationInstallOptions(options, force),
               );
               installed.push(...records);
             }
@@ -803,7 +787,6 @@ export async function applyResourceOperations(
             const manifest = await readInstallationManifest(manifestPath);
             const records = manifest.installations.filter(
               (record) =>
-                record.scope === operation.scope &&
                 operation.harnesses.includes(record.harness) &&
                 resourceIds.includes(record.resource),
             );
@@ -811,7 +794,7 @@ export async function applyResourceOperations(
             for (const record of records) {
               await uninstallInstallation(
                 record,
-                operationInstallOptions(operation.scope, options, force),
+                operationInstallOptions(options, force),
               );
               await removeInstallationRecord(manifestPath, record);
               removed.push(record);
@@ -819,7 +802,7 @@ export async function applyResourceOperations(
           }
         } catch (error) {
           throw new Error(
-            `Failed to ${operation.action} ${operation.resource} for ${operation.harnesses.join(', ')} in the ${operation.scope} scope: ${errorMessage(error)}`,
+            `Failed to ${operation.action} ${operation.resource} for ${operation.harnesses.join(', ')}: ${errorMessage(error)}`,
             { cause: error },
           );
         }
@@ -851,7 +834,7 @@ export async function removeStaleInstallationFiles(
   const keep = new Set(currentFiles);
 
   for (const record of previous) {
-    const files = await ownedInstallationFiles(record, options ?? { scope: record.scope });
+    const files = await ownedInstallationFiles(record, options);
     const stale = files.filter((path) => !keep.has(path));
 
     if (stale.length === 0) continue;
@@ -883,9 +866,9 @@ async function ownedInstallationFiles(
   }
 
   if (type === 'rules' && record.harness === 'opencode') {
-    const installOptions = options ?? { scope: record.scope };
+    const installOptions = options ?? {};
     const root = openCodeInstallRoot(installOptions);
-    const configPath = await openCodeConfigPath(root, record.scope, installOptions);
+    const configPath = await openCodeConfigPath(root, installOptions);
     files.delete(configPath);
   }
 
@@ -951,7 +934,7 @@ async function removeOpenCodeInstruction(
   options: InstallOptions,
 ): Promise<InstallChange | null> {
   const root = openCodeInstallRoot(options);
-  const path = await openCodeConfigPath(root, record.scope, options);
+  const path = await openCodeConfigPath(root, options);
   const current = await readOptionalText(path);
 
   if (current === null) return null;
@@ -1011,7 +994,7 @@ function resourceType(resource: string): ResourceKind | undefined {
 }
 
 function installationKey(record: InstallationRecord): string {
-  return `${record.scope}:${record.harness}:${record.resource}`;
+  return `${record.harness}:${record.resource}`;
 }
 
 const openCodeConfigSchema = z.object({
@@ -1046,7 +1029,6 @@ type CodexInstallPaths = {
 function createClaudeCodePlan(
   root: string,
   resource: ResourceVersion,
-  _scope: InstallScope,
 ): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
@@ -1071,7 +1053,6 @@ function createClaudeCodePlan(
 function createOpenCodePlan(
   root: string,
   resource: ResourceVersion,
-  scope: InstallScope,
 ): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
@@ -1090,13 +1071,12 @@ function createOpenCodePlan(
       root,
       resource,
       file.path,
-      scope,
     ),
   }));
 
   return {
     resource,
-    destination: openCodeResourceDestination(root, resource, scope),
+    destination: openCodeResourceDestination(root, resource),
     files,
     skippedFiles: projection.skippedFiles,
   };
@@ -1168,15 +1148,15 @@ function destinationForFile(
 }
 
 function claudeCodeInstallRoot(options: InstallOptions): string {
-  return resolveHarnessPaths('claude-code', options)[options.scope].config;
+  return resolveHarnessPaths('claude-code', options).config;
 }
 
 function openCodeInstallRoot(options: InstallOptions): string {
-  return resolveHarnessPaths('opencode', options)[options.scope].root;
+  return resolveHarnessPaths('opencode', options).root;
 }
 
 function codexInstallPaths(options: InstallOptions): CodexInstallPaths {
-  const location = resolveHarnessPaths('codex', options)[options.scope];
+  const location = resolveHarnessPaths('codex', options);
 
   return {
     root: location.root,
@@ -1198,13 +1178,10 @@ function openCodeDestinationForFile(
   root: string,
   resource: ResourceVersion,
   resourcePath: string,
-  scope: InstallScope,
 ): string {
-  const directory = scope === 'project' ? join(root, '.opencode') : root;
-
   if (resource.resource.type === 'skills') {
     return safeDestination(
-      openCodeResourceDestination(root, resource, scope),
+      openCodeResourceDestination(root, resource),
       resourcePath,
     );
   }
@@ -1213,11 +1190,11 @@ function openCodeDestinationForFile(
   const entryFile = type === 'agents' ? 'AGENT.md' : 'RULE.md';
 
   if (resourcePath === entryFile) {
-    return safeDestination(join(directory, type), `${resource.resource.name}.md`);
+    return safeDestination(join(root, type), `${resource.resource.name}.md`);
   }
 
   return safeDestination(
-    join(directory, type, `${resource.resource.name}.files`),
+    join(root, type, `${resource.resource.name}.files`),
     resourcePath,
   );
 }
@@ -1225,15 +1202,12 @@ function openCodeDestinationForFile(
 function openCodeResourceDestination(
   root: string,
   resource: ResourceVersion,
-  scope: InstallScope,
 ): string {
-  const directory = scope === 'project' ? join(root, '.opencode') : root;
-
   if (resource.resource.type === 'skills') {
-    return join(directory, 'skills', resource.resource.name);
+    return join(root, 'skills', resource.resource.name);
   }
 
-  return join(directory, resource.resource.type, `${resource.resource.name}.md`);
+  return join(root, resource.resource.type, `${resource.resource.name}.md`);
 }
 
 function codexDestinationForFile(
@@ -1277,15 +1251,14 @@ function codexResourceDestination(paths: CodexInstallPaths, resource: ResourceVe
 
 async function prepareOpenCodeInstructions(
   root: string,
-  scope: InstallScope,
   resources: ResourceVersion[],
   options: InstallOptions,
 ): Promise<PreparedText> {
-  const path = await openCodeConfigPath(root, scope, options);
+  const path = await openCodeConfigPath(root, options);
   const entries = resources.map((resource) =>
     toPosixPath(relative(
       dirname(path),
-      openCodeResourceDestination(root, resource, scope),
+      openCodeResourceDestination(root, resource),
     )),
   );
   const current = await readOptionalText(path);
@@ -1322,7 +1295,6 @@ async function prepareOpenCodeInstructions(
 
 async function openCodeConfigPath(
   root: string,
-  scope: InstallScope,
   options: InstallOptions,
 ): Promise<string> {
   const customPath = configuredPath(options, 'OPENCODE_CONFIG');
@@ -1331,14 +1303,7 @@ async function openCodeConfigPath(
     return customPath;
   }
 
-  const candidates = scope === 'project'
-    ? [
-        join(root, 'opencode.jsonc'),
-        join(root, 'opencode.json'),
-        join(root, '.opencode', 'opencode.jsonc'),
-        join(root, '.opencode', 'opencode.json'),
-      ]
-    : [join(root, 'opencode.jsonc'), join(root, 'opencode.json')];
+  const candidates = [join(root, 'opencode.jsonc'), join(root, 'opencode.json')];
 
   for (const path of candidates) {
     if (await pathExists(path)) {
@@ -1465,7 +1430,6 @@ function publicResourceOperation(operation: ResourceOperation): ResourceOperatio
   const result: ResourceOperation = {
     resource: operation.resource,
     harnesses: operation.harnesses,
-    scope: operation.scope,
     action: operation.action,
   };
   if (operation.version !== undefined) result.version = operation.version;
@@ -1474,12 +1438,11 @@ function publicResourceOperation(operation: ResourceOperation): ResourceOperatio
 }
 
 function operationInstallOptions(
-  scope: InstallScope,
   options: ResourceChangeOptions,
   force: boolean,
   dryRun = false,
 ): InstallOptions {
-  const result: InstallOptions = { scope, force, dryRun };
+  const result: InstallOptions = { force, dryRun };
   if (options.cwd) result.cwd = options.cwd;
   if (options.homeDirectory) result.homeDirectory = options.homeDirectory;
   if (options.environment) result.environment = options.environment;
@@ -1547,10 +1510,9 @@ function errorMessage(cause: unknown): string {
 }
 
 function installationManifestPath(
-  scope: InstallScope,
   options: ResourceChangeOptions,
 ): string {
-  return getInstallManifestPath(scope, options.cwd, options.homeDirectory);
+  return getInstallManifestPath(options.homeDirectory);
 }
 
 function resourcePlanPaths(
@@ -1560,7 +1522,7 @@ function resourcePlanPaths(
 ): string[] {
   return [
     ...changes.map((change) => change.path),
-    ...operations.map((operation) => installationManifestPath(operation.scope, options)),
+    ...operations.map(() => installationManifestPath(options)),
   ];
 }
 
@@ -1594,8 +1556,8 @@ async function withInstallationLocks<T>(
   action: () => Promise<T>,
 ): Promise<T> {
   const lockPaths = [...new Set(
-    operations.map((operation) =>
-      `${resolve(installationManifestPath(operation.scope, options))}.lock`,
+    operations.map(() =>
+      `${resolve(installationManifestPath(options))}.lock`,
     ),
   )].sort();
   const locks: InstallationLock[] = [];

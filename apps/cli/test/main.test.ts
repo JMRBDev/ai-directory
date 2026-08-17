@@ -34,13 +34,26 @@ type CommandResult = {
   stderr: string;
 };
 
-function runAid(args: string[], cwd = packageRoot, index = registryIndex): CommandResult {
+function parseManifest(path: string) {
+  // SAFETY: The install command writes exactly this manifest shape to disk.
+  return JSON.parse(readFileSync(path, 'utf8')) as {
+    installations: Array<{ resource: string; harness: string }>;
+  };
+}
+
+function runAid(
+  args: string[],
+  cwd = packageRoot,
+  index = registryIndex,
+  homeDirectory?: string,
+): CommandResult {
   const environment = { ...process.env, AI_DIRECTORY_REGISTRY_INDEX: index };
   delete environment.AI_DIRECTORY_REGISTRY_REPOSITORY;
   delete environment.CLAUDE_CONFIG_DIR;
   delete environment.CODEX_HOME;
   delete environment.OPENCODE_CONFIG;
   delete environment.OPENCODE_CONFIG_DIR;
+  if (homeDirectory) environment.HOME = homeDirectory;
 
   try {
     return {
@@ -86,22 +99,22 @@ describe('CLI', () => {
     expect(result.stdout).toContain('john-doe/skills/typescript-review');
   });
 
-  it('discovers local resources in the current project', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-installed-'));
-    const skillDirectory = join(cwd, '.claude', 'skills', 'local-skill');
+  it('discovers local resources in the global setup', () => {
+    const home = mkdtempSync(join(tmpdir(), 'ai-directory-cli-home-'));
+    const skillDirectory = join(home, '.claude', 'skills', 'local-skill');
 
     try {
       mkdirSync(skillDirectory, { recursive: true });
       writeFileSync(join(skillDirectory, 'SKILL.md'), '# Local skill\n', 'utf8');
 
-      const result = runAid(['installed', '--scope', 'project'], cwd);
+      const result = runAid(['installed'], undefined, registryIndex, home);
 
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('local/skills/local-skill');
       expect(result.stdout).toContain('unmanaged');
       expect(result.stdout).toContain('unknown');
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
     }
   });
 
@@ -223,56 +236,54 @@ describe('CLI', () => {
   });
 
   it('installs one resource for multiple harnesses', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-'));
+    const home = mkdtempSync(join(tmpdir(), 'ai-directory-cli-home-'));
 
     try {
       const result = runAid(
         [
           'install',
           'jane-doe/agents/api-reviewer',
-          '--scope',
-          'project',
           '--harness',
           'codex,opencode',
         ],
-        cwd,
+        undefined,
+        registryIndex,
+        home,
       );
-      // SAFETY: The install command writes this exact manifest shape to disk.
-      const manifest = JSON.parse(
-        readFileSync(join(cwd, '.ai-directory', 'installed.json'), 'utf8'),
-      ) as { installations: Array<{ resource: string; harness: string; scope: string }> };
-
       expect(result.code).toBe(0);
+      // SAFETY: The install command prints this exact manifest path and shape.
+      const tracked = result.stdout.match(/Tracked in: (.+)/)?.[1];
+      if (!tracked) throw new Error('The install output did not include a manifest path.');
+      const manifest = parseManifest(tracked);
+
       expect(manifest.installations).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             resource: 'jane-doe/agents/api-reviewer',
             harness: 'codex',
-            scope: 'project',
           }),
           expect.objectContaining({
             resource: 'jane-doe/agents/api-reviewer',
             harness: 'opencode',
-            scope: 'project',
           }),
         ]),
       );
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
     }
   });
 
   it('updates and uninstalls a template pack by its template ID', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-template-'));
+    const home = mkdtempSync(join(tmpdir(), 'ai-directory-cli-template-home-'));
     const resource = 'john-doe/templates/review-pack';
-    const harnessArguments = ['--scope', 'project', '--harness', 'codex,opencode'];
+    const harnessArguments = ['--harness', 'codex,opencode'];
 
     try {
-      expect(runAid(['install', resource, ...harnessArguments], cwd, templateIndex).code).toBe(0);
-      expect(runAid(['update', resource, ...harnessArguments], cwd, templateIndex).code).toBe(0);
-      expect(runAid(['uninstall', resource, ...harnessArguments], cwd, templateIndex).code).toBe(0);
+      expect(runAid(['install', resource, ...harnessArguments], undefined, templateIndex, home).code).toBe(0);
+      expect(runAid(['update', resource, ...harnessArguments], undefined, templateIndex, home).code).toBe(0);
+      expect(runAid(['uninstall', resource, ...harnessArguments], undefined, templateIndex, home).code).toBe(0);
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
     }
   });
 });

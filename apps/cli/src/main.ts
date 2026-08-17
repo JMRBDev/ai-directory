@@ -38,7 +38,6 @@ import {
   spinner,
   text,
   type AutocompleteMultiSelectOptions,
-  type SelectOptions,
   type TextOptions,
 } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
@@ -50,7 +49,6 @@ import {
   readInstallationManifest,
   type Harness,
   type HarnessDetection,
-  type InstallScope,
   type InstallationRecord,
   type ResourceOperation,
 } from '@ai-directory/installers';
@@ -385,30 +383,8 @@ async function promptHarnesses(initialValues?: Harness[]): Promise<Harness[] | u
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
 }
 
-async function promptScope(initialValue?: InstallScope): Promise<InstallScope | undefined> {
-  const options: SelectOptions<InstallScope> = {
-    message: 'Where should this resource be installed?',
-    options: [
-      { value: 'project' as const, label: 'This project', hint: 'Available in the current project' },
-      { value: 'global' as const, label: 'All projects', hint: 'Available in your user setup' },
-    ],
-  };
-  if (initialValue) options.initialValue = initialValue;
-
-  const answer = await select(options);
-
-  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
-}
-
 async function readInstalledRecords(): Promise<InstallationRecord[]> {
-  const scopes: InstallScope[] = ['project', 'global'];
-  return (
-    await Promise.all(
-      scopes.map(async (scope) =>
-        (await readInstallationManifest(getInstallManifestPath(scope))).installations,
-      ),
-    )
-  ).flat();
+  return (await readInstallationManifest(getInstallManifestPath())).installations;
 }
 
 type InstalledResourceChoice = {
@@ -448,8 +424,7 @@ async function promptInstalledResource(
               records.some(
                 (candidate) =>
                   candidate.resource === member &&
-                  candidate.harness === record.harness &&
-                  candidate.scope === record.scope,
+                  candidate.harness === record.harness,
               ),
             ),
           );
@@ -467,51 +442,27 @@ async function promptInstalledResource(
     throw new Error('No installed resources found. Install a resource first.');
   }
 
-  const answer = await select({
-    message: 'Which installed resource do you want to use?',
-    options: choices.map((choice) => ({
-      value: choice.resource,
-      label: choice.resource,
-      hint: choice.resources.length > 1
-        ? `${choice.resources.length} component resources`
-        : records
-          .filter((record) => record.resource === choice.resource)
-          .map((record) => `${record.harness}/${record.scope} · v${record.version}`)
-        .join(', '),
-    })),
-  });
+const answer = await select({
+        message: 'Which installed resource do you want to use?',
+        options: choices.map((choice) => ({
+          value: choice.resource,
+          label: choice.resource,
+          hint: choice.resources.length > 1
+            ? `${choice.resources.length} component resources`
+            : records
+              .filter((record) => record.resource === choice.resource)
+              .map((record) => `${record.harness} · v${record.version}`)
+            .join(', '),
+        })),
+      });
 
   if (isCancel(answer)) return cancelled('Operation cancelled.');
   return choices.find((choice) => choice.resource === answer);
 }
 
-async function promptInstalledScope(
-  records: InstallationRecord[],
-  resources: string[],
-): Promise<InstallScope | undefined> {
-  const scopes = [...new Set(
-    records
-      .filter((record) => resources.includes(record.resource))
-      .map((record) => record.scope),
-  )];
-
-  if (scopes.length === 1) return scopes[0];
-
-  const answer = await select({
-    message: 'Which installation scope should be changed?',
-    options: scopes.map((scope) => ({
-      value: scope,
-      label: scope === 'project' ? 'This project' : 'All projects',
-    })),
-  });
-
-  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
-}
-
 async function promptInstalledHarnesses(
   records: InstallationRecord[],
   resources: string[],
-  scope: InstallScope,
 ): Promise<Harness[] | undefined> {
   const available = harnessOptions
     .map((option) => option.value)
@@ -520,8 +471,7 @@ async function promptInstalledHarnesses(
         records.some(
           (record) =>
             record.resource === resource &&
-            record.harness === harness &&
-            record.scope === scope,
+            record.harness === harness,
         ),
       ),
     );
@@ -1103,11 +1053,6 @@ const install = defineCommand({
       valueHint: 'harness[,harness...]',
       description: 'Harnesses to install for; repeat or separate with commas',
     },
-    scope: {
-      type: 'enum',
-      options: ['project', 'global'],
-      description: 'Install for the current project or user',
-    },
     index: {
       type: 'string',
       alias: 'i',
@@ -1141,8 +1086,6 @@ const install = defineCommand({
         interactiveTerminal ? await promptResource(source) : undefined
       );
       if (!resource) throw new Error('Resource ID is required. Pass it as the positional argument.');
-      const scope = args.scope ?? (interactiveTerminal ? await promptScope() : undefined);
-      if (!scope) throw new Error('Installation scope is required. Pass `--scope project|global`.');
       const explicitHarnesses = hasHarnessArgument(rawArgs);
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
@@ -1165,8 +1108,8 @@ const install = defineCommand({
         }
       }
 
-      const manifestPath = getInstallManifestPath(scope);
-      const interactive = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses);
+      const manifestPath = getInstallManifestPath();
+      const interactive = interactiveTerminal && (!resourceArgument || !explicitHarnesses);
 
       const applied = await withInteractiveForce(
         interactive,
@@ -1175,7 +1118,6 @@ const install = defineCommand({
           const operation: ResourceOperation = {
             resource,
             harnesses,
-            scope,
             action: 'install',
             resources,
             warningResources: [result, ...resources],
@@ -1225,11 +1167,6 @@ const installed = defineCommand({
     description: 'Discover local resources and their installation state',
   },
   args: {
-    scope: {
-      type: 'enum',
-      options: ['project', 'global'],
-      description: 'Limit results to one installation scope',
-    },
     json: {
       type: 'boolean',
       description: 'Print JSON instead of a table',
@@ -1237,17 +1174,10 @@ const installed = defineCommand({
   },
   async run({ args }) {
     try {
-      const scopes: InstallScope[] = args.scope
-        ? [args.scope]
-        : ['project', 'global'];
-      const records = (
-        await Promise.all(
-          scopes.map(async (scope) => (await readInstallationManifest(getInstallManifestPath(scope))).installations),
-        )
-      )
-        .flat()
+      const records = (await readInstallationManifest(getInstallManifestPath()))
+        .installations
         .sort((left, right) => left.resource.localeCompare(right.resource));
-      let resources = await discoverLocalResources({ scopes, records });
+      let resources = await discoverLocalResources({ records });
 
       try {
         resources = enrichLocalResources(
@@ -1272,7 +1202,7 @@ const installed = defineCommand({
         const id = resource.resource ?? `local/${resource.type}/${resource.name}`;
         const version = resource.version ? `v${resource.version}` : '-';
         console.log(
-          `${id}\t${resource.state}\t${resource.registryState}\t${resource.harness}\t${resource.scope}\t${version}\t${resource.path}`,
+          `${id}\t${resource.state}\t${resource.registryState}\t${resource.harness}\t${version}\t${resource.path}`,
         );
       }
     } catch (error) {
@@ -1299,11 +1229,6 @@ const update = defineCommand({
       valueHint: 'harness[,harness...]',
       description: 'Harnesses to update; repeat or separate with commas',
     },
-    scope: {
-      type: 'enum',
-      options: ['project', 'global'],
-      description: 'Installation scope to update',
-    },
     index: {
       type: 'string',
       alias: 'i',
@@ -1329,7 +1254,7 @@ const update = defineCommand({
       const resourceArgument = args.resource.trim();
       const explicitHarnesses = hasHarnessArgument(rawArgs);
       const source = getRegistrySource(args.index, args.repository, args.base);
-      const installedRecords = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses)
+      const installedRecords = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
         ? await readInstalledRecords()
         : [];
       const choice = resourceArgument
@@ -1345,24 +1270,20 @@ const update = defineCommand({
       if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
       const resource = choice.resource;
       const resourceIds = choice.resources;
-      const scope = args.scope ?? (
-        interactiveTerminal ? await promptInstalledScope(installedRecords, resourceIds) : undefined
-      );
-      if (!scope) throw new Error('Installation scope is required. Pass `--scope project|global`.');
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
         : interactiveTerminal
-          ? await promptInstalledHarnesses(installedRecords, resourceIds, scope)
+          ? await promptInstalledHarnesses(installedRecords, resourceIds)
           : parseHarnesses(args.harness, rawArgs);
 
       if (!harnesses) throw new Error('Select at least one harness.');
 
-      const interactive = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses);
+      const interactive = interactiveTerminal && (!resourceArgument || !explicitHarnesses);
       const updatedHarnesses = await withInteractiveForce(
         interactive,
         args.force ?? false,
         async (force) => {
-          const manifestPath = getInstallManifestPath(scope);
+          const manifestPath = getInstallManifestPath();
           const manifest = await readInstallationManifest(manifestPath);
           const loaded = await readRegistrySourceResource(source, resource);
           const existing = harnesses.map((harness) =>
@@ -1370,8 +1291,7 @@ const update = defineCommand({
               manifest.installations.find(
                 (record) =>
                   record.resource === resourceKey(entry.resource) &&
-                  record.harness === harness &&
-                  record.scope === scope,
+                  record.harness === harness,
               ),
             ),
           );
@@ -1381,7 +1301,7 @@ const update = defineCommand({
               existing[index]?.some((record) => !record),
             );
             throw new Error(
-              `${resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
+              `${resource} is not installed for ${missing.join(', ')}.`,
             );
           }
 
@@ -1403,7 +1323,6 @@ const update = defineCommand({
             [{
               resource,
               harnesses: changed,
-              scope,
               action: 'install',
               resources: loaded.resources,
               warningResources: [loaded.resource, ...loaded.resources],
@@ -1453,11 +1372,6 @@ const uninstall = defineCommand({
       valueHint: 'harness[,harness...]',
       description: 'Harnesses to uninstall from; repeat or separate with commas',
     },
-    scope: {
-      type: 'enum',
-      options: ['project', 'global'],
-      description: 'Installation scope to change',
-    },
     index: {
       type: 'string',
       alias: 'i',
@@ -1489,7 +1403,7 @@ const uninstall = defineCommand({
           return undefined;
         }
       })();
-      const installedRecords = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses)
+      const installedRecords = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
         ? await readInstalledRecords()
         : [];
       const choice = resourceArgument
@@ -1505,32 +1419,27 @@ const uninstall = defineCommand({
       if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
       const resource = choice.resource;
       const resourceIds = choice.resources;
-      const scope = args.scope ?? (
-        interactiveTerminal ? await promptInstalledScope(installedRecords, resourceIds) : undefined
-      );
-      if (!scope) throw new Error('Installation scope is required. Pass `--scope project|global`.');
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
         : interactiveTerminal
-          ? await promptInstalledHarnesses(installedRecords, resourceIds, scope)
+          ? await promptInstalledHarnesses(installedRecords, resourceIds)
           : parseHarnesses(args.harness, rawArgs);
 
       if (!harnesses) throw new Error('Select at least one harness.');
 
-      const interactive = interactiveTerminal && (!resourceArgument || !args.scope || !explicitHarnesses);
+      const interactive = interactiveTerminal && (!resourceArgument || !explicitHarnesses);
       const result = await withInteractiveForce(
         interactive,
         args.force ?? false,
         async (force) => {
-          const manifestPath = getInstallManifestPath(scope);
+          const manifestPath = getInstallManifestPath();
           const manifest = await readInstallationManifest(manifestPath);
           const existing = harnesses.map((harness) =>
             resourceIds.map((resourceId) =>
               manifest.installations.find(
                 (record) =>
                   record.resource === resourceId &&
-                  record.harness === harness &&
-                  record.scope === scope,
+                  record.harness === harness,
               ),
             ),
           );
@@ -1540,7 +1449,7 @@ const uninstall = defineCommand({
               existing[index]?.some((record) => !record),
             );
             throw new Error(
-              `${resource} is not installed for ${missing.join(', ')} in the ${scope} scope.`,
+              `${resource} is not installed for ${missing.join(', ')}.`,
             );
           }
 
@@ -1548,7 +1457,6 @@ const uninstall = defineCommand({
             [{
               resource,
               harnesses,
-              scope,
               action: 'uninstall',
               resourceIds,
             }],
@@ -1560,7 +1468,7 @@ const uninstall = defineCommand({
 
       if (!result) return;
       console.log(`Uninstalled ${resource} for ${harnesses.join(', ')}.`);
-      console.log(`Tracked in: ${getInstallManifestPath(scope)}`);
+      console.log(`Tracked in: ${getInstallManifestPath()}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
@@ -1883,8 +1791,7 @@ const doctor = defineCommand({
       for (const harness of diagnostics.harnesses) {
         const signals = [
           harness.executable ? `command=${harness.executable}` : undefined,
-          ...harness.project.paths.map((path) => `project=${path}`),
-          ...harness.global.paths.map((path) => `global=${path}`),
+          ...harness.paths.map((path) => `path=${path}`),
         ].filter((signal): signal is string => signal !== undefined);
 
         console.log(`  ${harness.displayName}: ${signals.join(', ') || 'not detected'}`);

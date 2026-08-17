@@ -19,31 +19,28 @@ afterEach(async () => {
 });
 
 describe('harness catalog', () => {
-  it('resolves official project and global paths', async () => {
+  it('resolves official global paths', async () => {
     const directory = await createTemporaryDirectory();
 
     expect(resolveHarnessPaths('claude-code', {
       cwd: directory,
       homeDirectory: directory,
     })).toMatchObject({
-      project: { skills: join(directory, '.claude', 'skills') },
-      global: { skills: join(directory, '.claude', 'skills') },
+      skills: join(directory, '.claude', 'skills'),
     });
 
     expect(resolveHarnessPaths('opencode', {
       cwd: directory,
       homeDirectory: directory,
     })).toMatchObject({
-      project: { skills: join(directory, '.opencode', 'skills') },
-      global: { skills: join(directory, '.config', 'opencode', 'skills') },
+      skills: join(directory, '.config', 'opencode', 'skills'),
     });
 
     expect(resolveHarnessPaths('codex', {
       cwd: directory,
       homeDirectory: directory,
     })).toMatchObject({
-      project: { skills: join(directory, '.agents', 'skills') },
-      global: { skills: join(directory, '.agents', 'skills') },
+      skills: join(directory, '.agents', 'skills'),
     });
   });
 
@@ -56,15 +53,15 @@ describe('harness catalog', () => {
     expect(resolveHarnessPaths('claude-code', {
       homeDirectory: directory,
       environment: { CLAUDE_CONFIG_DIR: claudeHome },
-    }).global.config).toBe(claudeHome);
+    }).config).toBe(claudeHome);
     expect(resolveHarnessPaths('codex', {
       homeDirectory: directory,
       environment: { CODEX_HOME: codexHome },
-    }).global.config).toBe(codexHome);
+    }).config).toBe(codexHome);
     expect(resolveHarnessPaths('opencode', {
       homeDirectory: directory,
       environment: { OPENCODE_CONFIG_DIR: openCodeHome },
-    }).global.config).toBe(openCodeHome);
+    }).config).toBe(openCodeHome);
   });
 
   it('detects commands and configured paths without running harnesses', async () => {
@@ -89,7 +86,7 @@ describe('harness catalog', () => {
     expect(claude).toMatchObject({
       detected: true,
       executable: null,
-      project: { configured: true },
+      configured: true,
     });
     expect(codex).toMatchObject({
       detected: true,
@@ -98,8 +95,7 @@ describe('harness catalog', () => {
     expect(opencode).toMatchObject({
       detected: false,
       executable: null,
-      project: { configured: false },
-      global: { configured: false },
+      configured: false,
     });
   });
 

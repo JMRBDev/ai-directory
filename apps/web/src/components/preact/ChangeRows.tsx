@@ -1,11 +1,13 @@
 import { shortenHomePath } from './types';
-import type { PlanChange } from './types';
+import type { Action, PlanChange } from './types';
 
 type Props = {
   changes: PlanChange[];
   showResource?: boolean;
   warnings?: string[];
   homeDir?: string | undefined;
+  actions?: Record<string, Action> | undefined;
+  onRemove?: ((resource: string) => void) | undefined;
 };
 
 const actionMeta = {
@@ -66,7 +68,7 @@ function ChangeRow({ change, homeDir }: { change: PlanChange; homeDir?: string |
   );
 }
 
-export default function ChangeRows({ changes, showResource = false, warnings = [], homeDir }: Props) {
+export default function ChangeRows({ changes, showResource = false, warnings = [], homeDir, actions, onRemove }: Props) {
   const sorted = [...changes].sort((left, right) => left.path.localeCompare(right.path));
 
   if (!showResource) {
@@ -92,15 +94,25 @@ export default function ChangeRows({ changes, showResource = false, warnings = [
     <div className="space-y-4">
       {groupList.map(([resource, groupChanges]) => {
         const groupId = 'group-' + resource.replace(/\//g, '-');
+        const action = actions?.[resource];
         return (
           <section key={resource} aria-labelledby={groupId}>
             <div className="flex flex-wrap items-center gap-2">
               <h3 id={groupId} className="text-sm font-semibold text-base-content">{resource}</h3>
+              {action && (
+                <span className={'badge badge-sm gap-1 ' + (action === 'uninstall' ? 'badge-error badge-soft' : 'badge-primary badge-soft')}>
+                  <i className={'ph ' + (action === 'uninstall' ? 'ph-trash' : 'ph-download-simple')} aria-hidden="true"></i>
+                  {action === 'uninstall' ? 'Uninstall' : 'Install'}
+                </span>
+              )}
               {unreviewed.has(resource) && (
                 <span className="badge badge-warning badge-soft badge-sm gap-1">
                   <i className="ph ph-warning" aria-hidden="true"></i>
                   Unreviewed
                 </span>
+              )}
+              {onRemove && (
+                <button className="btn btn-ghost btn-xs ml-auto" type="button" aria-label={'Remove ' + resource} onClick={() => onRemove(resource)}>Remove</button>
               )}
             </div>
             <ul className="mt-2 space-y-2" aria-label={'File changes for ' + resource}>
