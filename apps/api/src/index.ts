@@ -12,7 +12,7 @@ const cwd =
   process.env.AI_DIRECTORY_CONFIG_CWD ?? findWorkspaceRoot(process.cwd()) ?? process.cwd();
 
 serve({
-  fetch: createApp({ cwd }).fetch,
+  fetch: createApp({ cwd, prewarm: true }).fetch,
   hostname: host,
   port,
 }, (info) => {

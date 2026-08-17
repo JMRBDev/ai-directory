@@ -50,6 +50,7 @@ export type ServerOptions = {
   registryIndexPath?: string;
   environment?: NodeJS.ProcessEnv;
   commandRunner?: CommandRunner;
+  prewarm?: boolean;
 };
 
 type JsonValue = string | boolean | number | null | JsonValue[] | { [key: string]: JsonValue };
@@ -361,12 +362,9 @@ async function installationResourceIds(
   return loaded.resources.map((item) => resourceKey(item.resource));
 }
 
-const SNAPSHOT_TTL_MS = 60_000;
-
 type CachedRegistrySnapshot = {
   key: string;
   promise: Promise<RegistrySnapshot>;
-  expiresAt: number;
 };
 
 let cachedRegistrySnapshot: CachedRegistrySnapshot | undefined;
@@ -380,7 +378,7 @@ function registrySnapshotKey(source: RegistrySource): string {
 async function getRegistrySnapshot(source: RegistrySource): Promise<RegistrySnapshot> {
   const key = registrySnapshotKey(source);
 
-  if (cachedRegistrySnapshot?.key === key && cachedRegistrySnapshot.expiresAt > Date.now()) {
+  if (cachedRegistrySnapshot?.key === key) {
     return cachedRegistrySnapshot.promise;
   }
 
@@ -390,7 +388,6 @@ async function getRegistrySnapshot(source: RegistrySource): Promise<RegistrySnap
   cachedRegistrySnapshot = {
     key,
     promise,
-    expiresAt: Date.now() + SNAPSHOT_TTL_MS,
   };
 
   if (previous) {
@@ -457,6 +454,10 @@ async function jsonBody(context: { req: { json: <T>() => Promise<T> } }): Promis
 export function createApp(options: ServerOptions = {}) {
   const app = new Hono();
   const cwd = resolve(options.cwd ?? process.cwd());
+
+  if (options.prewarm) {
+    void getRegistrySnapshot(registrySource(options, cwd)).catch(() => undefined);
+  }
 
   app.get('/health', (context) => context.json({ ok: true }));
   app.use('/api/*', cors({ origin: '*' }));

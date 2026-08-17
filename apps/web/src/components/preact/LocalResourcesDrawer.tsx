@@ -70,6 +70,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState<ChangePlan | null>(null);
   const [operation, setOperation] = useState<ChangeOperation | null>(null);
+  const [planning, setPlanning] = useState(false);
   const [planStatus, setPlanStatus] = useState('');
   const [planError, setPlanError] = useState(false);
   const [force, setForce] = useState(false);
@@ -101,8 +102,13 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
       harnesses: [resource.harness],
       action,
     };
+    const sameOperation = operation !== null
+      && operation.resource === nextOperation.resource
+      && operation.action === nextOperation.action
+      && operation.harnesses.join(',') === nextOperation.harnesses.join(',');
+    if (!sameOperation) setPlan(null);
+    setPlanning(true);
     setBusy(true);
-    setPlan(null);
     setOperation(nextOperation);
     setForce(false);
     setPlanError(false);
@@ -121,6 +127,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
       setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not generate the change plan.'));
     } finally {
+      setPlanning(false);
       setBusy(false);
     }
   }
@@ -241,7 +248,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
         </div>
       ) : null}
 
-      {plan && (
+      {plan ? (
         <PlanView
           plan={plan}
           showResource
@@ -251,7 +258,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
           onForce={setForce}
           status={planStatus}
           statusError={planError}
-          busy={busy}
+          busy={busy || planning}
           onApply={() => void applyPlan()}
           onClose={() => {
             setPlan(null);
@@ -259,7 +266,15 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
             setForce(false);
           }}
         />
-      )}
+      ) : planning ? (
+        <div className="card card-border mt-5 bg-base-100" role="status" aria-live="polite">
+          <div className="card-body gap-3 p-5">
+            <span className="skeleton h-4 w-2/5"></span>
+            <span className="skeleton h-4 w-4/5"></span>
+            <span className="skeleton h-4 w-3/5"></span>
+          </div>
+        </div>
+      ) : null}
     </DrawerShell>
   );
 }
