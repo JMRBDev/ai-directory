@@ -1,7 +1,6 @@
 import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
 
 export type Harness = 'claude-code' | 'opencode' | 'codex';
-export type Scope = 'project' | 'global';
 export type Action = 'install' | 'uninstall';
 
 export const harnessOptions: Array<{ value: Harness; label: string }> = [
@@ -25,7 +24,6 @@ export type PlanChange = {
   action: 'added' | 'modified' | 'removed';
   resource: string;
   harness: string;
-  scope: string;
   before?: string;
   after?: string;
 };
@@ -33,7 +31,6 @@ export type PlanChange = {
 export type ChangeOperation = {
   resource: string;
   harnesses: Harness[];
-  scope: Scope;
   action: Action;
   version?: string;
 };
@@ -51,7 +48,6 @@ export type Installation = {
   resource: string;
   version: string;
   harness: string;
-  scope: string;
 };
 
 export type LocalResourceState = 'managed' | 'modified' | 'missing' | 'unmanaged';
@@ -62,7 +58,6 @@ export type LocalResource = {
   type: Exclude<ResourceType, 'templates'>;
   name: string;
   harness: Harness;
-  scope: Scope;
   path: string;
   files: string[];
   state: LocalResourceState;

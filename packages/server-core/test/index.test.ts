@@ -173,11 +173,11 @@ describe('local control API', () => {
 
   it('installs one resource for multiple harnesses and safely uninstalls it', async () => {
     const cwd = await createTemporaryDirectory();
-    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: fixtureIndexPath });
     const request = {
       resource: 'john-doe/skills/typescript-review',
       harnesses: ['claude-code', 'opencode'],
-      scope: 'project',
     };
 
     const install = await app.request('/api/install', {
@@ -198,12 +198,12 @@ describe('local control API', () => {
       ),
     });
 
-    const skillPath = join(cwd, '.claude', 'skills', 'typescript-review', 'SKILL.md');
-    const openCodeSkillPath = join(cwd, '.opencode', 'skills', 'typescript-review', 'SKILL.md');
+    const skillPath = join(homeDirectory, '.claude', 'skills', 'typescript-review', 'SKILL.md');
+    const openCodeSkillPath = join(homeDirectory, '.config', 'opencode', 'skills', 'typescript-review', 'SKILL.md');
     await expect(readFile(skillPath, 'utf8')).resolves.toContain('TypeScript');
     await expect(readFile(openCodeSkillPath, 'utf8')).resolves.toContain('TypeScript');
 
-    const listed = await app.request('/api/installed?scope=project');
+    const listed = await app.request('/api/installed');
     expect(listed.status).toBe(200);
     await expect(listed.json()).resolves.toMatchObject({
       installations: request.harnesses.map((harness) =>
@@ -213,7 +213,7 @@ describe('local control API', () => {
 
     await writeFile(skillPath, '# Local edit\n', 'utf8');
     const blocked = await app.request(
-      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}&scope=project`,
+      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}`,
       { method: 'DELETE' },
     );
     expect(blocked.status).toBe(400);
@@ -221,19 +221,19 @@ describe('local control API', () => {
     await expect(readFile(openCodeSkillPath, 'utf8')).resolves.toContain('TypeScript');
 
     const forced = await app.request(
-      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}&scope=project&force=true`,
+      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}&force=true`,
       { method: 'DELETE' },
     );
     expect(forced.status).toBe(200);
     await expect(readFile(skillPath, 'utf8')).rejects.toThrow();
     await expect(readFile(openCodeSkillPath, 'utf8')).rejects.toThrow();
 
-    await expect(app.request('/api/installed?scope=project').then((response) => response.json())).resolves.toEqual({
+    await expect(app.request('/api/installed').then((response) => response.json())).resolves.toEqual({
       installations: [],
     });
   });
 
-  it('keeps global installations inside the configured home directory', async () => {
+  it('keeps installations inside the configured home directory', async () => {
     const cwd = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();
     const app = createApp({
@@ -247,25 +247,26 @@ describe('local control API', () => {
     const install = await app.request('/api/install', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resource, harnesses: ['codex'], scope: 'global' }),
+      body: JSON.stringify({ resource, harnesses: ['codex'] }),
     });
 
     expect(install.status).toBe(200);
     await expect(
       readFile(join(homeDirectory, '.agents', 'skills', 'typescript-review', 'SKILL.md'), 'utf8'),
     ).resolves.toContain('TypeScript');
-    await expect(app.request('/api/installed?scope=global').then((response) => response.json())).resolves.toMatchObject({
-      installations: [expect.objectContaining({ resource, harness: 'codex', scope: 'global' })],
+    await expect(app.request('/api/installed').then((response) => response.json())).resolves.toMatchObject({
+      installations: [expect.objectContaining({ resource, harness: 'codex' })],
     });
   });
 
-  it('discovers managed and unmanaged project resources', async () => {
+  it('discovers managed and unmanaged resources in global locations', async () => {
     const cwd = await createTemporaryDirectory();
-    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: fixtureIndexPath });
 
-    await mkdir(join(cwd, '.claude', 'skills', 'local-skill'), { recursive: true });
+    await mkdir(join(homeDirectory, '.claude', 'skills', 'local-skill'), { recursive: true });
     await writeFile(
-      join(cwd, '.claude', 'skills', 'local-skill', 'SKILL.md'),
+      join(homeDirectory, '.claude', 'skills', 'local-skill', 'SKILL.md'),
       '# Local skill\n',
       'utf8',
     );
@@ -276,19 +277,17 @@ describe('local control API', () => {
       body: JSON.stringify({
         resource: 'john-doe/skills/typescript-review',
         harnesses: ['claude-code'],
-        scope: 'project',
       }),
     });
     expect(install.status).toBe(200);
 
-    const response = await app.request('/api/local-resources?scope=project');
+    const response = await app.request('/api/local-resources');
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       resources: expect.arrayContaining([
         expect.objectContaining({
           resource: 'john-doe/skills/typescript-review',
           harness: 'claude-code',
-          scope: 'project',
           state: 'managed',
           registryState: 'current',
           latestVersion: '1.2.0',
@@ -297,7 +296,6 @@ describe('local control API', () => {
           type: 'skills',
           name: 'local-skill',
           harness: 'claude-code',
-          scope: 'project',
           state: 'unmanaged',
         }),
       ]),
@@ -306,16 +304,16 @@ describe('local control API', () => {
 
   it('previews and applies a batch without mutating during the preview', async () => {
     const cwd = await createTemporaryDirectory();
-    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: fixtureIndexPath });
     const request = {
       operations: [{
         resource: 'john-doe/skills/typescript-review',
         action: 'install',
         harnesses: ['claude-code', 'opencode'],
-        scope: 'project',
       }],
     };
-    const skillPath = join(cwd, '.claude', 'skills', 'typescript-review', 'SKILL.md');
+    const skillPath = join(homeDirectory, '.claude', 'skills', 'typescript-review', 'SKILL.md');
 
     const plan = await app.request('/api/plan', {
       method: 'POST',
@@ -346,16 +344,16 @@ describe('local control API', () => {
 
   it('rejects applying a plan after its files change', async () => {
     const cwd = await createTemporaryDirectory();
-    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: fixtureIndexPath });
     const request = {
       operations: [{
         resource: 'john-doe/skills/typescript-review',
         action: 'install',
         harnesses: ['claude-code'],
-        scope: 'project',
       }],
     };
-    const skillPath = join(cwd, '.claude', 'skills', 'typescript-review', 'SKILL.md');
+    const skillPath = join(homeDirectory, '.claude', 'skills', 'typescript-review', 'SKILL.md');
 
     const plan = await app.request('/api/plan', {
       method: 'POST',
@@ -364,7 +362,7 @@ describe('local control API', () => {
     });
     // SAFETY: The plan endpoint is contract-tested and returns this exact shape.
     const planned = await plan.json() as { fingerprint: string };
-    await mkdir(join(cwd, '.claude', 'skills', 'typescript-review'), { recursive: true });
+    await mkdir(join(homeDirectory, '.claude', 'skills', 'typescript-review'), { recursive: true });
     await writeFile(skillPath, '# External change\n', 'utf8');
 
     const applied = await app.request('/api/apply', {
@@ -382,20 +380,21 @@ describe('local control API', () => {
 
   it('previews stale files removed by a newer harness projection', async () => {
     const cwd = await createTemporaryDirectory();
-    const app = createApp({ cwd, registryIndexPath: fixtureIndexPath });
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: fixtureIndexPath });
     const resourceId = 'john-doe/skills/typescript-review';
-    const stalePath = join(cwd, '.claude', 'skills', 'typescript-review', 'agents', 'openai.yaml');
+    const stalePath = join(homeDirectory, '.claude', 'skills', 'typescript-review', 'agents', 'openai.yaml');
 
     const install = await app.request('/api/install', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resource: resourceId, harnesses: ['claude-code'], scope: 'project' }),
+      body: JSON.stringify({ resource: resourceId, harnesses: ['claude-code'] }),
     });
     expect(install.status).toBe(200);
 
-    await mkdir(join(cwd, '.claude', 'skills', 'typescript-review', 'agents'), { recursive: true });
+    await mkdir(join(homeDirectory, '.claude', 'skills', 'typescript-review', 'agents'), { recursive: true });
     await writeFile(stalePath, 'interface:\n  display_name: "Legacy"\n', 'utf8');
-    const manifestPath = getInstallManifestPath('project', cwd);
+    const manifestPath = getInstallManifestPath(homeDirectory);
     // SAFETY: The apply endpoint writes the manifest to disk; the written file matches the contract.
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       installations: Array<{ resource: string; files: string[]; fileHashes: Record<string, string> }>;
@@ -410,7 +409,7 @@ describe('local control API', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        operations: [{ resource: resourceId, action: 'install', harnesses: ['claude-code'], scope: 'project' }],
+        operations: [{ resource: resourceId, action: 'install', harnesses: ['claude-code'] }],
       }),
     });
 
@@ -425,11 +424,11 @@ describe('local control API', () => {
 
   it('installs and uninstalls a template pack by its template ID', async () => {
     const cwd = await createTemporaryDirectory();
-    const app = createApp({ cwd, registryIndexPath: templateIndexPath });
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: templateIndexPath });
     const request = {
       resource: 'john-doe/templates/review-pack',
       harnesses: ['codex', 'opencode'],
-      scope: 'project',
     };
 
     const install = await app.request('/api/install', {
@@ -463,12 +462,12 @@ describe('local control API', () => {
     });
 
     const remove = await app.request(
-      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}&scope=project`,
+      `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}`,
       { method: 'DELETE' },
     );
 
     expect(remove.status).toBe(200);
-    await expect(app.request('/api/installed?scope=project').then((response) => response.json())).resolves.toEqual({
+    await expect(app.request('/api/installed').then((response) => response.json())).resolves.toEqual({
       installations: [],
     });
   });

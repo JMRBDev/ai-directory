@@ -3,14 +3,13 @@ import DrawerShell from './DrawerShell';
 import { closeDrawers, errorMessage, request } from './api';
 import PlanView from './PlanView';
 import { shortenHomePath } from './types';
-import type { Action, ChangeOperation, ChangePlan, Harness, LocalResource, Scope } from './types';
+import type { Action, ChangeOperation, ChangePlan, Harness, LocalResource } from './types';
 
 type Props = {
   apiUrl: string;
   homeDir: string;
 };
 
-type ScopeFilter = 'all' | Scope;
 type HarnessFilter = 'all' | Harness;
 
 const harnessLabels = {
@@ -65,7 +64,6 @@ function installActionLabel(resource: LocalResource) {
 
 export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
   const [resources, setResources] = useState<LocalResource[]>([]);
-  const [scope, setScope] = useState<ScopeFilter>('all');
   const [harness, setHarness] = useState<HarnessFilter>('all');
   const [status, setStatus] = useState('Open this panel to scan known harness locations.');
   const [error, setError] = useState(false);
@@ -101,7 +99,6 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
     const nextOperation: ChangeOperation = {
       resource: resource.resource,
       harnesses: [resource.harness],
-      scope: resource.scope,
       action,
     };
     setBusy(true);
@@ -118,9 +115,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
         body: JSON.stringify({ operations: [nextOperation] }),
       });
       setPlan(nextPlan);
-      setPlanStatus(nextPlan.changes.length === 0
-        ? 'No file changes are needed.'
-        : `${nextPlan.changes.length} file${nextPlan.changes.length === 1 ? '' : 's'} ready to apply.`);
+      setPlanStatus('');
     } catch (cause) {
       setOperation(null);
       setPlanError(true);
@@ -159,8 +154,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
   }
 
   const visibleResources = resources.filter((resource) =>
-    (scope === 'all' || resource.scope === scope) &&
-    (harness === 'all' || resource.harness === harness),
+    harness === 'all' || resource.harness === harness,
   );
 
   return (
@@ -174,7 +168,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-xl text-sm text-base-content/60">
-          Resources found in the current project and your global harness setup.
+          Resources found in your global harness setup.
         </p>
         <button className="btn btn-ghost btn-sm" type="button" onClick={() => void load()} disabled={busy}>
           <i className="ph ph-arrow-clockwise" aria-hidden="true"></i>
@@ -183,17 +177,6 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="fieldset">
-          <span className="fieldset-legend">Scope</span>
-          <select className="select w-full" value={scope} onChange={(event) => {
-            // SAFETY: The select options are exactly the ScopeFilter values.
-            setScope(event.currentTarget.value as ScopeFilter);
-          }}>
-            <option value="all">All scopes</option>
-            <option value="project">This project</option>
-            <option value="global">All projects</option>
-          </select>
-        </label>
         <label className="fieldset">
           <span className="fieldset-legend">Harness</span>
           <select className="select w-full" value={harness} onChange={(event) => {
@@ -215,7 +198,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
       {visibleResources.length > 0 ? (
         <ul className="list mt-4 gap-2" aria-label="Local resources">
           {visibleResources.map((resource) => (
-            <li className="list-row list-col-wrap gap-3 bg-base-200" key={`${resource.harness}:${resource.scope}:${resource.path}`}>
+            <li className="list-row list-col-wrap gap-3 bg-base-200" key={`${resource.harness}:${resource.path}`}>
               <div className="flex size-10 shrink-0 items-center justify-center rounded-box bg-base-300 text-lg text-base-content/60">
                 <i className={'ph ' + (resource.type === 'skills' ? 'ph-lightning' : resource.type === 'agents' ? 'ph-user-circle-gear' : 'ph-scroll')} aria-hidden="true"></i>
               </div>
@@ -226,7 +209,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
                   {resource.resource && <span className={'badge badge-sm ' + registryStateClass(resource.registryState)}>{registryStateLabel(resource.registryState)}</span>}
                 </div>
                 <p className="mt-1 text-xs text-base-content/60">
-                  {typeLabels[resource.type]} · {harnessLabels[resource.harness]} · {resource.scope === 'project' ? 'This project' : 'All projects'}
+                  {typeLabels[resource.type]} · {harnessLabels[resource.harness]}
                   {resource.version ? ` · v${resource.version}` : ''}
                   {resource.latestVersion && resource.latestVersion !== resource.version ? ` · latest v${resource.latestVersion}` : ''}
                 </p>

@@ -94,16 +94,13 @@ describe('AI Directory config', () => {
     expect(findWorkspaceRoot(nested.replace(directory, `${directory}-missing`))).toBeNull();
   });
 
-  it('uses project and user locations for install manifests', async () => {
+  it('uses the global location for install manifests', async () => {
     const directory = await createTemporaryDirectory();
 
-    expect(getInstallManifestPath('project', directory)).toBe(
-      join(directory, '.ai-directory', 'installed.json'),
-    );
-    expect(getInstallManifestPath('global', directory, directory)).toBe(
+    expect(getInstallManifestPath(directory)).toBe(
       join(directory, '.local', 'share', 'ai-directory', 'installed.json'),
     );
-    expect(getInstallManifestPath('global')).toContain('installed.json');
+    expect(getInstallManifestPath()).toContain('installed.json');
   });
 });
 

@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { useMountEffect } from './useMountEffect';
 import PlanView from './PlanView';
 import { errorMessage, request } from './api';
-import { harnessOptions, type Action, type ChangePlan, type Harness, type Installation, type Scope } from './types';
+import { harnessOptions, type Action, type ChangePlan, type Harness, type Installation } from './types';
 
 type Props = {
   apiUrl: string;
@@ -25,10 +25,9 @@ export default function InstallResource({
 }: Props) {
   const trackedResources = componentResources.length > 0 ? componentResources : [resourceKey];
   const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
-  const [scope, setScope] = useState<Scope>('project');
   const [records, setRecords] = useState<Installation[]>([]);
   const [plan, setPlan] = useState<ChangePlan | null>(null);
-  const [operations, setOperations] = useState<Array<{ resource: string; harnesses: Harness[]; scope: Scope; action: 'install' | 'uninstall' }>>([]);
+  const [operations, setOperations] = useState<Array<{ resource: string; harnesses: Harness[]; action: 'install' | 'uninstall' }>>([]);
   const [status, setStatus] = useState(resourceType === 'templates' ? 'Ready to install.' : 'Checking local installations…');
   const [planStatus, setPlanStatus] = useState('');
   const [planError, setPlanError] = useState(false);
@@ -37,7 +36,7 @@ export default function InstallResource({
   const [busy, setBusy] = useState(false);
 
   useMountEffect(() => {
-    if (resourceType !== 'templates') void loadInstallation(['claude-code'], 'project');
+    if (resourceType !== 'templates') void loadInstallation(['claude-code']);
   });
 
   function showStatus(message: string, isError = false) {
@@ -64,18 +63,17 @@ export default function InstallResource({
     }
   }
 
-  async function loadInstallation(nextHarnesses = harnesses, nextScope = scope) {
+  async function loadInstallation(nextHarnesses = harnesses) {
     if (nextHarnesses.length === 0) {
       updateInstallation([], nextHarnesses);
       return;
     }
     try {
-      const result = await request<{ installations?: Installation[] }>(apiUrl, '/api/installed?scope=' + encodeURIComponent(nextScope));
+      const result = await request<{ installations?: Installation[] }>(apiUrl, '/api/installed');
       // SAFETY: The installation manifest stores harness values from the known set.
       const nextRecords = (result.installations ?? []).filter(
         (item) => trackedResources.includes(item.resource)
-          && nextHarnesses.includes(item.harness as Harness)
-          && item.scope === nextScope,
+          && nextHarnesses.includes(item.harness as Harness),
       );
       setHarnesses(nextHarnesses);
       updateInstallation(nextRecords, nextHarnesses);
@@ -103,7 +101,6 @@ export default function InstallResource({
       const nextOperations = [{
         resource: resourceKey,
         harnesses: targets,
-        scope,
         action: action === 'uninstall' ? 'uninstall' as const : 'install' as const,
       }];
       const result = await request<ChangePlan>(apiUrl, '/api/plan', {
@@ -137,7 +134,7 @@ export default function InstallResource({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ operations, force, planFingerprint: plan.fingerprint }),
       });
-      await loadInstallation(harnesses, scope);
+      await loadInstallation(harnesses);
       setOperations([]);
       setPlanError(false);
       setPlanStatus('Applied ' + result.plan.changes.length + ' file changes.');
@@ -170,30 +167,18 @@ export default function InstallResource({
 
       <div className="card card-border mt-6 bg-base-100">
         <div className="card-body p-5">
-          <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_12rem]">
+          <div className="grid gap-6">
             <fieldset className="fieldset">
               <legend className="fieldset-legend">Harnesses</legend>
               <div className="grid gap-3 sm:grid-cols-3">
                 {harnessOptions.map((option) => (
                   <label className="label cursor-pointer justify-start gap-2" key={option.value}>
-                    <input className="checkbox checkbox-primary" type="checkbox" value={option.value} checked={harnesses.includes(option.value)} onChange={(event) => { const next = event.currentTarget.checked ? [...harnesses, option.value] : harnesses.filter((harness) => harness !== option.value); setHarnesses(next); void loadInstallation(next, scope); }} disabled={busy} />
+                    <input className="checkbox checkbox-primary" type="checkbox" value={option.value} checked={harnesses.includes(option.value)} onChange={(event) => { const next = event.currentTarget.checked ? [...harnesses, option.value] : harnesses.filter((harness) => harness !== option.value); setHarnesses(next); void loadInstallation(next); }} disabled={busy} />
                     {option.label}
                   </label>
                 ))}
               </div>
             </fieldset>
-            <label className="fieldset">
-              <span className="fieldset-legend">Scope</span>
-              <select className="select select-bordered w-full" value={scope} onChange={(event) => {
-                // SAFETY: The select options are exactly the Scope values.
-                const next = event.currentTarget.value as Scope;
-                setScope(next);
-                void loadInstallation(harnesses, next);
-              }} disabled={busy}>
-                <option value="project">This project</option>
-                <option value="global">All projects</option>
-              </select>
-            </label>
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
             {missing.length > 0 && <button className="btn btn-primary" type="button" onClick={() => void reviewChanges('install')} disabled={busy}>Review install</button>}
@@ -207,14 +192,12 @@ export default function InstallResource({
       {plan && <PlanView plan={plan} title="Review before applying" onClose={() => setPlan(null)} homeDir={homeDir} force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyChanges()} />}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        {(['project', 'global'] as const).map((commandScope) => (
-          <div key={commandScope}>
-            <p className="mb-2 text-xs font-semibold text-base-content/60">{commandScope === 'project' ? 'Project scope' : 'Global scope'}</p>
-            <div className="mockup-code text-xs">
-              <pre data-prefix="$"><code>{installBase} --scope {commandScope}</code></pre>
-            </div>
+        <div>
+          <p className="mb-2 text-xs font-semibold text-base-content/60">CLI</p>
+          <div className="mockup-code text-xs">
+            <pre data-prefix="$"><code>{installBase}</code></pre>
           </div>
-        ))}
+        </div>
       </div>
     </section>
   );

@@ -88,16 +88,15 @@ afterEach(async () => {
 });
 
 describe('installClaudeCodeResource', () => {
-  it('installs a skill in a project-local Claude Code directory', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+  it('installs a skill in the global Claude Code directory', async () => {
+    const homeDirectory = await createTemporaryDirectory();
 
     const result = await installClaudeCodeResource(resource, {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
 
     expect(result.destination).toBe(
-      join(projectDirectory, '.claude', 'skills', 'typescript-api-review'),
+      join(homeDirectory, '.claude', 'skills', 'typescript-api-review'),
     );
     await expect(readFile(join(result.destination, 'SKILL.md'), 'utf8')).resolves.toBe(
       '# API review\n',
@@ -107,24 +106,21 @@ describe('installClaudeCodeResource', () => {
     ).resolves.toBe('- Check errors\n');
   });
 
-  it('installs in the supplied global home and refuses accidental overwrites', async () => {
+  it('refuses accidental overwrites and honors force', async () => {
     const homeDirectory = await createTemporaryDirectory();
 
     await installClaudeCodeResource(resource, {
-      scope: 'global',
       homeDirectory,
     });
 
     await expect(
       installClaudeCodeResource(resource, {
-        scope: 'global',
         homeDirectory,
       }),
     ).rejects.toThrow('Use --force to overwrite.');
 
     await expect(
       installClaudeCodeResource(resource, {
-        scope: 'global',
         homeDirectory,
         force: true,
       }),
@@ -134,21 +130,18 @@ describe('installClaudeCodeResource', () => {
   });
 
   it('installs agents and rules as Claude Code flat files', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
 
     const [agentResult, ruleResult] = await installClaudeCodeResources(
       [agentResource, ruleResource],
-      {
-        scope: 'project',
-        cwd: projectDirectory,
-      },
+      { homeDirectory },
     );
 
     expect(agentResult.destination).toBe(
-      join(projectDirectory, '.claude', 'agents', 'api-reviewer.md'),
+      join(homeDirectory, '.claude', 'agents', 'api-reviewer.md'),
     );
     expect(ruleResult.destination).toBe(
-      join(projectDirectory, '.claude', 'rules', 'typescript-quality.md'),
+      join(homeDirectory, '.claude', 'rules', 'typescript-quality.md'),
     );
     await expect(readFile(agentResult.destination, 'utf8')).resolves.toBe('# API reviewer\n');
     await expect(readFile(ruleResult.destination, 'utf8')).resolves.toBe(
@@ -157,7 +150,7 @@ describe('installClaudeCodeResource', () => {
     await expect(
       readFile(
         join(
-          projectDirectory,
+          homeDirectory,
           '.claude',
           'agents',
           'api-reviewer.files',
@@ -170,7 +163,7 @@ describe('installClaudeCodeResource', () => {
     await expect(
       readFile(
         join(
-          projectDirectory,
+          homeDirectory,
           '.claude',
           'rules',
           'typescript-quality.files',
@@ -183,39 +176,36 @@ describe('installClaudeCodeResource', () => {
   });
 
   it('checks a batch before writing files', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
 
     await installClaudeCodeResource(resource, {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
 
     await expect(
       installClaudeCodeResources([resource, agentResource], {
-        scope: 'project',
-        cwd: projectDirectory,
+        homeDirectory,
       }),
     ).rejects.toThrow('Use --force to overwrite.');
 
     await expect(
-      readFile(join(projectDirectory, '.claude', 'agents', 'api-reviewer.md'), 'utf8'),
+      readFile(join(homeDirectory, '.claude', 'agents', 'api-reviewer.md'), 'utf8'),
     ).rejects.toThrow();
   });
 
   it('rejects overlapping batch destinations even with force', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
 
     await expect(
       installClaudeCodeResources([resource, resource], {
-        scope: 'project',
-        cwd: projectDirectory,
+        homeDirectory,
         force: true,
       }),
     ).rejects.toThrow('Install resources overlap');
   });
 
   it('does not install templates as standalone Claude Code resources', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
     const templateResource = {
       ...resource,
       resource: {
@@ -228,14 +218,13 @@ describe('installClaudeCodeResource', () => {
 
     await expect(
       installClaudeCodeResource(templateResource, {
-        scope: 'project',
-        cwd: projectDirectory,
+        homeDirectory,
       }),
     ).rejects.toThrow('Templates must be expanded first.');
   });
 
   it('rejects files that escape the resource directory', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
     const unsafeResource = {
       ...resource,
       files: [{ path: '../outside.md', content: 'unsafe\n' }],
@@ -243,21 +232,19 @@ describe('installClaudeCodeResource', () => {
 
     await expect(
       installClaudeCodeResource(unsafeResource, {
-        scope: 'project',
-        cwd: projectDirectory,
+        homeDirectory,
       }),
     ).rejects.toThrow('Unsafe resource file path');
   });
 });
 
 describe('local resource discovery', () => {
-  it('finds unmanaged skills, agents, and rules in known harness locations', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+  it('finds unmanaged skills, agents, and rules in global harness locations', async () => {
     const homeDirectory = await createTemporaryDirectory();
 
-    await mkdir(join(projectDirectory, '.claude', 'skills', 'local-skill'), { recursive: true });
+    await mkdir(join(homeDirectory, '.claude', 'skills', 'local-skill'), { recursive: true });
     await writeFile(
-      join(projectDirectory, '.claude', 'skills', 'local-skill', 'SKILL.md'),
+      join(homeDirectory, '.claude', 'skills', 'local-skill', 'SKILL.md'),
       '# Local skill\n',
       'utf8',
     );
@@ -267,15 +254,14 @@ describe('local resource discovery', () => {
       '# Local agent\n',
       'utf8',
     );
-    await mkdir(join(projectDirectory, '.ai-directory', 'rules'), { recursive: true });
+    await mkdir(join(homeDirectory, '.ai-directory', 'rules'), { recursive: true });
     await writeFile(
-      join(projectDirectory, '.ai-directory', 'rules', 'local-rule.md'),
+      join(homeDirectory, '.ai-directory', 'rules', 'local-rule.md'),
       '# Local rule\n',
       'utf8',
     );
 
     const resources = await discoverLocalResources({
-      cwd: projectDirectory,
       homeDirectory,
       environment: { PATH: '' },
     });
@@ -285,42 +271,36 @@ describe('local resource discovery', () => {
         type: 'skills',
         name: 'local-skill',
         harness: 'claude-code',
-        scope: 'project',
         state: 'unmanaged',
       }),
       expect.objectContaining({
         type: 'agents',
         name: 'local-agent',
         harness: 'opencode',
-        scope: 'global',
         state: 'unmanaged',
       }),
       expect.objectContaining({
         type: 'rules',
         name: 'local-rule',
         harness: 'codex',
-        scope: 'project',
         state: 'unmanaged',
       }),
     ]));
   });
 
   it('reports managed resources as current, modified, or missing', async () => {
-    const projectDirectory = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();
     const installation = await installClaudeCodeResource(resource, {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
     const [record] = createInstallationRecords(
       [resource],
       [installation],
-      'project',
       'claude-code',
     );
 
     await expect(
-      discoverLocalResources({ cwd: projectDirectory, homeDirectory, records: [record] }),
+      discoverLocalResources({ homeDirectory, records: [record] }),
     ).resolves.toEqual([
       expect.objectContaining({
         resource: resourceKey(resource.resource),
@@ -331,34 +311,31 @@ describe('local resource discovery', () => {
 
     await writeFile(join(installation.destination, 'SKILL.md'), '# Changed locally\n', 'utf8');
     await expect(
-      discoverLocalResources({ cwd: projectDirectory, homeDirectory, records: [record] }),
+      discoverLocalResources({ homeDirectory, records: [record] }),
     ).resolves.toEqual([
       expect.objectContaining({ state: 'modified' }),
     ]);
 
     await rm(installation.destination, { recursive: true, force: true });
     await expect(
-      discoverLocalResources({ cwd: projectDirectory, homeDirectory, records: [record] }),
+      discoverLocalResources({ homeDirectory, records: [record] }),
     ).resolves.toEqual([
       expect.objectContaining({ state: 'missing' }),
     ]);
   });
 
   it('enriches managed resources with registry freshness', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
     const installation = await installClaudeCodeResource(resource, {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
     const [record] = createInstallationRecords(
       [resource],
       [installation],
-      'project',
       'claude-code',
     );
     const discovered = await discoverLocalResources({
-      cwd: projectDirectory,
-      homeDirectory: await createTemporaryDirectory(),
+      homeDirectory,
       records: [record],
     });
 
@@ -397,18 +374,18 @@ describe('portable harness installers', () => {
   });
 
   it('installs native OpenCode skills and agents', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
 
     const [skillResult, agentResult] = await installOpenCodeResources(
       [resource, agentResource],
-      { scope: 'project', cwd: projectDirectory },
+      { homeDirectory },
     );
 
     expect(skillResult.destination).toBe(
-      join(projectDirectory, '.opencode', 'skills', 'typescript-api-review'),
+      join(homeDirectory, '.config', 'opencode', 'skills', 'typescript-api-review'),
     );
     expect(agentResult.destination).toBe(
-      join(projectDirectory, '.opencode', 'agents', 'api-reviewer.md'),
+      join(homeDirectory, '.config', 'opencode', 'agents', 'api-reviewer.md'),
     );
     await expect(readFile(join(skillResult.destination, 'SKILL.md'), 'utf8')).resolves.toBe(
       '# API review\n',
@@ -422,19 +399,19 @@ describe('portable harness installers', () => {
   });
 
   it('projects Codex metadata only into Codex skills', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
 
     const [claudeResult] = await installClaudeCodeResources(
       [resourceWithCodexMetadata],
-      { scope: 'project', cwd: projectDirectory },
+      { homeDirectory },
     );
     const [openCodeResult] = await installOpenCodeResources(
       [resourceWithCodexMetadata],
-      { scope: 'project', cwd: projectDirectory },
+      { homeDirectory },
     );
     const [codexResult] = await installCodexResources(
       [resourceWithCodexMetadata],
-      { scope: 'project', cwd: projectDirectory },
+      { homeDirectory },
     );
 
     expect(claudeResult.files).not.toContain('agents/openai.yaml');
@@ -444,29 +421,29 @@ describe('portable harness installers', () => {
     expect(openCodeResult.skippedFiles).toEqual(['agents/openai.yaml']);
     expect(codexResult.skippedFiles).toEqual([]);
     await expect(
-      readFile(join(projectDirectory, '.claude', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
+      readFile(join(homeDirectory, '.claude', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
     ).rejects.toThrow();
     await expect(
-      readFile(join(projectDirectory, '.opencode', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
+      readFile(join(homeDirectory, '.config', 'opencode', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
     ).rejects.toThrow();
     await expect(
-      readFile(join(projectDirectory, '.agents', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
+      readFile(join(homeDirectory, '.agents', 'skills', 'typescript-api-review', 'agents', 'openai.yaml'), 'utf8'),
     ).resolves.toContain('API review');
   });
 
   it('installs native Codex skills and converts agents to TOML', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
 
     const [skillResult, agentResult] = await installCodexResources(
       [resource, agentResource],
-      { scope: 'project', cwd: projectDirectory },
+      { homeDirectory },
     );
 
     expect(skillResult.destination).toBe(
-      join(projectDirectory, '.agents', 'skills', 'typescript-api-review'),
+      join(homeDirectory, '.agents', 'skills', 'typescript-api-review'),
     );
     expect(agentResult.destination).toBe(
-      join(projectDirectory, '.codex', 'agents', 'api-reviewer.toml'),
+      join(homeDirectory, '.codex', 'agents', 'api-reviewer.toml'),
     );
     await expect(readFile(join(skillResult.destination, 'SKILL.md'), 'utf8')).resolves.toBe(
       '# API review\n',
@@ -483,11 +460,9 @@ describe('portable harness installers', () => {
     const homeDirectory = await createTemporaryDirectory();
 
     const [openCodeResult] = await installOpenCodeResources([resource], {
-      scope: 'global',
       homeDirectory,
     });
     const [codexResult] = await installCodexResources([agentResource], {
-      scope: 'global',
       homeDirectory,
     });
 
@@ -499,7 +474,6 @@ describe('portable harness installers', () => {
     );
 
     const [ruleResult] = await installOpenCodeResources([ruleResource], {
-      scope: 'global',
       homeDirectory,
     });
 
@@ -512,8 +486,9 @@ describe('portable harness installers', () => {
   });
 
   it('installs OpenCode rules and preserves JSONC configuration', async () => {
-    const projectDirectory = await createTemporaryDirectory();
-    const configPath = join(projectDirectory, 'opencode.jsonc');
+    const homeDirectory = await createTemporaryDirectory();
+    const configPath = join(homeDirectory, '.config', 'opencode', 'opencode.jsonc');
+    await mkdir(join(homeDirectory, '.config', 'opencode'), { recursive: true });
     await writeFile(
       configPath,
       '{\n  // Keep this setting.\n  "instructions": ["README.md"]\n}\n',
@@ -521,12 +496,11 @@ describe('portable harness installers', () => {
     );
 
     const [result] = await installOpenCodeResources([ruleResource], {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
 
     expect(result.destination).toBe(
-      join(projectDirectory, '.opencode', 'rules', 'typescript-quality.md'),
+      join(homeDirectory, '.config', 'opencode', 'rules', 'typescript-quality.md'),
     );
     await expect(readFile(result.destination, 'utf8')).resolves.toBe(
       '# TypeScript quality\n',
@@ -534,8 +508,9 @@ describe('portable harness installers', () => {
     await expect(
       readFile(
         join(
-          projectDirectory,
-          '.opencode',
+          homeDirectory,
+          '.config',
+          'opencode',
           'rules',
           'typescript-quality.files',
           'references',
@@ -548,7 +523,7 @@ describe('portable harness installers', () => {
     const config = await readFile(configPath, 'utf8');
     expect(config).toContain('// Keep this setting.');
     expect(config).toContain('"README.md"');
-    expect(config).toContain('.opencode/rules/typescript-quality.md');
+    expect(config).toContain('rules/typescript-quality.md');
 
     const updatedRule = {
       ...ruleResource,
@@ -557,8 +532,7 @@ describe('portable harness installers', () => {
     } satisfies ResourceVersion;
 
     await installOpenCodeResources([updatedRule], {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
       force: true,
     });
 
@@ -566,23 +540,23 @@ describe('portable harness installers', () => {
       '# Updated TypeScript quality\n',
     );
     const updatedConfig = await readFile(configPath, 'utf8');
-    expect(updatedConfig.split('.opencode/rules/typescript-quality.md')).toHaveLength(2);
+    expect(updatedConfig.split('rules/typescript-quality.md')).toHaveLength(2);
   });
 
   it('installs Codex rules in managed AGENTS blocks', async () => {
-    const projectDirectory = await createTemporaryDirectory();
-    const agentsPath = join(projectDirectory, 'AGENTS.md');
+    const homeDirectory = await createTemporaryDirectory();
+    const agentsPath = join(homeDirectory, '.codex', 'AGENTS.md');
+    await mkdir(join(homeDirectory, '.codex'), { recursive: true });
     await writeFile(agentsPath, '# Existing guidance\n\nKeep this content.\n', 'utf8');
 
     const [result] = await installCodexResources([ruleResource], {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
 
     expect(result.destination).toBe(agentsPath);
     await expect(
       readFile(
-        join(projectDirectory, '.ai-directory', 'rules', 'typescript-quality.md'),
+        join(homeDirectory, '.ai-directory', 'rules', 'typescript-quality.md'),
         'utf8',
       ),
     ).resolves.toBe('# TypeScript quality\n');
@@ -599,8 +573,7 @@ describe('portable harness installers', () => {
     } satisfies ResourceVersion;
 
     await installCodexResources([updatedRule], {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
       force: true,
     });
 
@@ -613,77 +586,75 @@ describe('portable harness installers', () => {
   });
 
   it('uninstalls OpenCode rules without removing other instructions', async () => {
-    const projectDirectory = await createTemporaryDirectory();
-    const configPath = join(projectDirectory, 'opencode.json');
+    const homeDirectory = await createTemporaryDirectory();
+    const configPath = join(homeDirectory, '.config', 'opencode', 'opencode.json');
+    await mkdir(join(homeDirectory, '.config', 'opencode'), { recursive: true });
     await writeFile(configPath, '{"instructions":["README.md"]}\n', 'utf8');
 
     const [result] = await installOpenCodeResources([ruleResource], {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
     const record = {
       resource: resourceKey(ruleResource.resource),
       version: ruleResource.version,
       harness: 'opencode',
-      scope: 'project',
       destination: result.destination,
       files: result.ownedPaths,
       fileHashes: result.fileHashes,
       installedAt: new Date().toISOString(),
     } satisfies InstallationRecord;
 
-    await uninstallInstallation(record, { scope: 'project', cwd: projectDirectory });
+    await uninstallInstallation(record, { homeDirectory });
 
     await expect(readFile(result.destination, 'utf8')).rejects.toThrow();
     await expect(readFile(configPath, 'utf8')).resolves.not.toContain(
-      '.opencode/rules/typescript-quality.md',
+      'rules/typescript-quality.md',
     );
     await expect(readFile(configPath, 'utf8')).resolves.toContain('README.md');
   });
 
   it('uninstalls Codex rules without removing existing guidance', async () => {
-    const projectDirectory = await createTemporaryDirectory();
-    const agentsPath = join(projectDirectory, 'AGENTS.md');
+    const homeDirectory = await createTemporaryDirectory();
+    const agentsPath = join(homeDirectory, '.codex', 'AGENTS.md');
+    await mkdir(join(homeDirectory, '.codex'), { recursive: true });
     await writeFile(agentsPath, '# Existing guidance\n', 'utf8');
 
     const [result] = await installCodexResources([ruleResource], {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
     const record = {
       resource: resourceKey(ruleResource.resource),
       version: ruleResource.version,
       harness: 'codex',
-      scope: 'project',
       destination: result.destination,
       files: result.ownedPaths,
       fileHashes: result.fileHashes,
       installedAt: new Date().toISOString(),
     } satisfies InstallationRecord;
 
-    await uninstallInstallation(record, { scope: 'project', cwd: projectDirectory });
+    await uninstallInstallation(record, { homeDirectory });
 
     await expect(readFile(result.destination, 'utf8')).resolves.toBe('# Existing guidance\n');
     await expect(
-      readFile(join(projectDirectory, '.ai-directory', 'rules', 'typescript-quality.md'), 'utf8'),
+      readFile(join(homeDirectory, '.ai-directory', 'rules', 'typescript-quality.md'), 'utf8'),
     ).rejects.toThrow();
   });
 
   it('uses a Codex AGENTS override file when it exists', async () => {
-    const projectDirectory = await createTemporaryDirectory();
-    const overridePath = join(projectDirectory, 'AGENTS.override.md');
+    const homeDirectory = await createTemporaryDirectory();
+    const overridePath = join(homeDirectory, '.codex', 'AGENTS.override.md');
+    await mkdir(join(homeDirectory, '.codex'), { recursive: true });
     await writeFile(overridePath, '# Override guidance\n', 'utf8');
 
     const [result] = await installCodexResources([ruleResource], {
-      scope: 'project',
-      cwd: projectDirectory,
+      homeDirectory,
     });
 
     expect(result.destination).toBe(overridePath);
     await expect(readFile(overridePath, 'utf8')).resolves.toContain(
       '# TypeScript quality',
     );
-    await expect(readFile(join(projectDirectory, 'AGENTS.md'), 'utf8')).rejects.toThrow();
+    await expect(readFile(join(homeDirectory, '.codex', 'AGENTS.md'), 'utf8')).rejects.toThrow();
   });
 
   it('honors official harness path environment overrides', async () => {
@@ -693,16 +664,14 @@ describe('portable harness installers', () => {
     const openCodeConfigDirectory = join(directory, 'opencode-config');
 
     const [claudeResult] = await installClaudeCodeResources([resource], {
-      scope: 'global',
+      homeDirectory: directory,
       environment: { CLAUDE_CONFIG_DIR: claudeConfigDirectory },
     });
     const [codexResult] = await installCodexResources([agentResource], {
-      scope: 'global',
       homeDirectory: directory,
       environment: { CODEX_HOME: codexHome },
     });
     const [openCodeResult] = await installOpenCodeResources([resource], {
-      scope: 'global',
       homeDirectory: directory,
       environment: { OPENCODE_CONFIG_DIR: openCodeConfigDirectory },
     });
@@ -723,7 +692,6 @@ describe('portable harness installers', () => {
     const configPath = join(directory, 'custom', 'opencode.jsonc');
 
     await installOpenCodeResources([ruleResource], {
-      scope: 'global',
       homeDirectory: directory,
       environment: { OPENCODE_CONFIG: configPath },
     });
@@ -736,48 +704,46 @@ describe('portable harness installers', () => {
 
 describe('shared resource operations', () => {
   it('plans, applies, and removes one operation across multiple harnesses', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
     const operation = {
       resource: resourceKey(resource.resource),
       harnesses: ['claude-code', 'opencode'] as const,
-      scope: 'project' as const,
       action: 'install' as const,
       resources: [resource],
       warningResources: [resource],
     };
 
-    const plan = await planResourceOperations([operation], { cwd: projectDirectory });
+    const plan = await planResourceOperations([operation], { homeDirectory });
     expect(plan.changes).toHaveLength(4);
     expect(plan.conflicts).toEqual([]);
 
     const applied = await applyResourceOperations(
       [operation],
-      { cwd: projectDirectory },
+      { homeDirectory },
       false,
       plan,
     );
     expect(applied.installed).toHaveLength(2);
     await expect(
-      readFile(join(projectDirectory, '.ai-directory', 'installed.json.lock'), 'utf8'),
+      readFile(join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json.lock'), 'utf8'),
     ).rejects.toThrow();
 
     const uninstall = await applyResourceOperations(
       [{
         resource: operation.resource,
         harnesses: [...operation.harnesses],
-        scope: operation.scope,
         action: 'uninstall' as const,
         resourceIds: [operation.resource],
       }],
-      { cwd: projectDirectory },
+      { homeDirectory },
     );
     expect(uninstall.removed).toHaveLength(2);
   });
 
-  it('blocks an operation while another process owns the scope lock', async () => {
-    const projectDirectory = await createTemporaryDirectory();
-    const lockPath = join(projectDirectory, '.ai-directory', 'installed.json.lock');
-    await mkdir(join(projectDirectory, '.ai-directory'), { recursive: true });
+  it('blocks an operation while another process owns the install lock', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const lockPath = join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json.lock');
+    await mkdir(join(homeDirectory, '.local', 'share', 'ai-directory'), { recursive: true });
     await writeFile(
       lockPath,
       JSON.stringify({ pid: process.pid, token: 'test-lock' }),
@@ -789,19 +755,18 @@ describe('shared resource operations', () => {
         [{
           resource: resourceKey(resource.resource),
           harnesses: ['claude-code'],
-          scope: 'project',
           action: 'install',
           resources: [resource],
         }],
-        { cwd: projectDirectory },
+        { homeDirectory },
       ),
     ).rejects.toThrow('Another AI Directory installation is in progress');
   });
 
   it('reclaims a lock owned by a dead process', async () => {
-    const projectDirectory = await createTemporaryDirectory();
-    const lockPath = join(projectDirectory, '.ai-directory', 'installed.json.lock');
-    await mkdir(join(projectDirectory, '.ai-directory'), { recursive: true });
+    const homeDirectory = await createTemporaryDirectory();
+    const lockPath = join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json.lock');
+    await mkdir(join(homeDirectory, '.local', 'share', 'ai-directory'), { recursive: true });
     await writeFile(
       lockPath,
       JSON.stringify({ pid: Number.MAX_SAFE_INTEGER, token: 'stale-lock' }),
@@ -813,22 +778,20 @@ describe('shared resource operations', () => {
         [{
           resource: resourceKey(resource.resource),
           harnesses: ['claude-code'],
-          scope: 'project',
           action: 'install',
           resources: [resource],
         }],
-        { cwd: projectDirectory },
+        { homeDirectory },
       ),
     ).resolves.toMatchObject({ installed: [expect.anything()] });
     await expect(readFile(lockPath, 'utf8')).rejects.toThrow();
   });
 
-  it('applies a global operation inside the supplied home directory', async () => {
+  it('applies an operation inside the supplied home directory', async () => {
     const homeDirectory = await createTemporaryDirectory();
     const operation = {
       resource: resourceKey(resource.resource),
       harnesses: ['claude-code', 'opencode', 'codex'] as const,
-      scope: 'global' as const,
       action: 'install' as const,
       resources: [resourceWithCodexMetadata],
     };
@@ -866,59 +829,58 @@ describe('shared resource operations', () => {
   });
 
   it('rejects a stale plan before writing files', async () => {
-    const projectDirectory = await createTemporaryDirectory();
-    const configPath = join(projectDirectory, 'opencode.jsonc');
+    const homeDirectory = await createTemporaryDirectory();
+    const configPath = join(homeDirectory, '.config', 'opencode', 'opencode.json');
     const operation = {
       resource: resourceKey(ruleResource.resource),
       harnesses: ['claude-code', 'opencode'] as const,
-      scope: 'project' as const,
       action: 'install' as const,
       resources: [ruleResource],
       warningResources: [ruleResource],
     };
 
+    await mkdir(join(homeDirectory, '.config', 'opencode'), { recursive: true });
     await writeFile(configPath, '{"instructions": []}\n', 'utf8');
-    const plan = await planResourceOperations([operation], { cwd: projectDirectory });
+    const plan = await planResourceOperations([operation], { homeDirectory });
     await writeFile(configPath, '{ invalid json\n', 'utf8');
 
-    const failure = applyResourceOperations([operation], { cwd: projectDirectory }, false, plan);
+    const failure = applyResourceOperations([operation], { homeDirectory }, false, plan);
     await expect(failure).rejects.toThrow('Change plan is outdated. Generate a new preview before applying.');
     await expect(
-      readFile(join(projectDirectory, '.claude', 'rules', 'typescript-quality.md'), 'utf8'),
+      readFile(join(homeDirectory, '.claude', 'rules', 'typescript-quality.md'), 'utf8'),
     ).rejects.toThrow();
     await expect(
-      readFile(join(projectDirectory, '.ai-directory', 'installed.json'), 'utf8'),
+      readFile(join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json'), 'utf8'),
     ).rejects.toThrow();
     await expect(readFile(configPath, 'utf8')).resolves.toBe('{ invalid json\n');
     await expect(
-      readFile(join(projectDirectory, '.ai-directory', 'installed.json.lock'), 'utf8'),
+      readFile(join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json.lock'), 'utf8'),
     ).rejects.toThrow();
   });
 
   it('rolls back earlier harness changes when a later write fails', async () => {
-    const projectDirectory = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
     const operation = {
       resource: resourceKey(resource.resource),
       harnesses: ['claude-code', 'opencode'] as const,
-      scope: 'project' as const,
       action: 'install' as const,
       resources: [resource],
     };
 
-    const plan = await planResourceOperations([operation], { cwd: projectDirectory });
+    const plan = await planResourceOperations([operation], { homeDirectory });
     const failedInstaller = vi
       .spyOn(openCodeInstaller, 'install')
       .mockRejectedValueOnce(new Error('simulated OpenCode failure'));
 
     try {
-      const failure = applyResourceOperations([operation], { cwd: projectDirectory }, false, plan);
+      const failure = applyResourceOperations([operation], { homeDirectory }, false, plan);
       await expect(failure).rejects.toThrow('Failed to install jose-rosendo/skills/typescript-api-review');
       await expect(failure).rejects.toThrow('All changes were rolled back');
       await expect(
-        readFile(join(projectDirectory, '.claude', 'skills', 'typescript-api-review', 'SKILL.md'), 'utf8'),
+        readFile(join(homeDirectory, '.claude', 'skills', 'typescript-api-review', 'SKILL.md'), 'utf8'),
       ).rejects.toThrow();
       await expect(
-        readFile(join(projectDirectory, '.ai-directory', 'installed.json'), 'utf8'),
+        readFile(join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json'), 'utf8'),
       ).rejects.toThrow();
     } finally {
       failedInstaller.mockRestore();
@@ -934,7 +896,6 @@ describe('installation manifest', () => {
       resource: 'jose-rosendo/skills/typescript-api-review',
       version: '1.0.0',
       harness: 'claude-code',
-      scope: 'project',
       destination: join(directory, '.claude', 'skills', 'typescript-api-review'),
       files: [join(directory, '.claude', 'skills', 'typescript-api-review', 'SKILL.md')],
       installedAt: '2026-08-11T10:00:00.000Z',
@@ -961,7 +922,6 @@ describe('installation manifest', () => {
       resource: 'jose-rosendo/skills/typescript-api-review',
       version: '1.0.0',
       harness: 'claude-code',
-      scope: 'project',
       destination: directory,
       files: [oldFile],
       fileHashes: {

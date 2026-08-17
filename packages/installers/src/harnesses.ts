@@ -20,17 +20,12 @@ export type HarnessLocation = {
   guidance: string;
 };
 
-export type HarnessPaths = {
-  project: HarnessLocation;
-  global: HarnessLocation;
-};
-
 export type HarnessDefinition = {
   harness: Harness;
   displayName: string;
   command: string;
-  paths(options: HarnessPathContext): HarnessPaths;
-  markers(paths: HarnessPaths): { project: string[]; global: string[] };
+  paths(options: HarnessPathContext): HarnessLocation;
+  markers(location: HarnessLocation): string[];
 };
 
 export type HarnessDetection = {
@@ -38,8 +33,8 @@ export type HarnessDetection = {
   displayName: string;
   command: string;
   executable: string | null;
-  project: { configured: boolean; paths: string[] };
-  global: { configured: boolean; paths: string[] };
+  configured: boolean;
+  paths: string[];
   detected: boolean;
 };
 
@@ -54,66 +49,42 @@ const definitions: readonly HarnessDefinition[] = [
     harness: 'claude-code',
     displayName: 'Claude Code',
     command: 'claude',
-    paths: ({ cwd, home, environment }) => {
+    paths: ({ home, environment }) => {
       const globalConfig = configuredPath(environment, 'CLAUDE_CONFIG_DIR') ?? join(home, '.claude');
 
-      return {
-        project: claudeLocation(cwd, join(cwd, '.claude')),
-        global: claudeLocation(home, globalConfig),
-      };
+      return claudeLocation(home, globalConfig);
     },
-    markers: ({ project, global }) => ({
-      project: [project.config, project.skills],
-      global: [global.config, global.skills],
-    }),
+    markers: (location) => [location.config, location.skills],
   },
   {
     harness: 'opencode',
     displayName: 'OpenCode',
     command: 'opencode',
-    paths: ({ cwd, home, environment }) => {
+    paths: ({ home, environment }) => {
       const configHome = configuredPath(environment, 'XDG_CONFIG_HOME') ?? join(home, '.config');
       const globalConfig =
         configuredPath(environment, 'OPENCODE_CONFIG_DIR') ?? join(configHome, 'opencode');
 
-      return {
-        project: openCodeLocation(cwd, join(cwd, '.opencode')),
-        global: openCodeLocation(globalConfig, globalConfig),
-      };
+      return openCodeLocation(globalConfig, globalConfig);
     },
-    markers: ({ project, global }) => ({
-      project: [project.config, project.skills],
-      global: [global.config, global.skills],
-    }),
+    markers: (location) => [location.config, location.skills],
   },
   {
     harness: 'codex',
     displayName: 'Codex',
     command: 'codex',
-    paths: ({ cwd, home, environment }) => {
+    paths: ({ home, environment }) => {
       const globalConfig = configuredPath(environment, 'CODEX_HOME') ?? join(home, '.codex');
 
-      return {
-        project: codexLocation(
-          cwd,
-          join(cwd, '.codex'),
-          join(cwd, '.agents', 'skills'),
-          join(cwd, '.codex'),
-          cwd,
-        ),
-        global: codexLocation(
-          home,
-          globalConfig,
-          join(home, '.agents', 'skills'),
-          globalConfig,
-          globalConfig,
-        ),
-      };
+      return codexLocation(
+        home,
+        globalConfig,
+        join(home, '.agents', 'skills'),
+        globalConfig,
+        globalConfig,
+      );
     },
-    markers: ({ project, global }) => ({
-      project: [project.config, project.skills, project.agents],
-      global: [global.config, global.skills, global.agents],
-    }),
+    markers: (location) => [location.config, location.skills, location.agents],
   },
 ];
 
@@ -134,7 +105,7 @@ export function getHarnessDefinition(value: string): HarnessDefinition {
 export function resolveHarnessPaths(
   harness: Harness,
   options: HarnessPathOptions = {},
-): HarnessPaths {
+): HarnessLocation {
   const environment = { ...process.env, ...options.environment };
   const context = {
     cwd: resolve(options.cwd ?? process.cwd()),
@@ -157,24 +128,21 @@ export async function detectHarnesses(
 
   return Promise.all(
     definitions.map(async (definition) => {
-      const paths = definition.paths(context);
-      const markers = definition.markers(paths);
-      const [executable, projectPaths, globalPaths] = await Promise.all([
+      const location = definition.paths(context);
+      const [executable, paths] = await Promise.all([
         findExecutable(definition.command, environment),
-        existingPaths(markers.project),
-        existingPaths(markers.global),
+        existingPaths(definition.markers(location)),
       ]);
-      const project = { configured: projectPaths.length > 0, paths: projectPaths };
-      const global = { configured: globalPaths.length > 0, paths: globalPaths };
+      const configured = paths.length > 0;
 
       return {
         harness: definition.harness,
         displayName: definition.displayName,
         command: definition.command,
         executable: executable ?? null,
-        project,
-        global,
-        detected: executable !== undefined || project.configured || global.configured,
+        configured,
+        paths,
+        detected: executable !== undefined || configured,
       };
     }),
   );

@@ -4,7 +4,7 @@ import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import type { RegistryIndex } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/domain';
 import { isResourceVersionOutdated } from '@ai-directory/registry';
-import type { InstallScope, InstallationRecord, ResourceKind } from './index.js';
+import type { InstallationRecord, ResourceKind } from './index.js';
 import {
   getHarnessDefinitions,
   resolveHarnessPaths,
@@ -21,7 +21,6 @@ export type LocalResource = {
   type: ResourceKind;
   name: string;
   harness: Harness;
-  scope: InstallScope;
   path: string;
   files: string[];
   state: LocalResourceState;
@@ -32,37 +31,31 @@ export type LocalResource = {
 
 export type ResourceDiscoveryOptions = HarnessPathOptions & {
   records?: readonly InstallationRecord[];
-  scopes?: readonly InstallScope[];
 };
 
 export async function discoverLocalResources(
   options: ResourceDiscoveryOptions = {},
 ): Promise<LocalResource[]> {
   const records = options.records ?? [];
-  const scopes = options.scopes ?? ['project', 'global'];
   const managed = await Promise.all(records.map(localResourceFromRecord));
   const managedRecords = records.filter((record) => resourceType(record.resource));
   const discovered: LocalResource[] = [];
 
   for (const definition of getHarnessDefinitions()) {
-    const paths = resolveHarnessPaths(definition.harness, options);
+    const location = resolveHarnessPaths(definition.harness, options);
+    const candidates = await scanLocation(definition.harness, location);
 
-    for (const scope of scopes) {
-      const location = paths[scope];
-      const candidates = await scanLocation(definition.harness, scope, location);
-
-      discovered.push(
-        ...candidates.filter(
-          (candidate) => !matchesManagedRecord(candidate, managedRecords),
-        ),
-      );
-    }
+    discovered.push(
+      ...candidates.filter(
+        (candidate) => !matchesManagedRecord(candidate, managedRecords),
+      ),
+    );
   }
 
   return [...managed, ...discovered].sort((left, right) =>
-    [left.type, left.name, left.harness, left.scope, left.path]
+    [left.type, left.name, left.harness, left.path]
       .join('\0')
-      .localeCompare([right.type, right.name, right.harness, right.scope, right.path].join('\0')),
+      .localeCompare([right.type, right.name, right.harness, right.path].join('\0')),
   );
 }
 
@@ -121,7 +114,6 @@ async function localResourceFromRecord(record: InstallationRecord): Promise<Loca
     type,
     name: resourceName(record.resource),
     harness: record.harness,
-    scope: record.scope,
     path: record.destination,
     files,
     state,
@@ -132,19 +124,17 @@ async function localResourceFromRecord(record: InstallationRecord): Promise<Loca
 
 async function scanLocation(
   harness: Harness,
-  scope: InstallScope,
   location: HarnessLocation,
 ): Promise<LocalResource[]> {
   return [
-    ...(await scanSkills(harness, scope, location.skills)),
-    ...(await scanFlatResources(harness, scope, 'agents', location.agents, harness === 'codex' ? ['.toml', '.md'] : ['.md'])),
-    ...(await scanFlatResources(harness, scope, 'rules', location.rules, ['.md'])),
+    ...(await scanSkills(harness, location.skills)),
+    ...(await scanFlatResources(harness, 'agents', location.agents, harness === 'codex' ? ['.toml', '.md'] : ['.md'])),
+    ...(await scanFlatResources(harness, 'rules', location.rules, ['.md'])),
   ];
 }
 
 async function scanSkills(
   harness: Harness,
-  scope: InstallScope,
   root: string,
 ): Promise<LocalResource[]> {
   const entries = await readDirectory(root);
@@ -161,7 +151,6 @@ async function scanSkills(
       type: 'skills',
       name: entry.name,
       harness,
-      scope,
       path,
       files,
       state: 'unmanaged',
@@ -174,7 +163,6 @@ async function scanSkills(
 
 async function scanFlatResources(
   harness: Harness,
-  scope: InstallScope,
   type: Exclude<ResourceKind, 'skills'>,
   root: string,
   extensions: string[],
@@ -194,7 +182,6 @@ async function scanFlatResources(
       type,
       name,
       harness,
-      scope,
       path,
       files,
       state: 'unmanaged',
@@ -210,7 +197,7 @@ function matchesManagedRecord(
   records: readonly InstallationRecord[],
 ): boolean {
   return records.some((record) => {
-    if (record.harness !== candidate.harness || record.scope !== candidate.scope) return false;
+    if (record.harness !== candidate.harness) return false;
 
     const managedPaths = [record.destination, ...record.files].map((path) => resolve(path));
     return candidate.files.some((file) =>
