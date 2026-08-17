@@ -30,7 +30,6 @@ import { resourceKey } from '@ai-directory/domain';
 import {
   createRegistrySnapshot,
   readRegistrySourceResource,
-  readRegistrySourceIndex,
   resolveRegistrySource,
   submitResource,
   type CommandRunner,
@@ -362,18 +361,71 @@ async function installationResourceIds(
   return loaded.resources.map((item) => resourceKey(item.resource));
 }
 
+const SNAPSHOT_TTL_MS = 60_000;
+
+type CachedRegistrySnapshot = {
+  key: string;
+  promise: Promise<RegistrySnapshot>;
+  expiresAt: number;
+};
+
+let cachedRegistrySnapshot: CachedRegistrySnapshot | undefined;
+
+function registrySnapshotKey(source: RegistrySource): string {
+  return source.type === 'remote'
+    ? `remote\0${source.repositoryUrl}\0${source.baseBranch}`
+    : `local\0${source.indexPath}`;
+}
+
+async function getRegistrySnapshot(source: RegistrySource): Promise<RegistrySnapshot> {
+  const key = registrySnapshotKey(source);
+
+  if (cachedRegistrySnapshot?.key === key && cachedRegistrySnapshot.expiresAt > Date.now()) {
+    return cachedRegistrySnapshot.promise;
+  }
+
+  const previous = cachedRegistrySnapshot;
+  const promise = createRegistrySnapshot(source);
+
+  cachedRegistrySnapshot = {
+    key,
+    promise,
+    expiresAt: Date.now() + SNAPSHOT_TTL_MS,
+  };
+
+  if (previous) {
+    void previous.promise.then(
+      (snapshot) => snapshot.close(),
+      () => undefined,
+    );
+  }
+
+  promise.catch(() => {
+    if (cachedRegistrySnapshot?.promise === promise) cachedRegistrySnapshot = undefined;
+  });
+
+  return promise;
+}
+
+async function refreshRegistrySnapshot(): Promise<void> {
+  const previous = cachedRegistrySnapshot;
+  cachedRegistrySnapshot = undefined;
+
+  if (previous) {
+    await previous.promise.then(
+      (snapshot) => snapshot.close(),
+      () => undefined,
+    );
+  }
+}
+
 async function withRegistrySnapshot<T>(
   options: ServerOptions,
   cwd: string,
   action: (snapshot: RegistrySnapshot) => Promise<T>,
 ): Promise<T> {
-  const snapshot = await createRegistrySnapshot(registrySource(options, cwd));
-
-  try {
-    return await action(snapshot);
-  } finally {
-    await snapshot.close();
-  }
+  const snapshot = await getRegistrySnapshot(registrySource(options, cwd));
+  return action(snapshot);
 }
 
 function changeOptions(options: ServerOptions, cwd: string): ResourceChangeOptions {
@@ -408,6 +460,15 @@ export function createApp(options: ServerOptions = {}) {
 
   app.get('/health', (context) => context.json({ ok: true }));
   app.use('/api/*', cors({ origin: '*' }));
+
+  app.post('/api/refresh', async (context) => {
+    try {
+      await refreshRegistrySnapshot();
+      return context.json({ ok: true });
+    } catch (caught) {
+      return context.json({ error: errorMessage(caught) }, 500);
+    }
+  });
 
   app.get('/api/github-user', async (context) => {
     try {
@@ -561,10 +622,8 @@ export function createApp(options: ServerOptions = {}) {
 
       if (resources.some((resource) => resource.resource)) {
         try {
-          enriched = enrichLocalResources(
-            resources,
-            await readRegistrySourceIndex(registrySource(options, cwd)),
-          );
+          const snapshot = await getRegistrySnapshot(registrySource(options, cwd));
+          enriched = enrichLocalResources(resources, await snapshot.readIndex());
         } catch (caught) {
           registryError = errorMessage(caught);
         }

@@ -126,6 +126,7 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
   const [applied, setApplied] = useState(false);
   const [busy, setBusy] = useState(false);
   const requestId = useRef(0);
+  const planTimer = useRef(0);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const activeTypeResources = resources.filter((resource) => resource.type === activeType);
@@ -235,13 +236,18 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
     }
   }
 
+  function schedulePlan(nextSelected = selected, nextHarnesses = harnesses) {
+    clearTimeout(planTimer.current);
+    planTimer.current = window.setTimeout(() => void requestPlan(nextSelected, nextHarnesses), 200);
+  }
+
   function selectResource(resource: ResourceSummary, checked: boolean) {
     const id = resourceId(resource);
     const nextSelected = checked
       ? { ...selected, [id]: installedIds.has(id) ? ('uninstall' as const) : ('install' as const) }
       : removeSelectedKey(selected, id);
     setSelected(nextSelected);
-    void requestPlan(nextSelected);
+    schedulePlan(nextSelected);
   }
 
   function updateHarness(value: Harness, checked: boolean) {
@@ -249,10 +255,11 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
       ? [...harnesses, value]
       : harnesses.filter((harness) => harness !== value);
     setHarnesses(nextHarnesses);
-    void requestPlan(selected, nextHarnesses);
+    schedulePlan(selected, nextHarnesses);
   }
 
   function clearSelection() {
+    clearTimeout(planTimer.current);
     setSelected({});
     setPlan(null);
     setPlanStatus('');
