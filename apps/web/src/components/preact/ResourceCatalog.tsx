@@ -1,7 +1,7 @@
 import { useRef, useState } from 'preact/hooks';
 import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
 import { useChangeDeck } from './ChangeDeckContext';
-import { resourceId } from './types';
+import { resourceId, type Action } from './types';
 
 type Props = {
   resources: ResourceSummary[];
@@ -38,21 +38,32 @@ function updatedLabel(value: string) {
 
 function CatalogCard({
   resource,
-  selected,
+  stagedAction,
   installed,
   onSelect,
 }: {
   resource: ResourceSummary;
-  selected: boolean;
+  stagedAction: Action | undefined;
   installed: boolean;
   onSelect: (checked: boolean) => void;
 }) {
   const id = resourceId(resource);
   const reviewed = resource.reviewStatus === 'reviewed';
+  const isStaged = stagedAction !== undefined;
+  const selectedClass = stagedAction === 'uninstall'
+    ? 'border-error bg-error/5'
+    : stagedAction === 'install'
+      ? 'border-primary bg-primary/5'
+      : '';
+
+  const selectLabel = stagedAction === 'install' || !installed
+    ? 'Select ' + id + ' to install'
+    : 'Select ' + id + ' to uninstall';
+  const ariaLabel = isStaged ? 'Unselect ' + id : selectLabel;
 
   return (
     <article
-      className={'card card-border relative transition-colors hover:border-primary ' + (selected ? 'border-primary bg-primary/5' : 'bg-base-100')}
+      className={'card card-border relative transition-colors hover:border-primary ' + (isStaged ? selectedClass : 'bg-base-100')}
       data-resource
       data-type={resource.type}
       data-resource-id={id}
@@ -61,9 +72,9 @@ function CatalogCard({
       <button
         className="absolute inset-0 cursor-pointer appearance-none border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-primary"
         type="button"
-        aria-label={(selected ? 'Unselect ' : 'Select ') + id}
-        aria-pressed={selected}
-        onClick={() => onSelect(!selected)}
+        aria-label={ariaLabel}
+        aria-pressed={isStaged}
+        onClick={() => onSelect(!isStaged)}
       ></button>
       <div className="card-body pointer-events-none relative gap-4 p-5">
         <div>
@@ -72,13 +83,28 @@ function CatalogCard({
               <a className="pointer-events-auto block truncate link link-hover" href={detailPath(resource)}>{resource.name}</a>
             </h3>
             <span className="flex shrink-0 items-center gap-1">
-              {installed && (
+              {stagedAction === 'install' && (
+                <span className="badge badge-primary badge-sm gap-1">
+                  <i className="ph ph-download-simple text-xs" aria-hidden="true"></i>
+                  Install
+                </span>
+              )}
+              {stagedAction === 'uninstall' && (
+                <span className="badge badge-error badge-sm gap-1">
+                  <i className="ph ph-trash text-xs" aria-hidden="true"></i>
+                  Uninstall
+                </span>
+              )}
+              {!isStaged && installed && (
                 <span className="badge badge-success badge-sm gap-1">
                   <i className="ph ph-check text-xs" aria-hidden="true"></i>
                   Installed
                 </span>
               )}
-              <span className={'badge badge-sm ' + (reviewed ? 'badge-success' : 'badge-warning')}>
+              {!isStaged && !installed && (
+                <span className="badge badge-ghost badge-sm">Not installed</span>
+              )}
+              <span className={'badge badge-soft badge-sm ' + (reviewed ? 'badge-success' : 'badge-warning')}>
                 {reviewed ? 'Reviewed' : 'Unreviewed'}
               </span>
             </span>
@@ -280,7 +306,7 @@ export default function ResourceCatalog({ resources, registryError }: Props) {
                     <CatalogCard
                       key={resourceId(resource)}
                       resource={resource}
-                      selected={Boolean(staged[resourceId(resource)])}
+                      stagedAction={staged[resourceId(resource)]?.action}
                       installed={installedIds.has(resourceId(resource))}
                       onSelect={(checked) => selectResource(resource, checked)}
                     />
