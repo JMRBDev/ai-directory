@@ -4,7 +4,17 @@ import PlanView from './PlanView';
 import { closeDrawers, errorMessage, request } from './api';
 import DrawerShell from './DrawerShell';
 import { useMountEffect } from './useMountEffect';
-import { harnessOptions, resourceId, type Action, type ChangePlan, type Harness, type Installation } from './types';
+import {
+  harnessOptions,
+  resourceId,
+  scopeOptions,
+  type Action,
+  type ChangeOperation,
+  type ChangePlan,
+  type Harness,
+  type Installation,
+  type InstallScope,
+} from './types';
 
 type Props = {
   resources: ResourceSummary[];
@@ -22,6 +32,7 @@ const RESOURCE_TYPES: Array<{ value: ResourceType; label: string }> = [
   { value: 'skills', label: 'Skills' },
   { value: 'agents', label: 'Agents' },
   { value: 'rules', label: 'Rules' },
+  { value: 'mcp-servers', label: 'MCP Servers' },
   { value: 'templates', label: 'Templates' },
 ];
 
@@ -119,6 +130,7 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Record<string, Action>>({});
   const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
+  const [scope, setScope] = useState<InstallScope>('user');
   const [plan, setPlan] = useState<ChangePlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planStatus, setPlanStatus] = useState('');
@@ -152,6 +164,7 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const visibleResources = sortedResources.slice(pageStart, pageStart + PAGE_SIZE);
   const selectedResources = resources.filter((resource) => selected[resourceId(resource)]);
+  const mcpSelected = selectedResources.some((resource) => resource.type === 'mcp-servers');
   const canApply = Boolean(plan && plan.changes.length > 0 && (plan.conflicts.length === 0 || force) && !applied);
   const hasFilters = query.trim().length > 0 || reviewFilter !== 'all' || installedFilter !== 'all' || sort !== 'updated';
   const activeTypeLabel = resourceTypeLabel(activeType);
@@ -209,11 +222,15 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
     }
 
     const currentRequest = ++requestId.current;
-    const operations = nextResources.map((resource) => ({
-      resource: resourceId(resource),
-      action: nextSelected[resourceId(resource)] ?? 'install',
-      harnesses: nextHarnesses,
-    }));
+    const operations = nextResources.map((resource) => {
+      const operation: ChangeOperation = {
+        resource: resourceId(resource),
+        action: nextSelected[resourceId(resource)] ?? 'install',
+        harnesses: nextHarnesses,
+      };
+      if (resource.type === 'mcp-servers') operation.scope = scope;
+      return operation;
+    });
     setForce(false);
     setApplied(false);
     setPlanError(false);
@@ -273,11 +290,15 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
     setBusy(true);
     setPlanError(false);
     setPlanStatus('Applying all changes…');
-    const operations = selectedResources.map((resource) => ({
-      resource: resourceId(resource),
-      action: selected[resourceId(resource)] ?? 'install',
-      harnesses,
-    }));
+    const operations = selectedResources.map((resource) => {
+      const operation: ChangeOperation = {
+        resource: resourceId(resource),
+        action: selected[resourceId(resource)] ?? 'install',
+        harnesses,
+      };
+      if (resource.type === 'mcp-servers') operation.scope = scope;
+      return operation;
+    });
     try {
       const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
         method: 'POST',
@@ -466,6 +487,23 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
             ))}
           </div>
         </fieldset>
+
+        {mcpSelected && (
+          <fieldset className="fieldset shrink-0 border-b border-base-300 pb-5">
+            <legend className="fieldset-legend">MCP scope</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {scopeOptions.map((option) => (
+                <label className="label cursor-pointer justify-start gap-2" key={option.value}>
+                  <input className="radio radio-primary" type="radio" name="mcp-deck-scope" value={option.value} checked={scope === option.value} onChange={() => { setScope(option.value); schedulePlan(); }} disabled={busy} />
+                  <span>
+                    {option.label}
+                    <span className="block text-xs text-base-content/60">{option.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         {selectedResources.length === 0 ? (
           <div className="alert alert-info mt-5 items-start text-sm">

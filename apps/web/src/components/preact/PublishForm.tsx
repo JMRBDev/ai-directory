@@ -176,6 +176,7 @@ export default function PublishForm({ apiUrl }: Props) {
                 <option value="skills">Skill</option>
                 <option value="agents">Agent</option>
                 <option value="rules">Rule</option>
+                <option value="mcp-servers">MCP Server</option>
                 <option value="templates">Template</option>
               </select>
             </label>

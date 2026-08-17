@@ -471,6 +471,66 @@ describe('local control API', () => {
       installations: [],
     });
   });
+
+  it('installs and manages an MCP server at project scope', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const mcpIndexPath = fileURLToPath(
+      new URL('../../registry/test/fixtures/mcp-index.json', import.meta.url),
+    );
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: mcpIndexPath });
+    const resource = 'john-doe/mcp-servers/github';
+
+    const install = await app.request('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ resource, harnesses: ['opencode'], scope: 'project' }),
+    });
+
+    expect(install.status).toBe(200);
+    await expect(install.json()).resolves.toMatchObject({
+      resource: { resource: { type: 'mcp-servers' } },
+      harnesses: ['opencode'],
+      records: [expect.objectContaining({ resource, harness: 'opencode', kind: 'mcp', scope: 'project' })],
+    });
+
+    const openCodePath = join(cwd, 'opencode.json');
+    await expect(readFile(openCodePath, 'utf8')).resolves.toContain('"Authorization": "Bearer {env:GITHUB_PAT}"');
+    await expect(readFile(join(cwd, '.ai-directory', 'installed.json'), 'utf8')).resolves.toContain('mcp-servers');
+
+    await expect(app.request('/api/installed').then((response) => response.json())).resolves.toMatchObject({
+      installations: [expect.objectContaining({ resource, scope: 'project' })],
+    });
+
+    await expect(app.request('/api/local-resources').then((response) => response.json())).resolves.toMatchObject({
+      resources: expect.arrayContaining([
+        expect.objectContaining({ resource, type: 'mcp-servers', scope: 'project', state: 'managed' }),
+      ]),
+    });
+
+    const operation = { resource, harnesses: ['opencode'] as const, action: 'uninstall' as const, scope: 'project' as const };
+    const plan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operations: [operation] }),
+    });
+    expect(plan.status).toBe(200);
+    await expect(plan.json()).resolves.toMatchObject({
+      changes: [expect.objectContaining({ action: 'removed', harness: 'opencode' })],
+    });
+
+    const apply = await app.request('/api/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operations: [operation] }),
+    });
+    expect(apply.status).toBe(200);
+
+    await expect(readFile(openCodePath, 'utf8')).resolves.not.toContain('github');
+    await expect(app.request('/api/installed').then((response) => response.json())).resolves.toEqual({
+      installations: [],
+    });
+  });
 });
 
 async function createTemporaryDirectory(): Promise<string> {

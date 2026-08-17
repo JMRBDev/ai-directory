@@ -1,12 +1,18 @@
 import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
 
 export type Harness = 'claude-code' | 'opencode' | 'codex';
+export type InstallScope = 'user' | 'project';
 export type Action = 'install' | 'uninstall';
 
 export const harnessOptions: Array<{ value: Harness; label: string }> = [
   { value: 'claude-code', label: 'Claude Code' },
   { value: 'opencode', label: 'OpenCode' },
   { value: 'codex', label: 'Codex' },
+];
+
+export const scopeOptions: Array<{ value: InstallScope; label: string; hint: string }> = [
+  { value: 'user', label: 'User', hint: 'Available in all your projects' },
+  { value: 'project', label: 'Project', hint: 'Shared with the team in this project' },
 ];
 
 export function resourceId(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>) {
@@ -33,6 +39,7 @@ export type ChangeOperation = {
   harnesses: Harness[];
   action: Action;
   version?: string;
+  scope?: InstallScope;
 };
 
 export type ChangePlan = {
@@ -48,6 +55,8 @@ export type Installation = {
   resource: string;
   version: string;
   harness: string;
+  kind?: 'files' | 'mcp';
+  scope?: InstallScope;
 };
 
 export type LocalResourceState = 'managed' | 'modified' | 'missing' | 'unmanaged';
@@ -64,4 +73,5 @@ export type LocalResource = {
   registryState: LocalResourceRegistryState;
   version?: string;
   latestVersion?: string;
+  scope?: InstallScope;
 };

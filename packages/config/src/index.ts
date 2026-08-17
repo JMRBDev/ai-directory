@@ -46,6 +46,20 @@ export function getInstallManifestPath(homeDirectory?: string): string {
   return join(dataDirectory, 'installed.json');
 }
 
+export function getProjectInstallManifestPath(cwd = process.cwd()): string {
+  return join(cwd, '.ai-directory', 'installed.json');
+}
+
+export function getScopeInstallManifestPath(
+  scope: ConfigScope,
+  cwd = process.cwd(),
+  homeDirectory?: string,
+): string {
+  return scope === 'project'
+    ? getProjectInstallManifestPath(cwd)
+    : getInstallManifestPath(homeDirectory);
+}
+
 export function findWorkspaceRoot(startDirectory: string): string | null {
   let directory = resolve(startDirectory);
 

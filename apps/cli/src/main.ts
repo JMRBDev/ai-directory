@@ -19,6 +19,7 @@ import {
   findWorkspaceRoot,
   getConfigPath,
   getInstallManifestPath,
+  getProjectInstallManifestPath,
   getRepositorySetting,
   readConfigFile,
   resolveRepository,
@@ -42,6 +43,7 @@ import {
 } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/domain';
 import {
+  applyMcpOperations,
   applyResourceOperations,
   detectHarnesses,
   discoverLocalResources,
@@ -50,6 +52,7 @@ import {
   type Harness,
   type HarnessDetection,
   type InstallationRecord,
+  type McpOperation,
   type ResourceOperation,
 } from '@ai-directory/installers';
 import {
@@ -70,6 +73,7 @@ const resourceTypeOptions = [
   { value: 'skills' as const, label: 'Skill', hint: 'Reusable instructions and workflows' },
   { value: 'agents' as const, label: 'Agent', hint: 'A reusable specialist agent' },
   { value: 'rules' as const, label: 'Rules', hint: 'Guidance applied to coding work' },
+  { value: 'mcp-servers' as const, label: 'MCP Server', hint: 'A Model Context Protocol server' },
   { value: 'templates' as const, label: 'Template', hint: 'A pack of existing resources' },
 ];
 
@@ -301,6 +305,31 @@ function scaffoldContent(
     ].join('\n');
   }
 
+  if (type === 'mcp-servers') {
+    return [
+      '---',
+      `name: ${name}`,
+      `description: ${quotedDescription}`,
+      'transport: http',
+      'url: https://example.com/mcp',
+      'headers:',
+      '  Authorization: "Bearer {env:API_TOKEN}"',
+      'env:',
+      '  - name: API_TOKEN',
+      '    required: true',
+      '---',
+      '',
+      `# ${title}`,
+      '',
+      description,
+      '',
+      '## Usage',
+      '',
+      'Describe how the agent should use this MCP server.',
+      '',
+    ].join('\n');
+  }
+
   const frontmatter = type === 'skills' || type === 'agents'
     ? ['---', `name: ${name}`, `description: ${quotedDescription}`, '---', '']
     : [];
@@ -384,7 +413,30 @@ async function promptHarnesses(initialValues?: Harness[]): Promise<Harness[] | u
 }
 
 async function readInstalledRecords(): Promise<InstallationRecord[]> {
-  return (await readInstallationManifest(getInstallManifestPath())).installations;
+  const manifests = await Promise.all([
+    readInstallationManifest(getInstallManifestPath()),
+    readInstallationManifest(getProjectInstallManifestPath()),
+  ]);
+
+  return manifests.flatMap((manifest) => manifest.installations);
+}
+
+function parseScope(value: string | undefined): ConfigScope {
+  const scope = value ?? 'user';
+  if (scope !== 'user' && scope !== 'project') {
+    throw new Error('Scope must be one of: user, project.');
+  }
+  return scope;
+}
+
+function isMcpResource(resource: string): boolean {
+  return resource.includes('/mcp-servers/');
+}
+
+function mcpInstallManifestPath(scope: ConfigScope): string {
+  return scope === 'project'
+    ? getProjectInstallManifestPath()
+    : getInstallManifestPath();
 }
 
 type InstalledResourceChoice = {
@@ -528,7 +580,7 @@ const list = defineCommand({
     },
     type: {
       type: 'enum',
-      options: ['skills', 'agents', 'rules', 'templates'],
+      options: ['skills', 'agents', 'rules', 'mcp-servers', 'templates'],
       alias: 't',
       description: 'Filter by resource type',
     },
@@ -706,7 +758,7 @@ const create = defineCommand({
     },
     type: {
       type: 'enum',
-      options: ['skills', 'agents', 'rules', 'templates'],
+      options: ['skills', 'agents', 'rules', 'mcp-servers', 'templates'],
       alias: 't',
       description: 'Resource type',
     },
@@ -1076,6 +1128,11 @@ const install = defineCommand({
       type: 'boolean',
       description: 'Overwrite files already installed at the destination',
     },
+    scope: {
+      type: 'string',
+      default: 'user',
+      description: 'Install scope for MCP servers: user or project',
+    },
   },
   async run({ args, rawArgs }) {
     try {
@@ -1099,6 +1156,7 @@ const install = defineCommand({
       const result = loaded.resource;
 
       const resources = loaded.resources;
+      const scope = isMcpResource(resource) ? parseScope(args.scope) : 'user';
 
       for (const resource of [result, ...resources]) {
         if (resource.resource.reviewStatus === 'unreviewed') {
@@ -1108,13 +1166,33 @@ const install = defineCommand({
         }
       }
 
-      const manifestPath = getInstallManifestPath();
+      const manifestPath = isMcpResource(resource)
+        ? mcpInstallManifestPath(scope)
+        : getInstallManifestPath();
       const interactive = interactiveTerminal && (!resourceArgument || !explicitHarnesses);
 
       const applied = await withInteractiveForce(
         interactive,
         args.force ?? false,
         async (force) => {
+          if (isMcpResource(resource)) {
+            const operation: McpOperation = {
+              resource,
+              harnesses,
+              action: 'install',
+              resources,
+              warningResources: [result, ...resources],
+              scope,
+            };
+            if (args.version !== undefined) operation.version = args.version;
+
+            return applyMcpOperations(
+              [operation],
+              { cwd: process.cwd() },
+              force,
+            );
+          }
+
           const operation: ResourceOperation = {
             resource,
             harnesses,
@@ -1140,8 +1218,11 @@ const install = defineCommand({
         );
         console.log(`Files: ${installation.files.join(', ')}`);
       }
-      for (const note of applied.plan.projectionNotes) {
+      for (const note of applied.plan.projectionNotes ?? []) {
         console.log(`Note: ${note}`);
+      }
+      for (const warning of applied.warnings) {
+        console.warn(`Note: ${warning}`);
       }
 
       if (result.resource.type === 'templates') {
@@ -1174,10 +1255,23 @@ const installed = defineCommand({
   },
   async run({ args }) {
     try {
-      const records = (await readInstallationManifest(getInstallManifestPath()))
-        .installations
+      const records = (await readInstalledRecords())
         .sort((left, right) => left.resource.localeCompare(right.resource));
       let resources = await discoverLocalResources({ records });
+      const mcpResources = records
+        .filter((record) => record.kind === 'mcp')
+        .map((record) => ({
+          resource: record.resource,
+          type: 'mcp-servers' as const,
+          name: record.resource.split('/').at(-1) ?? record.resource,
+          harness: record.harness,
+          path: record.destination,
+          files: record.files,
+          state: 'managed' as const,
+          registryState: 'unknown' as const,
+          version: record.version,
+        }));
+      resources = [...resources, ...mcpResources];
 
       try {
         resources = enrichLocalResources(
@@ -1247,6 +1341,11 @@ const update = defineCommand({
       type: 'boolean',
       description: 'Continue when managed files were modified',
     },
+    scope: {
+      type: 'string',
+      default: 'user',
+      description: 'Install scope for MCP servers: user or project',
+    },
   },
   async run({ args, rawArgs }) {
     try {
@@ -1270,6 +1369,7 @@ const update = defineCommand({
       if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
       const resource = choice.resource;
       const resourceIds = choice.resources;
+      const scope = isMcpResource(resource) ? parseScope(args.scope) : 'user';
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
         : interactiveTerminal
@@ -1283,7 +1383,9 @@ const update = defineCommand({
         interactive,
         args.force ?? false,
         async (force) => {
-          const manifestPath = getInstallManifestPath();
+          const manifestPath = isMcpResource(resource)
+            ? mcpInstallManifestPath(scope)
+            : getInstallManifestPath();
           const manifest = await readInstallationManifest(manifestPath);
           const loaded = await readRegistrySourceResource(source, resource);
           const existing = harnesses.map((harness) =>
@@ -1319,6 +1421,23 @@ const update = defineCommand({
             changed.push(harness);
           }
 
+          if (isMcpResource(resource)) {
+            const applied = await applyMcpOperations(
+              [{
+                resource,
+                harnesses: changed,
+                action: 'install',
+                resources: loaded.resources,
+                warningResources: [loaded.resource, ...loaded.resources],
+                scope,
+                version: loaded.resource.version,
+              }],
+              { cwd: process.cwd() },
+              force,
+            );
+            return { applied, changed, version: loaded.resource.version, mcp: true };
+          }
+
           const applied = await applyResourceOperations(
             [{
               resource,
@@ -1332,15 +1451,21 @@ const update = defineCommand({
             force,
           );
 
-          return { applied, changed, version: loaded.resource.version };
+          return { applied, changed, version: loaded.resource.version, mcp: false };
         },
       );
 
       if (!updatedHarnesses) return;
-      for (const warning of updatedHarnesses.applied.warnings) {
-        console.warn(`Warning: ${warning} has not been reviewed.`);
+      if (updatedHarnesses.mcp) {
+        for (const warning of updatedHarnesses.applied.warnings) {
+          console.warn(`Note: ${warning}`);
+        }
+      } else {
+        for (const warning of updatedHarnesses.applied.warnings) {
+          console.warn(`Warning: ${warning} has not been reviewed.`);
+        }
       }
-      for (const note of updatedHarnesses.applied.plan.projectionNotes) {
+      for (const note of updatedHarnesses.applied.plan.projectionNotes ?? []) {
         console.log(`Note: ${note}`);
       }
       if (updatedHarnesses.changed.length > 0) {
@@ -1390,6 +1515,11 @@ const uninstall = defineCommand({
       type: 'boolean',
       description: 'Continue when managed files were modified',
     },
+    scope: {
+      type: 'string',
+      default: 'user',
+      description: 'Install scope for MCP servers: user or project',
+    },
   },
   async run({ args, rawArgs }) {
     try {
@@ -1419,6 +1549,7 @@ const uninstall = defineCommand({
       if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
       const resource = choice.resource;
       const resourceIds = choice.resources;
+      const scope = isMcpResource(resource) ? parseScope(args.scope) : 'user';
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
         : interactiveTerminal
@@ -1432,7 +1563,9 @@ const uninstall = defineCommand({
         interactive,
         args.force ?? false,
         async (force) => {
-          const manifestPath = getInstallManifestPath();
+          const manifestPath = isMcpResource(resource)
+            ? mcpInstallManifestPath(scope)
+            : getInstallManifestPath();
           const manifest = await readInstallationManifest(manifestPath);
           const existing = harnesses.map((harness) =>
             resourceIds.map((resourceId) =>
@@ -1453,6 +1586,20 @@ const uninstall = defineCommand({
             );
           }
 
+          if (isMcpResource(resource)) {
+            return applyMcpOperations(
+              [{
+                resource,
+                harnesses,
+                action: 'uninstall',
+                resourceIds,
+                scope,
+              }],
+              { cwd: process.cwd() },
+              force,
+            );
+          }
+
           return applyResourceOperations(
             [{
               resource,
@@ -1468,7 +1615,7 @@ const uninstall = defineCommand({
 
       if (!result) return;
       console.log(`Uninstalled ${resource} for ${harnesses.join(', ')}.`);
-      console.log(`Tracked in: ${getInstallManifestPath()}`);
+      console.log(`Tracked in: ${isMcpResource(resource) ? mcpInstallManifestPath(scope) : getInstallManifestPath()}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const resourceTypeSchema = z.enum(['skills', 'agents', 'rules', 'templates']);
+export const resourceTypeSchema = z.enum(['skills', 'agents', 'rules', 'mcp-servers', 'templates']);
 export const resourceReviewStatusSchema = z.enum(['unreviewed', 'reviewed']);
 export const resourceLifecycleStatusSchema = z.enum(['active', 'retired']);
 export const resourceVisibilitySchema = z.enum(['private', 'targeted', 'public']);
@@ -11,7 +11,7 @@ export const resourceVersionSchema = z
   .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 
 export const resourceIdSchema = z.string().regex(
-  /^[a-z0-9]+(?:-[a-z0-9]+)*\/(?:skills|agents|rules|templates)\/[a-z0-9]+(?:-[a-z0-9]+)*$/,
+  /^[a-z0-9]+(?:-[a-z0-9]+)*\/(?:skills|agents|rules|mcp-servers|templates)\/[a-z0-9]+(?:-[a-z0-9]+)*$/,
 );
 
 const templateResourceIdSchema = resourceIdSchema.refine(
@@ -31,6 +31,66 @@ export const templateManifestSchema = z.object({
     )
     .min(1),
 });
+
+export const mcpTransportSchema = z.enum(['stdio', 'http', 'sse', 'ws']);
+
+export const mcpEnvVarSchema = z.object({
+  name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+  required: z.boolean().optional(),
+  description: z.string().min(1).optional(),
+});
+
+const mcpEnvTokenPattern = /\{env:([A-Za-z_][A-Za-z0-9_]*)\}/gu;
+
+export function mcpEnvTokens(value: string): string[] {
+  return [...value.matchAll(mcpEnvTokenPattern)]
+    .map((match) => match[1])
+    .filter((token): token is string => token !== undefined);
+}
+
+export const mcpServerManifestSchema = z
+  .object({
+    name: slugSchema,
+    description: z.string().min(1),
+    transport: mcpTransportSchema,
+    command: z.string().min(1).optional(),
+    args: z.array(z.string().min(1)).optional(),
+    cwd: z.string().min(1).optional(),
+    url: z.string().min(1).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    env: z.array(mcpEnvVarSchema).optional(),
+    oauth: z
+      .object({
+        enabled: z.boolean().optional(),
+        scopes: z.array(z.string().min(1)).optional(),
+        clientId: z.string().min(1).optional(),
+        clientSecretVar: z.string().min(1).optional(),
+        callbackPort: z.number().int().positive().optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (manifest) => {
+      const remote = manifest.transport !== 'stdio';
+      return remote
+        ? manifest.url !== undefined
+        : manifest.command !== undefined;
+    },
+    'MCP stdio servers need a command; http, sse, and ws servers need a url.',
+  )
+  .refine(
+    (manifest) => {
+      if (manifest.transport === 'stdio') return true;
+      const tokens = new Set(
+        Object.values(manifest.headers ?? {}).flatMap((value) => mcpEnvTokens(value)),
+      );
+      return (manifest.env ?? []).every((variable) => tokens.has(variable.name));
+    },
+    'Remote MCP servers must reference every declared env variable in a header value with {env:NAME}.',
+  );
+
+export type McpTransport = z.infer<typeof mcpTransportSchema>;
+export type McpServerManifest = z.infer<typeof mcpServerManifestSchema>;
 
 export const resourceSummarySchema = z.object({
   owner: slugSchema,
@@ -58,5 +118,6 @@ export const RESOURCE_ENTRY_FILES = {
   skills: 'SKILL.md',
   agents: 'AGENT.md',
   rules: 'RULE.md',
+  'mcp-servers': 'MCP.md',
   templates: 'TEMPLATE.md',
 } satisfies Record<ResourceType, string>;

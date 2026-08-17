@@ -22,6 +22,7 @@ const typeLabels = {
   skills: 'Skill',
   agents: 'Agent',
   rules: 'Rule',
+  'mcp-servers': 'MCP Server',
 } satisfies Record<LocalResource['type'], string>;
 
 function stateLabel(state: LocalResource['state']) {
@@ -102,6 +103,9 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
       harnesses: [resource.harness],
       action,
     };
+    if (resource.type === 'mcp-servers' && resource.scope) {
+      nextOperation.scope = resource.scope;
+    }
     const sameOperation = operation !== null
       && operation.resource === nextOperation.resource
       && operation.action === nextOperation.action
@@ -207,7 +211,7 @@ export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
           {visibleResources.map((resource) => (
             <li className="list-row list-col-wrap gap-3 bg-base-200" key={`${resource.harness}:${resource.path}`}>
               <div className="flex size-10 shrink-0 items-center justify-center rounded-box bg-base-300 text-lg text-base-content/60">
-                <i className={'ph ' + (resource.type === 'skills' ? 'ph-lightning' : resource.type === 'agents' ? 'ph-user-circle-gear' : 'ph-scroll')} aria-hidden="true"></i>
+                <i className={'ph ' + (resource.type === 'skills' ? 'ph-lightning' : resource.type === 'agents' ? 'ph-user-circle-gear' : resource.type === 'mcp-servers' ? 'ph-plugs-connected' : 'ph-scroll')} aria-hidden="true"></i>
               </div>
               <div className="list-col-grow min-w-0">
                 <div className="flex flex-wrap items-center gap-2">

@@ -360,16 +360,19 @@ describe('portable harness installers', () => {
       skills: 'native',
       agents: 'native',
       rules: 'native',
+      'mcp-servers': 'configured',
     });
     expect(getHarnessAdapter('opencode').capabilities).toEqual({
       skills: 'native',
       agents: 'translated',
       rules: 'configured',
+      'mcp-servers': 'configured',
     });
     expect(getHarnessAdapter('codex').capabilities).toEqual({
       skills: 'native',
       agents: 'translated',
       rules: 'configured',
+      'mcp-servers': 'configured',
     });
   });
 

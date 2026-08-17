@@ -1,7 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { getInstallManifestPath } from '@ai-directory/config';
+import {
+  getScopeInstallManifestPath,
+  type ConfigScope,
+} from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/domain';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
@@ -25,6 +28,7 @@ export type InstallOptions = {
   homeDirectory?: string;
   force?: boolean;
   dryRun?: boolean;
+  scope?: ConfigScope;
   environment?: NodeJS.ProcessEnv;
 };
 
@@ -75,7 +79,7 @@ export type ResourceChangePlan = {
 
 export type ResourceChangeOptions = Pick<
   InstallOptions,
-  'cwd' | 'homeDirectory' | 'environment'
+  'cwd' | 'homeDirectory' | 'environment' | 'scope'
 >;
 
 export type ResourceApplyResult = {
@@ -92,6 +96,8 @@ export const installationRecordSchema = z.object({
   destination: z.string().min(1),
   files: z.array(z.string().min(1)),
   fileHashes: z.record(z.string(), z.string()).optional(),
+  kind: z.enum(['files', 'mcp']).optional(),
+  scope: z.enum(['user', 'project']).optional(),
   installedAt: z.string().min(1),
 });
 
@@ -134,6 +140,7 @@ export type {
   LocalResourceState,
   ResourceDiscoveryOptions,
 } from './discovery.js';
+export * from './mcp.js';
 
 export async function installClaudeCodeResource(
   resource: ResourceVersion,
@@ -368,7 +375,7 @@ function hashesForPlan(
   return result;
 }
 
-function hashContent(content: string): string {
+export function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
@@ -384,21 +391,21 @@ async function hashFile(path: string): Promise<string | null> {
 export const claudeCodeInstaller: HarnessAdapter = {
   harness: 'claude-code',
   installation: 'native-filesystem',
-  capabilities: { skills: 'native', agents: 'native', rules: 'native' },
+  capabilities: { skills: 'native', agents: 'native', rules: 'native', 'mcp-servers': 'configured' },
   install: installClaudeCodeResources,
 };
 
 export const openCodeInstaller: HarnessAdapter = {
   harness: 'opencode',
   installation: 'native-filesystem',
-  capabilities: { skills: 'native', agents: 'translated', rules: 'configured' },
+  capabilities: { skills: 'native', agents: 'translated', rules: 'configured', 'mcp-servers': 'configured' },
   install: installOpenCodeResources,
 };
 
 export const codexInstaller: HarnessAdapter = {
   harness: 'codex',
   installation: 'native-filesystem',
-  capabilities: { skills: 'native', agents: 'translated', rules: 'configured' },
+  capabilities: { skills: 'native', agents: 'translated', rules: 'configured', 'mcp-servers': 'configured' },
   install: installCodexResources,
 };
 
@@ -1445,17 +1452,18 @@ function operationInstallOptions(
   const result: InstallOptions = { force, dryRun };
   if (options.cwd) result.cwd = options.cwd;
   if (options.homeDirectory) result.homeDirectory = options.homeDirectory;
+  if (options.scope) result.scope = options.scope;
   if (options.environment) result.environment = options.environment;
 
   return result;
 }
 
-type FileSnapshot = {
+export type FileSnapshot = {
   path: string;
   content: string | null;
 };
 
-async function snapshotFiles(paths: string[]): Promise<FileSnapshot[]> {
+export async function snapshotFiles(paths: string[]): Promise<FileSnapshot[]> {
   const snapshots: FileSnapshot[] = [];
 
   for (const path of new Set(paths)) {
@@ -1465,7 +1473,7 @@ async function snapshotFiles(paths: string[]): Promise<FileSnapshot[]> {
   return snapshots;
 }
 
-async function restoreFiles(snapshots: FileSnapshot[]): Promise<void> {
+export async function restoreFiles(snapshots: FileSnapshot[]): Promise<void> {
   for (const snapshot of snapshots) {
     if (snapshot.content === null) {
       await rm(snapshot.path, { force: true });
@@ -1475,7 +1483,7 @@ async function restoreFiles(snapshots: FileSnapshot[]): Promise<void> {
   }
 }
 
-async function currentFile(path: string): Promise<string | null> {
+export async function currentFile(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8');
   } catch (error) {
@@ -1505,14 +1513,18 @@ function requestWarnings(resources: ResourceVersion[]): string[] {
     .map((resource) => `${resourceKey(resource.resource)}@${resource.version}`))];
 }
 
-function errorMessage(cause: unknown): string {
+export function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
 function installationManifestPath(
   options: ResourceChangeOptions,
 ): string {
-  return getInstallManifestPath(options.homeDirectory);
+  return getScopeInstallManifestPath(
+    options.scope ?? 'user',
+    options.cwd,
+    options.homeDirectory,
+  );
 }
 
 function resourcePlanPaths(
@@ -1550,8 +1562,8 @@ const installationLockSchema = z.object({
   token: z.string(),
 });
 
-async function withInstallationLocks<T>(
-  operations: ResourceOperation[],
+export async function withInstallationLocks<T>(
+  operations: readonly unknown[],
   options: ResourceChangeOptions,
   action: () => Promise<T>,
 ): Promise<T> {
@@ -1691,7 +1703,7 @@ async function readOptionalText(path: string): Promise<string | null> {
   }
 }
 
-async function writeTextAtomic(path: string, content: string): Promise<void> {
+export async function writeTextAtomic(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.tmp-${process.pid}`;
 
@@ -1703,7 +1715,7 @@ async function writeTextAtomic(path: string, content: string): Promise<void> {
   }
 }
 
-async function pathExists(path: string): Promise<boolean> {
+export async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
@@ -1716,7 +1728,7 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function isMissingPathError(cause: unknown): boolean {
+export function isMissingPathError(cause: unknown): boolean {
   return (
     cause instanceof Object &&
     'code' in cause &&
