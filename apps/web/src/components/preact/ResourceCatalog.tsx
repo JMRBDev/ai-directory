@@ -1,25 +1,10 @@
 import { useRef, useState } from 'preact/hooks';
 import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
-import PlanView from './PlanView';
-import { closeDrawers, errorMessage, request } from './api';
-import DrawerShell from './DrawerShell';
-import { useMountEffect } from './useMountEffect';
-import {
-  harnessOptions,
-  resourceId,
-  scopeOptions,
-  type Action,
-  type ChangeOperation,
-  type ChangePlan,
-  type Harness,
-  type Installation,
-  type InstallScope,
-} from './types';
+import { useChangeDeck } from './ChangeDeckContext';
+import { resourceId } from './types';
 
 type Props = {
   resources: ResourceSummary[];
-  apiUrl: string;
-  homeDir: string;
   registryError?: string | undefined;
 };
 
@@ -112,34 +97,15 @@ function CatalogCard({
   );
 }
 
-function removeSelectedKey(record: Record<string, Action>, key: string) {
-  const next: typeof record = {};
-  for (const [candidate, action] of Object.entries(record)) {
-    if (candidate !== key) next[candidate] = action;
-  }
-  return next;
-}
-
-export default function ResourceCatalog({ resources, apiUrl, homeDir, registryError }: Props) {
+export default function ResourceCatalog({ resources, registryError }: Props) {
+  const { installations, staged, stage, unstage } = useChangeDeck();
+  const installedIds = new Set(installations.map((item) => item.resource));
   const [query, setQuery] = useState('');
   const [activeType, setActiveType] = useState<ResourceType>(resources[0]?.type ?? 'skills');
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
   const [installedFilter, setInstalledFilter] = useState<InstalledFilter>('all');
-  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortOption>('updated');
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<Record<string, Action>>({});
-  const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
-  const [scope, setScope] = useState<InstallScope>('user');
-  const [plan, setPlan] = useState<ChangePlan | null>(null);
-  const [planLoading, setPlanLoading] = useState(false);
-  const [planStatus, setPlanStatus] = useState('');
-  const [planError, setPlanError] = useState(false);
-  const [force, setForce] = useState(false);
-  const [applied, setApplied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const requestId = useRef(0);
-  const planTimer = useRef(0);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const activeTypeResources = resources.filter((resource) => resource.type === activeType);
@@ -163,22 +129,8 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
   const currentPage = Math.min(page, pageCount);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const visibleResources = sortedResources.slice(pageStart, pageStart + PAGE_SIZE);
-  const selectedResources = resources.filter((resource) => selected[resourceId(resource)]);
-  const mcpSelected = selectedResources.some((resource) => resource.type === 'mcp-servers');
-  const canApply = Boolean(plan && plan.changes.length > 0 && (plan.conflicts.length === 0 || force) && !applied);
   const hasFilters = query.trim().length > 0 || reviewFilter !== 'all' || installedFilter !== 'all' || sort !== 'updated';
   const activeTypeLabel = resourceTypeLabel(activeType);
-
-  async function loadInstalled() {
-    try {
-      const result = await request<{ installations?: Installation[] }>(apiUrl, '/api/installed');
-      setInstalledIds(new Set((result.installations ?? []).map((item) => item.resource)));
-    } catch {
-      setInstalledIds(new Set());
-    }
-  }
-
-  useMountEffect(() => { void loadInstalled(); });
 
   function changeType(nextType: ResourceType) {
     setActiveType(nextType);
@@ -205,338 +157,164 @@ export default function ResourceCatalog({ resources, apiUrl, homeDir, registryEr
     tabRefs.current[nextIndex]?.focus();
   }
 
-  async function requestPlan(
-    nextSelected = selected,
-    nextHarnesses = harnesses,
-  ) {
-    const nextResources = resources.filter((resource) => nextSelected[resourceId(resource)]);
-    if (nextResources.length === 0) {
-      setPlan(null);
-      setPlanStatus('');
-      return;
-    }
-    if (nextHarnesses.length === 0) {
-      setPlan(null);
-      setPlanStatus('');
-      return;
-    }
-
-    const currentRequest = ++requestId.current;
-    const operations = nextResources.map((resource) => {
-      const operation: ChangeOperation = {
-        resource: resourceId(resource),
-        action: nextSelected[resourceId(resource)] ?? 'install',
-        harnesses: nextHarnesses,
-      };
-      if (resource.type === 'mcp-servers') operation.scope = scope;
-      return operation;
-    });
-    setForce(false);
-    setApplied(false);
-    setPlanError(false);
-    setPlanLoading(true);
-    setPlanStatus('Updating preview…');
-
-    try {
-      const result = await request<ChangePlan>(apiUrl, '/api/plan', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operations }),
-      });
-      if (currentRequest !== requestId.current) return;
-      setPlan(result);
-      setPlanStatus('');
-    } catch (cause) {
-      if (currentRequest === requestId.current) {
-        setPlanError(true);
-        setPlanStatus(errorMessage(cause, 'Could not generate the change plan.'));
-      }
-    } finally {
-      if (currentRequest === requestId.current) setPlanLoading(false);
-    }
-  }
-
-  function schedulePlan(nextSelected = selected, nextHarnesses = harnesses) {
-    clearTimeout(planTimer.current);
-    planTimer.current = window.setTimeout(() => void requestPlan(nextSelected, nextHarnesses), 200);
-  }
-
   function selectResource(resource: ResourceSummary, checked: boolean) {
     const id = resourceId(resource);
-    const nextSelected = checked
-      ? { ...selected, [id]: installedIds.has(id) ? ('uninstall' as const) : ('install' as const) }
-      : removeSelectedKey(selected, id);
-    setSelected(nextSelected);
-    schedulePlan(nextSelected);
-  }
-
-  function updateHarness(value: Harness, checked: boolean) {
-    const nextHarnesses = checked
-      ? [...harnesses, value]
-      : harnesses.filter((harness) => harness !== value);
-    setHarnesses(nextHarnesses);
-    schedulePlan(selected, nextHarnesses);
-  }
-
-  function clearSelection() {
-    clearTimeout(planTimer.current);
-    setSelected({});
-    setPlan(null);
-    setPlanStatus('');
-  }
-
-  async function applyPlan() {
-    if (!plan || !canApply) return;
-    setBusy(true);
-    setPlanError(false);
-    setPlanStatus('Applying all changes…');
-    const operations = selectedResources.map((resource) => {
-      const operation: ChangeOperation = {
-        resource: resourceId(resource),
-        action: selected[resourceId(resource)] ?? 'install',
-        harnesses,
-      };
-      if (resource.type === 'mcp-servers') operation.scope = scope;
-      return operation;
-    });
-    try {
-      const result = await request<{ plan: ChangePlan }>(apiUrl, '/api/apply', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operations, force, planFingerprint: plan.fingerprint }),
+    if (checked) {
+      stage({
+        key: id,
+        resource: id,
+        type: resource.type,
+        action: installedIds.has(id) ? 'uninstall' : 'install',
       });
-      setApplied(true);
-      setPlanError(false);
-      setPlanStatus('Applied ' + result.plan.changes.length + ' file changes.');
-      void loadInstalled();
-    } catch (cause) {
-      setPlanError(true);
-      setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
-    } finally {
-      setBusy(false);
+    } else {
+      unstage(id);
     }
   }
 
   return (
-    <>
-      <section id="catalog" className="mt-14" aria-labelledby="catalog-title">
-        {registryError ? (
-          <div className="alert alert-error items-start text-sm" role="alert">
-            <i className="ph ph-warning-circle text-xl" aria-hidden="true"></i>
-            <div>
-              <strong className="font-semibold">Could not load the registry.</strong>
-              <p className="mt-2">{registryError}</p>
-              <p className="mt-2">Run <kbd className="kbd kbd-sm font-mono">aid setup</kbd> or pass <kbd className="kbd kbd-sm font-mono">--index &lt;path&gt;</kbd>.</p>
-            </div>
+    <section id="catalog" className="mt-14" aria-labelledby="catalog-title">
+      {registryError ? (
+        <div className="alert alert-error items-start text-sm" role="alert">
+          <i className="ph ph-warning-circle text-xl" aria-hidden="true"></i>
+          <div>
+            <strong className="font-semibold">Could not load the registry.</strong>
+            <p className="mt-2">{registryError}</p>
+            <p className="mt-2">Run <kbd className="kbd kbd-sm font-mono">aid setup</kbd> or pass <kbd className="kbd kbd-sm font-mono">--index &lt;path&gt;</kbd>.</p>
           </div>
-        ) : resources.length === 0 ? (
-          <div className="card card-border mt-6 bg-base-100">
-            <div className="card-body p-6">
-              <strong className="font-semibold text-base-content">No active resources yet.</strong>
-              <p className="mt-2 text-sm text-base-content/60">Submit the first resource with the CLI, then refresh the registry.</p>
-            </div>
+        </div>
+      ) : resources.length === 0 ? (
+        <div className="card card-border mt-6 bg-base-100">
+          <div className="card-body p-6">
+            <strong className="font-semibold text-base-content">No active resources yet.</strong>
+            <p className="mt-2 text-sm text-base-content/60">Submit the first resource with the CLI, then refresh the registry.</p>
           </div>
-        ) : (
-          <>
-            <div>
-              <div className="tabs tabs-border w-full overflow-x-auto" role="tablist" aria-label="Resource types">
-                {RESOURCE_TYPES.map((option, index) => {
-                  const count = resources.filter((resource) => resource.type === option.value).length;
-                  const active = activeType === option.value;
-                  return (
-                    <button
-                      className={'tab min-w-fit gap-2 whitespace-nowrap ' + (active ? 'tab-active' : '')}
-                      id={'resource-tab-' + option.value}
-                      key={option.value}
-                      type="button"
-                      role="tab"
-                      aria-label={option.label + ', ' + count + ' resource' + (count === 1 ? '' : 's')}
-                      aria-selected={active}
-                      aria-controls="resource-tabpanel"
-                      tabIndex={active ? 0 : -1}
-                      ref={(element) => { tabRefs.current[index] = element; }}
-                      onClick={() => changeType(option.value)}
-                      onKeyDown={(event) => moveTab(event, index)}
-                    >
-                      {option.label}
-                      <span className="text-xs text-base-content/60">({count})</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div id="resource-tabpanel" className="mt-5" role="tabpanel" aria-labelledby={'resource-tab-' + activeType} tabIndex={0}>
-              <div className="card card-border bg-base-100" role="search" aria-label={'Search ' + activeTypeLabel}>
-                <div className="card-body gap-4 p-4 sm:p-5">
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_11rem_11rem_13rem] xl:items-end">
-                    <label className="fieldset">
-                      <span className="fieldset-legend">Search {activeTypeLabel.toLowerCase()}</span>
-                      <input className="input w-full" type="search" placeholder="Name, owner, or description" value={query} onInput={(event) => { setQuery(event.currentTarget.value); setPage(1); }} />
-                    </label>
-                    <label className="fieldset">
-                      <span className="fieldset-legend">Review status</span>
-                      <select className="select w-full" value={reviewFilter} onChange={(event) => {
-                        // SAFETY: The select options are exactly the ReviewFilter values.
-                        setReviewFilter(event.currentTarget.value as ReviewFilter);
-                        setPage(1);
-                      }}>
-                        <option value="all">All resources</option>
-                        <option value="reviewed">Reviewed</option>
-                        <option value="unreviewed">Unreviewed</option>
-                      </select>
-                    </label>
-                    <label className="fieldset">
-                      <span className="fieldset-legend">Installed</span>
-                      <select className="select w-full" value={installedFilter} onChange={(event) => {
-                        // SAFETY: The select options are exactly the InstalledFilter values.
-                        setInstalledFilter(event.currentTarget.value as InstalledFilter);
-                        setPage(1);
-                      }}>
-                        <option value="all">All</option>
-                        <option value="installed">Installed</option>
-                        <option value="not-installed">Not installed</option>
-                      </select>
-                    </label>
-                    <label className="fieldset">
-                      <span className="fieldset-legend">Sort by</span>
-                      <select className="select w-full" value={sort} onChange={(event) => {
-                        // SAFETY: The select options are exactly the SortOption values.
-                        setSort(event.currentTarget.value as SortOption);
-                        setPage(1);
-                      }}>
-                        <option value="updated">Recently updated</option>
-                        <option value="name">Name A-Z</option>
-                        <option value="version">Newest version</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-3">
-                    <p className="text-xs text-base-content/60" aria-live="polite">
-                      {sortedResources.length === 0 ? 'No resources found' : 'Showing ' + (pageStart + 1) + '-' + Math.min(pageStart + PAGE_SIZE, sortedResources.length) + ' of ' + sortedResources.length}
-                    </p>
-                    {hasFilters && <button className="btn btn-ghost btn-xs" type="button" onClick={clearFilters}>Clear filters</button>}
-                  </div>
-                </div>
-              </div>
-
-              {visibleResources.length > 0 ? (
-                <>
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    {visibleResources.map((resource) => (
-                      <CatalogCard
-                        key={resourceId(resource)}
-                        resource={resource}
-                        selected={Boolean(selected[resourceId(resource)])}
-                        installed={installedIds.has(resourceId(resource))}
-                        onSelect={(checked) => selectResource(resource, checked)}
-                      />
-                    ))}
-                  </div>
-                  {pageCount > 1 && (
-                    <nav className="mt-6 flex flex-wrap items-center justify-between gap-4" aria-label={activeTypeLabel + ' pages'}>
-                      <p className="text-xs text-base-content/60">Page {currentPage} of {pageCount}</p>
-                      <div className="join">
-                        <button className="btn btn-outline btn-sm join-item" type="button" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1}>Previous</button>
-                        <button className="btn btn-outline btn-sm join-item" type="button" onClick={() => setPage(Math.min(pageCount, currentPage + 1))} disabled={currentPage === pageCount}>Next</button>
-                      </div>
-                    </nav>
-                  )}
-                </>
-              ) : (
-                <div className="card card-border mt-5 bg-base-200/30">
-                  <div className="card-body items-start p-6 sm:p-8">
-                    <i className="ph ph-magnifying-glass text-2xl text-base-content/50" aria-hidden="true"></i>
-                    <h3 className="mt-3 text-lg font-semibold text-base-content">
-                      {activeTypeResources.length === 0 ? 'No ' + activeTypeLabel.toLowerCase() + ' yet' : 'No matching ' + activeTypeLabel.toLowerCase()}
-                    </h3>
-                    <p className="mt-2 max-w-xl text-sm leading-6 text-base-content/60">
-                      {activeTypeResources.length === 0
-                        ? 'Use Publish resource to add the first one to this registry.'
-                        : 'Try a different search or filter.'}
-                    </p>
-                    {hasFilters && <button className="btn btn-ghost btn-sm mt-4" type="button" onClick={clearFilters}>Clear filters</button>}
-                  </div>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </section>
-
-      <DrawerShell
-        id="change-deck-toggle"
-        title="Change deck"
-        onOpen={() => closeDrawers('settings-drawer-toggle', 'publish-drawer-toggle')}
-      >
-        {selectedResources.length > 0 && (
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <p className="text-sm text-base-content/60">Review the staged changes, then apply them.</p>
-            <button className="btn btn-ghost btn-xs shrink-0" type="button" onClick={clearSelection}>Discard changes</button>
-          </div>
-        )}
-
-        <fieldset className="fieldset shrink-0 border-b border-base-300 pb-5">
-          <legend className="fieldset-legend">Harnesses</legend>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {harnessOptions.map((option) => (
-              <label className="label cursor-pointer justify-start gap-2" key={option.value}>
-                <input className="checkbox checkbox-primary" type="checkbox" value={option.value} checked={harnesses.includes(option.value)} onChange={(event) => updateHarness(option.value, event.currentTarget.checked)} disabled={busy} />
-                {option.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        {mcpSelected && (
-          <fieldset className="fieldset shrink-0 border-b border-base-300 pb-5">
-            <legend className="fieldset-legend">MCP scope</legend>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {scopeOptions.map((option) => (
-                <label className="label cursor-pointer justify-start gap-2" key={option.value}>
-                  <input className="radio radio-primary" type="radio" name="mcp-deck-scope" value={option.value} checked={scope === option.value} onChange={() => { setScope(option.value); schedulePlan(); }} disabled={busy} />
-                  <span>
+        </div>
+      ) : (
+        <>
+          <div>
+            <div className="tabs tabs-border w-full overflow-x-auto" role="tablist" aria-label="Resource types">
+              {RESOURCE_TYPES.map((option, index) => {
+                const count = resources.filter((resource) => resource.type === option.value).length;
+                const active = activeType === option.value;
+                return (
+                  <button
+                    className={'tab min-w-fit gap-2 whitespace-nowrap ' + (active ? 'tab-active' : '')}
+                    id={'resource-tab-' + option.value}
+                    key={option.value}
+                    type="button"
+                    role="tab"
+                    aria-label={option.label + ', ' + count + ' resource' + (count === 1 ? '' : 's')}
+                    aria-selected={active}
+                    aria-controls="resource-tabpanel"
+                    tabIndex={active ? 0 : -1}
+                    ref={(element) => { tabRefs.current[index] = element; }}
+                    onClick={() => changeType(option.value)}
+                    onKeyDown={(event) => moveTab(event, index)}
+                  >
                     {option.label}
-                    <span className="block text-xs text-base-content/60">{option.hint}</span>
-                  </span>
-                </label>
-              ))}
+                    <span className="text-xs text-base-content/60">({count})</span>
+                  </button>
+                );
+              })}
             </div>
-          </fieldset>
-        )}
+          </div>
 
-        {selectedResources.length === 0 ? (
-          <div className="alert alert-info mt-5 items-start text-sm">
-            <i className="ph ph-info text-lg" aria-hidden="true"></i>
-            <span>Select resources from the catalog to stage changes here.</span>
-          </div>
-        ) : plan ? (
-          <PlanView
-            plan={plan}
-            showResource
-            homeDir={homeDir}
-            actions={selected}
-            onRemove={(resource) => {
-              const resourceSummary = resources.find((candidate) => resourceId(candidate) === resource);
-              if (resourceSummary) selectResource(resourceSummary, false);
-            }}
-            force={force}
-            onForce={setForce}
-            status={planStatus}
-            statusError={planError}
-            busy={busy || planLoading}
-            onApply={() => void applyPlan()}
-          />
-        ) : (
-          <div className="card card-border mt-5 bg-base-100" role="status" aria-live="polite">
-            <div className="card-body gap-3 p-5">
-              <span className="skeleton h-4 w-2/5"></span>
-              <span className="skeleton h-4 w-4/5"></span>
-              <span className="skeleton h-4 w-3/5"></span>
+          <div id="resource-tabpanel" className="mt-5" role="tabpanel" aria-labelledby={'resource-tab-' + activeType} tabIndex={0}>
+            <div className="card card-border bg-base-100" role="search" aria-label={'Search ' + activeTypeLabel}>
+              <div className="card-body gap-4 p-4 sm:p-5">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_11rem_11rem_13rem] xl:items-end">
+                  <label className="fieldset">
+                    <span className="fieldset-legend">Search {activeTypeLabel.toLowerCase()}</span>
+                    <input className="input w-full" type="search" placeholder="Name, owner, or description" value={query} onInput={(event) => { setQuery(event.currentTarget.value); setPage(1); }} />
+                  </label>
+                  <label className="fieldset">
+                    <span className="fieldset-legend">Review status</span>
+                    <select className="select w-full" value={reviewFilter} onChange={(event) => {
+                      // SAFETY: The select options are exactly the ReviewFilter values.
+                      setReviewFilter(event.currentTarget.value as ReviewFilter);
+                      setPage(1);
+                    }}>
+                      <option value="all">All resources</option>
+                      <option value="reviewed">Reviewed</option>
+                      <option value="unreviewed">Unreviewed</option>
+                    </select>
+                  </label>
+                  <label className="fieldset">
+                    <span className="fieldset-legend">Installed</span>
+                    <select className="select w-full" value={installedFilter} onChange={(event) => {
+                      // SAFETY: The select options are exactly the InstalledFilter values.
+                      setInstalledFilter(event.currentTarget.value as InstalledFilter);
+                      setPage(1);
+                    }}>
+                      <option value="all">All</option>
+                      <option value="installed">Installed</option>
+                      <option value="not-installed">Not installed</option>
+                    </select>
+                  </label>
+                  <label className="fieldset">
+                    <span className="fieldset-legend">Sort by</span>
+                    <select className="select w-full" value={sort} onChange={(event) => {
+                      // SAFETY: The select options are exactly the SortOption values.
+                      setSort(event.currentTarget.value as SortOption);
+                      setPage(1);
+                    }}>
+                      <option value="updated">Recently updated</option>
+                      <option value="name">Name A-Z</option>
+                      <option value="version">Newest version</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-3">
+                  <p className="text-xs text-base-content/60" aria-live="polite">
+                    {sortedResources.length === 0 ? 'No resources found' : 'Showing ' + (pageStart + 1) + '-' + Math.min(pageStart + PAGE_SIZE, sortedResources.length) + ' of ' + sortedResources.length}
+                  </p>
+                  {hasFilters && <button className="btn btn-ghost btn-xs" type="button" onClick={clearFilters}>Clear filters</button>}
+                </div>
+              </div>
             </div>
+
+            {visibleResources.length > 0 ? (
+              <>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  {visibleResources.map((resource) => (
+                    <CatalogCard
+                      key={resourceId(resource)}
+                      resource={resource}
+                      selected={Boolean(staged[resourceId(resource)])}
+                      installed={installedIds.has(resourceId(resource))}
+                      onSelect={(checked) => selectResource(resource, checked)}
+                    />
+                  ))}
+                </div>
+                {pageCount > 1 && (
+                  <nav className="mt-6 flex flex-wrap items-center justify-between gap-4" aria-label={activeTypeLabel + ' pages'}>
+                    <p className="text-xs text-base-content/60">Page {currentPage} of {pageCount}</p>
+                    <div className="join">
+                      <button className="btn btn-outline btn-sm join-item" type="button" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1}>Previous</button>
+                      <button className="btn btn-outline btn-sm join-item" type="button" onClick={() => setPage(Math.min(pageCount, currentPage + 1))} disabled={currentPage === pageCount}>Next</button>
+                    </div>
+                  </nav>
+                )}
+              </>
+            ) : (
+              <div className="card card-border mt-5 bg-base-200/30">
+                <div className="card-body items-start p-6 sm:p-8">
+                  <i className="ph ph-magnifying-glass text-2xl text-base-content/50" aria-hidden="true"></i>
+                  <h3 className="mt-3 text-lg font-semibold text-base-content">
+                    {activeTypeResources.length === 0 ? 'No ' + activeTypeLabel.toLowerCase() + ' yet' : 'No matching ' + activeTypeLabel.toLowerCase()}
+                  </h3>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-base-content/60">
+                    {activeTypeResources.length === 0
+                      ? 'Use Publish resource to add the first one to this registry.'
+                      : 'Try a different search or filter.'}
+                  </p>
+                  {hasFilters && <button className="btn btn-ghost btn-sm mt-4" type="button" onClick={clearFilters}>Clear filters</button>}
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </DrawerShell>
-    </>
+        </>
+      )}
+    </section>
   );
 }
