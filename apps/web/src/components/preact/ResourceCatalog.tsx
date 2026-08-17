@@ -9,6 +9,7 @@ import { harnessOptions, resourceId, type Action, type ChangePlan, type Harness,
 type Props = {
   resources: ResourceSummary[];
   apiUrl: string;
+  homeDir: string;
   registryError?: string | undefined;
 };
 
@@ -42,10 +43,12 @@ function updatedLabel(value: string) {
 function CatalogCard({
   resource,
   selected,
+  installed,
   onSelect,
 }: {
   resource: ResourceSummary;
   selected: boolean;
+  installed: boolean;
   onSelect: (checked: boolean) => void;
 }) {
   const id = resourceId(resource);
@@ -72,8 +75,16 @@ function CatalogCard({
             <h3 className="card-title min-w-0 flex-1 text-lg">
               <a className="pointer-events-auto block truncate link link-hover" href={detailPath(resource)}>{resource.name}</a>
             </h3>
-            <span className={'badge badge-sm shrink-0 ' + (reviewed ? 'badge-success' : 'badge-warning')}>
-              {reviewed ? 'Reviewed' : 'Unreviewed'}
+            <span className="flex shrink-0 items-center gap-1">
+              {installed && (
+                <span className="badge badge-success badge-sm gap-1">
+                  <i className="ph ph-check text-xs" aria-hidden="true"></i>
+                  Installed
+                </span>
+              )}
+              <span className={'badge badge-sm ' + (reviewed ? 'badge-success' : 'badge-warning')}>
+                {reviewed ? 'Reviewed' : 'Unreviewed'}
+              </span>
             </span>
           </div>
           <p className="mt-2 line-clamp-3 text-sm leading-6 text-base-content/65">{resource.description}</p>
@@ -90,7 +101,7 @@ function CatalogCard({
   );
 }
 
-export default function ResourceCatalog({ resources, apiUrl, registryError }: Props) {
+export default function ResourceCatalog({ resources, apiUrl, homeDir, registryError }: Props) {
   const [query, setQuery] = useState('');
   const [activeType, setActiveType] = useState<ResourceType>(resources[0]?.type ?? 'skills');
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
@@ -146,11 +157,6 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
   }
 
   useMountEffect(() => { void loadInstalled(); });
-
-  function setHeaderCount(value: number) {
-    const counter = document.querySelector<HTMLElement>('[data-deck-count]');
-    if (counter) counter.textContent = String(value);
-  }
 
   function changeType(nextType: ResourceType) {
     setActiveType(nextType);
@@ -232,7 +238,6 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
       ? { ...selected, [id]: selected[id] ?? 'install' }
       : Object.fromEntries(Object.entries(selected).filter(([key]) => key !== id));
     setSelected(nextSelected);
-    setHeaderCount(Object.keys(nextSelected).length);
     void requestPlan(nextSelected);
   }
 
@@ -252,7 +257,6 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
 
   function clearSelection() {
     setSelected({});
-    setHeaderCount(0);
     setPlan(null);
     setPlanStatus('Select a resource to generate a preview.');
   }
@@ -383,7 +387,6 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-3">
                     <p className="text-xs text-base-content/60" aria-live="polite">
                       {sortedResources.length === 0 ? 'No resources found' : 'Showing ' + (pageStart + 1) + '-' + Math.min(pageStart + PAGE_SIZE, sortedResources.length) + ' of ' + sortedResources.length}
-                      {selectedResources.length > 0 && <><span aria-hidden="true"> </span><span className="ml-3 badge badge-primary badge-sm">{selectedResources.length} staged</span></>}
                     </p>
                     {hasFilters && <button className="btn btn-ghost btn-xs" type="button" onClick={clearFilters}>Clear filters</button>}
                   </div>
@@ -398,6 +401,7 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
                         key={resourceId(resource)}
                         resource={resource}
                         selected={Boolean(selected[resourceId(resource)])}
+                        installed={installedIds.has(resourceId(resource))}
                         onSelect={(checked) => selectResource(resource, checked)}
                       />
                     ))}
@@ -439,29 +443,33 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
         onOpen={() => closeDrawers('settings-drawer-toggle', 'publish-drawer-toggle')}
       >
         <p className="mb-5 text-sm text-base-content/60">
-          {selectedResources.length === 0 ? 'No pending changes.' : selectedResources.length + ' resource' + (selectedResources.length === 1 ? '' : 's') + ' staged. Review the file changes before saving.'}
+          {selectedResources.length === 0 ? 'No pending changes.' : 'Review the staged changes below, then apply them.'}
         </p>
 
         <section className="shrink-0 border-b border-base-300 py-5" aria-labelledby="deck-selection-title">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 id="deck-selection-title" className="text-sm font-semibold text-base-content">Selected resources</h3>
-              <p className="mt-1 text-xs text-base-content/60">{selectedResources.length} resource{selectedResources.length === 1 ? '' : 's'} selected</p>
-            </div>
-            <button className="btn btn-ghost btn-xs" type="button" onClick={clearSelection}>Discard changes</button>
+          <div className="flex items-center justify-between gap-4">
+            <h3 id="deck-selection-title" className="text-sm font-semibold text-base-content">Selected resources</h3>
+            {selectedResources.length > 0 && <button className="btn btn-ghost btn-xs" type="button" onClick={clearSelection}>Discard changes</button>}
           </div>
           {selectedResources.length > 0 ? (
             <ul className="list list-sm mt-4">
               {selectedResources.map((resource) => {
                 const id = resourceId(resource);
+                const typeIcon = resource.type === 'skills' ? 'ph-lightning' : resource.type === 'agents' ? 'ph-user-circle-gear' : resource.type === 'rules' ? 'ph-scroll' : 'ph-copy';
                 return (
-                  <li className="list-row list-col-wrap grid-cols-1 gap-2 bg-base-200" key={id}>
-                    <div className="list-col-grow flex flex-col gap-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="break-all font-mono text-xs text-base-content">{id}</span>
-                        <button className="btn btn-ghost btn-xs shrink-0" type="button" onClick={() => selectResource(resource, false)}>Remove</button>
+                  <li className="list-row list-col-wrap gap-3 bg-base-200" key={id}>
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-box bg-base-300 text-base text-base-content/60">
+                      <i className={'ph ' + typeIcon} aria-hidden="true"></i>
+                    </div>
+                    <div className="list-col-grow min-w-0">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <strong className="block truncate text-sm text-base-content">{resource.name}</strong>
+                          <span className="block truncate text-xs text-base-content/60">{resource.owner} · {resourceTypeLabel(resource.type)}</span>
+                        </div>
+                        <button className="btn btn-ghost btn-xs shrink-0" type="button" aria-label={'Remove ' + resource.name} onClick={() => selectResource(resource, false)}>Remove</button>
                       </div>
-                      <select className="select select-bordered select-sm w-full" value={selected[id] ?? 'install'} aria-label={'Action for ' + id} onChange={(event) => {
+                      <select className="select select-bordered select-sm mt-2 w-full" value={selected[id] ?? 'install'} aria-label={'Action for ' + resource.name} onChange={(event) => {
                         // SAFETY: The select options are exactly the Action values.
                         updateAction(id, event.currentTarget.value as Action);
                       }}>
@@ -505,10 +513,9 @@ export default function ResourceCatalog({ resources, apiUrl, registryError }: Pr
               <option value="global">All projects</option>
             </select>
           </label>
-          <button className="btn btn-ghost btn-sm justify-self-start text-primary" type="button" onClick={() => void requestPlan()} disabled={busy}>Refresh preview</button>
         </div>
 
-        {plan && <PlanView plan={plan} showResource force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyPlan()} />}
+        {plan && <PlanView plan={plan} showResource homeDir={homeDir} force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyPlan()} />}
       </DrawerShell>
     </>
   );

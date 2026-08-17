@@ -2,10 +2,12 @@ import { useState } from 'preact/hooks';
 import DrawerShell from './DrawerShell';
 import { closeDrawers, errorMessage, request } from './api';
 import PlanView from './PlanView';
+import { shortenHomePath } from './types';
 import type { Action, ChangeOperation, ChangePlan, Harness, LocalResource, Scope } from './types';
 
 type Props = {
   apiUrl: string;
+  homeDir: string;
 };
 
 type ScopeFilter = 'all' | Scope;
@@ -61,7 +63,7 @@ function installActionLabel(resource: LocalResource) {
   return resource.state === 'missing' || resource.state === 'modified' ? 'Reinstall' : 'Update';
 }
 
-export default function LocalResourcesDrawer({ apiUrl }: Props) {
+export default function LocalResourcesDrawer({ apiUrl, homeDir }: Props) {
   const [resources, setResources] = useState<LocalResource[]>([]);
   const [scope, setScope] = useState<ScopeFilter>('all');
   const [harness, setHarness] = useState<HarnessFilter>('all');
@@ -228,7 +230,7 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
                   {resource.version ? ` · v${resource.version}` : ''}
                   {resource.latestVersion && resource.latestVersion !== resource.version ? ` · latest v${resource.latestVersion}` : ''}
                 </p>
-                <code className="mt-2 block break-all text-xs text-base-content/50">{resource.path}</code>
+                <code className="mt-2 block truncate text-xs text-base-content/50" title={resource.path}>{shortenHomePath(resource.path, homeDir)}</code>
                 {resource.resource ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {(resource.registryState === 'outdated' || resource.state === 'missing' || resource.state === 'modified') && (
@@ -260,6 +262,7 @@ export default function LocalResourcesDrawer({ apiUrl }: Props) {
         <PlanView
           plan={plan}
           showResource
+          homeDir={homeDir}
           title="Review change"
           force={force}
           onForce={setForce}
