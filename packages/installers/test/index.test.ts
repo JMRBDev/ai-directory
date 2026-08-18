@@ -3,14 +3,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resourceKey } from '@ai-directory/domain';
+import { resourceKey } from '@ai-directory/contracts';
 import type { ResourceVersion } from '@ai-directory/registry';
 import {
   applyResourceOperations,
   createInstallationRecords,
   discoverLocalResources,
   enrichLocalResources,
-  installClaudeCodeResource,
   installClaudeCodeResources,
   installCodexResources,
   installOpenCodeResources,
@@ -87,17 +86,17 @@ afterEach(async () => {
   );
 });
 
-describe('installClaudeCodeResource', () => {
+describe('installClaudeCodeResources', () => {
   it('installs a skill in the global Claude Code directory', async () => {
     const homeDirectory = await createTemporaryDirectory();
 
-    const result = await installClaudeCodeResource(resource, {
+    const [result] = await installClaudeCodeResources([resource], {
       homeDirectory,
     });
 
-    expect(result.destination).toBe(
-      join(homeDirectory, '.claude', 'skills', 'typescript-api-review'),
-    );
+    expect(result).toMatchObject({
+      destination: join(homeDirectory, '.claude', 'skills', 'typescript-api-review'),
+    });
     await expect(readFile(join(result.destination, 'SKILL.md'), 'utf8')).resolves.toBe(
       '# API review\n',
     );
@@ -109,22 +108,21 @@ describe('installClaudeCodeResource', () => {
   it('refuses accidental overwrites and honors force', async () => {
     const homeDirectory = await createTemporaryDirectory();
 
-    await installClaudeCodeResource(resource, {
+    await installClaudeCodeResources([resource], {
       homeDirectory,
     });
 
     await expect(
-      installClaudeCodeResource(resource, {
+      installClaudeCodeResources([resource], {
         homeDirectory,
       }),
     ).rejects.toThrow('Use --force to overwrite.');
 
-    await expect(
-      installClaudeCodeResource(resource, {
-        homeDirectory,
-        force: true,
-      }),
-    ).resolves.toMatchObject({
+    const [result] = await installClaudeCodeResources([resource], {
+      homeDirectory,
+      force: true,
+    });
+    expect(result).toMatchObject({
       destination: join(homeDirectory, '.claude', 'skills', 'typescript-api-review'),
     });
   });
@@ -178,7 +176,7 @@ describe('installClaudeCodeResource', () => {
   it('checks a batch before writing files', async () => {
     const homeDirectory = await createTemporaryDirectory();
 
-    await installClaudeCodeResource(resource, {
+    await installClaudeCodeResources([resource], {
       homeDirectory,
     });
 
@@ -217,7 +215,7 @@ describe('installClaudeCodeResource', () => {
     } satisfies ResourceVersion;
 
     await expect(
-      installClaudeCodeResource(templateResource, {
+      installClaudeCodeResources([templateResource], {
         homeDirectory,
       }),
     ).rejects.toThrow('Templates must be expanded first.');
@@ -231,7 +229,7 @@ describe('installClaudeCodeResource', () => {
     } satisfies ResourceVersion;
 
     await expect(
-      installClaudeCodeResource(unsafeResource, {
+      installClaudeCodeResources([unsafeResource], {
         homeDirectory,
       }),
     ).rejects.toThrow('Unsafe resource file path');
@@ -290,7 +288,7 @@ describe('local resource discovery', () => {
 
   it('reports managed resources as current, modified, or missing', async () => {
     const homeDirectory = await createTemporaryDirectory();
-    const installation = await installClaudeCodeResource(resource, {
+    const [installation] = await installClaudeCodeResources([resource], {
       homeDirectory,
     });
     const [record] = createInstallationRecords(
@@ -326,7 +324,7 @@ describe('local resource discovery', () => {
 
   it('enriches managed resources with registry freshness', async () => {
     const homeDirectory = await createTemporaryDirectory();
-    const installation = await installClaudeCodeResource(resource, {
+    const [installation] = await installClaudeCodeResources([resource], {
       homeDirectory,
     });
     const [record] = createInstallationRecords(
