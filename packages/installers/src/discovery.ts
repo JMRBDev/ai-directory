@@ -1,11 +1,18 @@
-import { createHash } from 'node:crypto';
-import { access, readdir, readFile } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
+import { listFilesUnder } from '@ai-directory/config';
 import type { RegistryIndex } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/domain';
+import { resourceKey } from '@ai-directory/contracts';
 import { isResourceVersionOutdated } from '@ai-directory/registry';
-import type { InstallationRecord, ResourceKind } from './index.js';
-import { discoverMcpServers } from './mcp.js';
+import {
+  hashFile,
+  isMissingPathError,
+  pathExists,
+  resourceType,
+  type InstallationRecord,
+  type ResourceKind,
+} from './index.js';
+import { discoverMcpServers, resourceName } from './mcp.js';
 import {
   getHarnessDefinitions,
   resolveHarnessPaths,
@@ -168,7 +175,7 @@ async function scanSkills(
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
 
     const path = join(root, entry.name);
-    const files = await filesUnder(path);
+    const files = await listFilesUnder(path);
     if (!files.some((file) => relative(path, file) === 'SKILL.md')) continue;
 
     resources.push({
@@ -200,7 +207,10 @@ async function scanFlatResources(
     const path = join(root, entry.name);
     const name = basename(entry.name, extname(entry.name));
     const companionPath = join(root, `${name}.files`);
-    const files = [path, ...(await filesUnder(companionPath))];
+    const companionFiles = (await pathExists(companionPath))
+      ? await listFilesUnder(companionPath)
+      : [];
+    const files = [path, ...companionFiles];
 
     resources.push({
       type,
@@ -236,28 +246,6 @@ function pathsOverlap(left: string, right: string): boolean {
   return first === second || first.startsWith(`${second}${sep}`) || second.startsWith(`${first}${sep}`);
 }
 
-function resourceType(resource: string): ResourceKind | undefined {
-  const type = resource.split('/')[1];
-  return type === 'skills' || type === 'agents' || type === 'rules' ? type : undefined;
-}
-
-function resourceName(resource: string): string {
-  return resource.split('/').at(-1) ?? resource;
-}
-
-async function filesUnder(root: string): Promise<string[]> {
-  const entries = await readDirectory(root);
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    const path = join(root, entry.name);
-    if (entry.isFile()) files.push(path);
-    else if (entry.isDirectory() && !entry.isSymbolicLink()) files.push(...await filesUnder(path));
-  }
-
-  return files;
-}
-
 async function readDirectory(path: string) {
   try {
     return await readdir(path, { withFileTypes: true });
@@ -265,26 +253,4 @@ async function readDirectory(path: string) {
     if (isMissingPathError(error)) return [];
     throw error;
   }
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function hashFile(path: string): Promise<string | null> {
-  try {
-    return createHash('sha256').update(await readFile(path)).digest('hex');
-  } catch (error) {
-    if (isMissingPathError(error)) return null;
-    throw error;
-  }
-}
-
-function isMissingPathError(cause: unknown): boolean {
-  return cause instanceof Object && 'code' in cause && cause.code === 'ENOENT';
 }

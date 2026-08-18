@@ -1,6 +1,15 @@
-import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
+import type { Harness } from '@ai-directory/contracts';
+import { resourceKey } from '@ai-directory/contracts';
 
-export type Harness = 'claude-code' | 'opencode' | 'codex';
+export type { Harness } from '@ai-directory/contracts';
+export type {
+  InstallationRecord as Installation,
+  LocalResource,
+  LocalResourceRegistryState,
+  LocalResourceState,
+  PlannedResourceChange as PlanChange,
+  ResourceChangePlan as ChangePlan,
+} from '@ai-directory/installers';
 export type InstallScope = 'user' | 'project';
 export type Action = 'install' | 'uninstall';
 
@@ -15,9 +24,7 @@ export const scopeOptions: Array<{ value: InstallScope; label: string; hint: str
   { value: 'project', label: 'Project', hint: 'Shared with the team in this project' },
 ];
 
-export function resourceId(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>) {
-  return [resource.owner, resource.type, resource.name].join('/');
-}
+export { resourceKey as resourceId };
 
 export function shortenHomePath(path: string, homeDir?: string) {
   if (!homeDir) return path;
@@ -25,53 +32,10 @@ export function shortenHomePath(path: string, homeDir?: string) {
   return path.startsWith(prefix) ? '~/'.concat(path.slice(prefix.length)) : path;
 }
 
-export type PlanChange = {
-  path: string;
-  action: 'added' | 'modified' | 'removed';
-  resource: string;
-  harness: string;
-  before?: string;
-  after?: string;
-};
-
 export type ChangeOperation = {
   resource: string;
   harnesses: Harness[];
   action: Action;
   version?: string;
-  scope?: InstallScope;
-};
-
-export type ChangePlan = {
-  changes: PlanChange[];
-  conflicts: string[];
-  warnings: string[];
-  projectionNotes: string[];
-  fingerprint: string;
-  operations?: ChangeOperation[];
-};
-
-export type Installation = {
-  resource: string;
-  version: string;
-  harness: string;
-  kind?: 'files' | 'mcp';
-  scope?: InstallScope;
-};
-
-export type LocalResourceState = 'managed' | 'modified' | 'missing' | 'unmanaged';
-export type LocalResourceRegistryState = 'current' | 'outdated' | 'unknown';
-
-export type LocalResource = {
-  resource?: string;
-  type: Exclude<ResourceType, 'templates'>;
-  name: string;
-  harness: Harness;
-  path: string;
-  files: string[];
-  state: LocalResourceState;
-  registryState: LocalResourceRegistryState;
-  version?: string;
-  latestVersion?: string;
   scope?: InstallScope;
 };
