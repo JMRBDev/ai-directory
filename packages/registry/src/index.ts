@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
 import {
-  access,
   mkdir,
   mkdtemp,
   readdir,
@@ -25,8 +24,8 @@ import {
   type RegistryIndex,
   type TemplateManifest,
 } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/domain';
-import { writeFileAtomic } from '@ai-directory/config';
+import { resourceKey } from '@ai-directory/contracts';
+import { writeFileAtomic, isMissingPathError, pathExists } from '@ai-directory/config';
 import { gt as isGreaterVersion, valid as isValidVersion } from 'semver';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -569,7 +568,7 @@ export async function publishResource(
     }
   }
 
-  const registryIndexPath = await resolveFile(options.indexPath, 'Registry index');
+  const registryIndexPath = await resolveDirectory(options.indexPath, 'Registry index');
   const packageDirectory = resourceDirectory(
     dirname(registryIndexPath),
     identity,
@@ -729,7 +728,7 @@ async function submitResourceInCheckout(
     throw new Error(`Invalid resource ID: ${options.resourceId}`);
   }
 
-  const registryIndexPath = await resolveFile(options.indexPath, 'Registry index');
+  const registryIndexPath = await resolveDirectory(options.indexPath, 'Registry index');
   const registryRoot = dirname(registryIndexPath);
   const runner = options.commandRunner ?? runCommand;
   const baseBranch = options.baseBranch ?? 'main';
@@ -1072,10 +1071,6 @@ async function resolveDirectory(path: string, label: string): Promise<string> {
   }
 }
 
-async function resolveFile(path: string, label: string): Promise<string> {
-  return resolveDirectory(path, label);
-}
-
 async function writeResourceFiles(directory: string, files: ResourceFile[]): Promise<void> {
   for (const file of files) {
     const destination = join(directory, file.path);
@@ -1086,19 +1081,6 @@ async function writeResourceFiles(directory: string, files: ResourceFile[]): Pro
 
 async function writeRegistryIndex(indexPath: string, index: RegistryIndex): Promise<void> {
   await writeFileAtomic(indexPath, `${JSON.stringify(index, null, 2)}\n`);
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch (error) {
-    if (isMissingPathError(error)) {
-      return false;
-    }
-
-    throw error;
-  }
 }
 
 function defaultPullRequestBody(resource: ResourceSummary): string {
@@ -1139,12 +1121,4 @@ async function runCommand(
     stdout: result.stdout,
     stderr: result.stderr,
   };
-}
-
-function isMissingPathError(cause: unknown): boolean {
-  if (!(cause instanceof Object)) return false;
-  if ('code' in cause && cause.code === 'ENOENT') return true;
-  if ('cause' in cause) return isMissingPathError(cause.cause);
-
-  return false;
 }

@@ -1,12 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, open, readFile, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
+  configuredPath,
   getScopeInstallManifestPath,
+  isMissingPathError,
+  isPathExistsError,
+  pathExists,
   writeFileAtomic,
   type ConfigScope,
 } from '@ai-directory/config';
-import { resourceKey } from '@ai-directory/domain';
+export { isMissingPathError, pathExists } from '@ai-directory/config';
+import { resourceKey } from '@ai-directory/contracts';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
 import { z } from 'zod';
@@ -32,8 +37,6 @@ export type InstallOptions = {
   scope?: ConfigScope;
   environment?: NodeJS.ProcessEnv;
 };
-
-export type ClaudeCodeInstallOptions = InstallOptions;
 
 export type InstallResult = {
   destination: string;
@@ -145,9 +148,34 @@ export * from './mcp.js';
 
 export async function installClaudeCodeResources(
   resources: ResourceVersion[],
-  options: ClaudeCodeInstallOptions,
+  options: InstallOptions,
 ): Promise<InstallResult[]> {
-  return installResources(resources, options, createClaudeCodePlan, claudeCodeInstallRoot);
+  if (resources.length === 0) {
+    throw new Error('No resources to install.');
+  }
+
+  const root = claudeCodeInstallRoot(options);
+  const plans = resources.map((resource) => createClaudeCodePlan(root, resource));
+
+  await assertInstallPlansAvailable(plans, options);
+  await writeInstallPlans(plans, options.dryRun ?? false);
+
+  const fileHashes = await hashInstallPlans(plans);
+
+  return plans.map((plan) => {
+    const result: InstallResult = {
+      destination: plan.destination,
+      files: plan.files.map((file) => file.path),
+      skippedFiles: plan.skippedFiles,
+      paths: plan.files.map((file) => file.destination),
+      ownedPaths: plan.files.map((file) => file.destination),
+      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
+    };
+    if (options.dryRun) {
+      result.changes = plan.files.map((file) => ({ path: file.destination, content: file.content }));
+    }
+    return result;
+  });
 }
 
 export async function installOpenCodeResources(
@@ -173,7 +201,7 @@ export async function installOpenCodeResources(
   await writeInstallPlans(plans, options.dryRun ?? false);
 
   if (config && !options.dryRun) {
-    await writeTextAtomic(config.path, config.content);
+    await writeFileAtomic(config.path, config.content);
   }
 
   const fileHashes = await hashInstallPlans(plans);
@@ -221,7 +249,7 @@ export async function installCodexResources(
   await writeInstallPlans(plans, options.dryRun ?? false);
 
   if (guidance && !options.dryRun) {
-    await writeTextAtomic(guidance.path, guidance.content);
+    await writeFileAtomic(guidance.path, guidance.content);
   }
 
   const fileHashes = await hashInstallPlans(plans);
@@ -248,45 +276,6 @@ export async function installCodexResources(
           ? [{ path: guidance.path, content: guidance.content }]
           : []),
       ];
-    }
-    return result;
-  });
-}
-
-async function installResources(
-  resources: ResourceVersion[],
-  options: InstallOptions,
-  createPlanForResource: (
-    root: string,
-    resource: ResourceVersion,
-  ) => InstallPlan,
-  getRoot: (options: InstallOptions) => string,
-): Promise<InstallResult[]> {
-  if (resources.length === 0) {
-    throw new Error('No resources to install.');
-  }
-
-  const root = getRoot(options);
-  const plans = resources.map((resource) =>
-    createPlanForResource(root, resource),
-  );
-
-  await assertInstallPlansAvailable(plans, options);
-  await writeInstallPlans(plans, options.dryRun ?? false);
-
-  const fileHashes = await hashInstallPlans(plans);
-
-  return plans.map((plan) => {
-    const result: InstallResult = {
-      destination: plan.destination,
-      files: plan.files.map((file) => file.path),
-      skippedFiles: plan.skippedFiles,
-      paths: plan.files.map((file) => file.destination),
-      ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
-    };
-    if (options.dryRun) {
-      result.changes = plan.files.map((file) => ({ path: file.destination, content: file.content }));
     }
     return result;
   });
@@ -332,7 +321,7 @@ async function writeInstallPlans(plans: InstallPlan[], dryRun: boolean): Promise
 
   for (const plan of plans) {
     for (const file of plan.files) {
-      await writeTextAtomic(file.destination, file.content);
+      await writeFileAtomic(file.destination, file.content);
     }
   }
 }
@@ -376,7 +365,7 @@ export async function hashFile(path: string): Promise<string | null> {
   }
 }
 
-export const claudeCodeInstaller: HarnessAdapter = {
+const claudeCodeInstaller: HarnessAdapter = {
   harness: 'claude-code',
   installation: 'native-filesystem',
   capabilities: { skills: 'native', agents: 'native', rules: 'native', 'mcp-servers': 'configured' },
@@ -390,7 +379,7 @@ export const openCodeInstaller: HarnessAdapter = {
   install: installOpenCodeResources,
 };
 
-export const codexInstaller: HarnessAdapter = {
+const codexInstaller: HarnessAdapter = {
   harness: 'codex',
   installation: 'native-filesystem',
   capabilities: { skills: 'native', agents: 'translated', rules: 'configured', 'mcp-servers': 'configured' },
@@ -436,7 +425,7 @@ export async function updateInstallationManifest(
     ],
   };
 
-  await writeTextAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFileAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
 
   return manifest;
 }
@@ -497,7 +486,7 @@ export async function removeInstallationRecord(
     ),
   };
 
-  await writeTextAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFileAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
 
   return manifest;
 }
@@ -553,7 +542,7 @@ export async function uninstallInstallation(
 
   if (!options.dryRun) {
     for (const change of sharedChanges) {
-      if (change.content !== null) await writeTextAtomic(change.path, change.content);
+      if (change.content !== null) await writeFileAtomic(change.path, change.content);
     }
     await Promise.all(files.map((path) => rm(path, { force: true })));
   }
@@ -1248,7 +1237,7 @@ async function openCodeConfigPath(
   root: string,
   options: InstallOptions,
 ): Promise<string> {
-  const customPath = configuredPath(options, 'OPENCODE_CONFIG');
+  const customPath = configuredPath(options.environment ?? process.env, 'OPENCODE_CONFIG');
 
   if (customPath) {
     return customPath;
@@ -1414,7 +1403,7 @@ export async function restoreFiles(snapshots: FileSnapshot[]): Promise<void> {
     if (snapshot.content === null) {
       await rm(snapshot.path, { force: true });
     } else {
-      await writeTextAtomic(snapshot.path, snapshot.content);
+      await writeFileAtomic(snapshot.path, snapshot.content);
     }
   }
 }
@@ -1622,11 +1611,6 @@ function toPosixPath(path: string): string {
   return path.split(sep).join('/');
 }
 
-function configuredPath(options: InstallOptions, key: string): string | undefined {
-  const value = options.environment?.[key] ?? process.env[key];
-  return value?.trim() ? resolve(value) : undefined;
-}
-
 async function readOptionalText(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8');
@@ -1637,37 +1621,4 @@ async function readOptionalText(path: string): Promise<string | null> {
 
     throw error;
   }
-}
-
-export function writeTextAtomic(path: string, content: string): Promise<void> {
-  return writeFileAtomic(path, content);
-}
-
-export async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch (error) {
-    if (isMissingPathError(error)) {
-      return false;
-    }
-
-    throw error;
-  }
-}
-
-export function isMissingPathError(cause: unknown): boolean {
-  return (
-    cause instanceof Object &&
-    'code' in cause &&
-    cause.code === 'ENOENT'
-  );
-}
-
-function isPathExistsError(cause: unknown): boolean {
-  return (
-    cause instanceof Object &&
-    'code' in cause &&
-    cause.code === 'EEXIST'
-  );
 }

@@ -9,7 +9,7 @@ import {
   type ResourceVersion,
 } from '@ai-directory/registry';
 import type { RegistryIndex, ResourceSummary } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/domain';
+import { resourceKey } from '@ai-directory/contracts';
 
 export interface RegistryView {
   index: RegistryIndex | null;

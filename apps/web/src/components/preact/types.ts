@@ -1,7 +1,7 @@
-import type { ResourceType } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/domain';
+import type { Harness, ResourceType } from '@ai-directory/contracts';
+import { resourceKey } from '@ai-directory/contracts';
 
-export type Harness = 'claude-code' | 'opencode' | 'codex';
+export type { Harness } from '@ai-directory/contracts';
 export type InstallScope = 'user' | 'project';
 export type Action = 'install' | 'uninstall';
 

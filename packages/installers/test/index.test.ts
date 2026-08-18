@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resourceKey } from '@ai-directory/domain';
+import { resourceKey } from '@ai-directory/contracts';
 import type { ResourceVersion } from '@ai-directory/registry';
 import {
   applyResourceOperations,

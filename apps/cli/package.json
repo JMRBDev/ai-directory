@@ -15,7 +15,6 @@
   "dependencies": {
     "@ai-directory/config": "workspace:*",
     "@ai-directory/contracts": "workspace:*",
-    "@ai-directory/domain": "workspace:*",
     "@ai-directory/installers": "workspace:*",
     "@ai-directory/registry": "workspace:*",
     "@ai-directory/server-core": "workspace:*",
