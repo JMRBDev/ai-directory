@@ -67,7 +67,7 @@ const definitions: readonly HarnessDefinition[] = [
       const globalConfig =
         configuredPath(environment, 'OPENCODE_CONFIG_DIR') ?? join(configHome, 'opencode');
 
-      return openCodeLocation(globalConfig, globalConfig);
+      return claudeLocation(globalConfig, globalConfig);
     },
     markers: (location) => [location.config, location.skills],
   },
@@ -108,31 +108,19 @@ export function resolveHarnessPaths(
   harness: Harness,
   options: HarnessPathOptions = {},
 ): HarnessLocation {
-  const environment = { ...process.env, ...options.environment };
-  const context = {
-    cwd: resolve(options.cwd ?? process.cwd()),
-    home: resolve(options.homeDirectory ?? homedir()),
-    environment,
-  };
-
-  return getHarnessDefinition(harness).paths(context);
+  return getHarnessDefinition(harness).paths(harnessContext(options));
 }
 
 export async function detectHarnesses(
   options: HarnessPathOptions = {},
 ): Promise<HarnessDetection[]> {
-  const environment = { ...process.env, ...options.environment };
-  const context = {
-    cwd: resolve(options.cwd ?? process.cwd()),
-    home: resolve(options.homeDirectory ?? homedir()),
-    environment,
-  };
+  const context = harnessContext(options);
 
   return Promise.all(
     definitions.map(async (definition) => {
       const location = definition.paths(context);
       const [executable, paths] = await Promise.all([
-        findExecutable(definition.command, environment),
+        findExecutable(definition.command, context.environment),
         existingPaths(definition.markers(location)),
       ]);
       const configured = paths.length > 0;
@@ -150,18 +138,15 @@ export async function detectHarnesses(
   );
 }
 
-function claudeLocation(root: string, config: string): HarnessLocation {
+function harnessContext(options: HarnessPathOptions): HarnessPathContext {
   return {
-    root,
-    config,
-    skills: join(config, 'skills'),
-    agents: join(config, 'agents'),
-    rules: join(config, 'rules'),
-    guidance: root,
+    cwd: resolve(options.cwd ?? process.cwd()),
+    home: resolve(options.homeDirectory ?? homedir()),
+    environment: { ...process.env, ...options.environment },
   };
 }
 
-function openCodeLocation(root: string, config: string): HarnessLocation {
+function claudeLocation(root: string, config: string): HarnessLocation {
   return {
     root,
     config,

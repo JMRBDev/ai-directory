@@ -1,5 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
+import { listFilesUnder } from '@ai-directory/config';
 import type { RegistryIndex } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/contracts';
 import { isResourceVersionOutdated } from '@ai-directory/registry';
@@ -174,7 +175,7 @@ async function scanSkills(
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
 
     const path = join(root, entry.name);
-    const files = await filesUnder(path);
+    const files = await listFilesUnder(path);
     if (!files.some((file) => relative(path, file) === 'SKILL.md')) continue;
 
     resources.push({
@@ -206,7 +207,10 @@ async function scanFlatResources(
     const path = join(root, entry.name);
     const name = basename(entry.name, extname(entry.name));
     const companionPath = join(root, `${name}.files`);
-    const files = [path, ...(await filesUnder(companionPath))];
+    const companionFiles = (await pathExists(companionPath))
+      ? await listFilesUnder(companionPath)
+      : [];
+    const files = [path, ...companionFiles];
 
     resources.push({
       type,
@@ -240,19 +244,6 @@ function pathsOverlap(left: string, right: string): boolean {
   const first = resolve(left);
   const second = resolve(right);
   return first === second || first.startsWith(`${second}${sep}`) || second.startsWith(`${first}${sep}`);
-}
-
-async function filesUnder(root: string): Promise<string[]> {
-  const entries = await readDirectory(root);
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    const path = join(root, entry.name);
-    if (entry.isFile()) files.push(path);
-    else if (entry.isDirectory() && !entry.isSymbolicLink()) files.push(...await filesUnder(path));
-  }
-
-  return files;
 }
 
 async function readDirectory(path: string) {

@@ -415,19 +415,12 @@ export async function updateInstallationManifest(
   path: string,
   records: InstallationRecord[],
 ): Promise<InstallationManifest> {
-  const current = await readInstallationManifest(path);
   const keys = new Set(records.map(installationKey));
-  const manifest = {
-    schemaVersion: 1 as const,
-    installations: [
-      ...current.installations.filter((record) => !keys.has(installationKey(record))),
-      ...records,
-    ],
-  };
 
-  await writeFileAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
-
-  return manifest;
+  return rewriteInstallationManifest(path, (current) => [
+    ...current.filter((record) => !keys.has(installationKey(record))),
+    ...records,
+  ]);
 }
 
 export function createInstallationRecords(
@@ -478,12 +471,19 @@ export async function removeInstallationRecord(
   path: string,
   target: InstallationRecord,
 ): Promise<InstallationManifest> {
+  return rewriteInstallationManifest(path, (current) =>
+    current.filter((record) => installationKey(record) !== installationKey(target)),
+  );
+}
+
+async function rewriteInstallationManifest(
+  path: string,
+  select: (records: InstallationRecord[]) => InstallationRecord[],
+): Promise<InstallationManifest> {
   const current = await readInstallationManifest(path);
   const manifest = {
     schemaVersion: 1 as const,
-    installations: current.installations.filter(
-      (record) => installationKey(record) !== installationKey(target),
-    ),
+    installations: select(current.installations),
   };
 
   await writeFileAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -712,7 +712,7 @@ export async function planResourceOperations(
   }
 
   return {
-    operations: operations.map(publicResourceOperation),
+    operations: operations.map(publicOperation),
     changes,
     conflicts: [...new Set(conflicts)],
     warnings: [...new Set(warnings)],
@@ -727,22 +727,14 @@ export async function applyResourceOperations(
   force = false,
   planned?: ResourceChangePlan,
 ): Promise<ResourceApplyResult> {
-  return withInstallationLocks(operations, options, async () => {
-    const plan = planned ?? await planResourceOperations(operations, options, force);
-    if (planned) {
-      const fingerprint = await fingerprintPaths(resourcePlanPaths(operations, plan.changes, options));
-      if (fingerprint !== plan.fingerprint) {
-        throw new Error('Change plan is outdated. Generate a new preview before applying.');
-      }
-    }
-    if (plan.conflicts.length > 0 && !force) {
-      throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
-    }
-
-    const paths = resourcePlanPaths(operations, plan.changes, options);
-    const snapshots = await snapshotFiles(paths);
-
-    try {
+  return applyChangePlanEnvelope(
+    operations,
+    options,
+    force,
+    planned,
+    () => planResourceOperations(operations, options, force),
+    (plan) => resourcePlanPaths(operations, plan.changes, options),
+    async (plan) => {
       const installed: InstallationRecord[] = [];
       const removed: InstallationRecord[] = [];
       const warnings = [...plan.warnings];
@@ -793,17 +785,48 @@ export async function applyResourceOperations(
       }
 
       return { plan, installed, removed, warnings: [...new Set(warnings)] };
+    },
+    'Installation failed',
+  );
+}
+
+export async function applyChangePlanEnvelope<T, P extends { fingerprint: string; conflicts: string[] }>(
+  operations: readonly unknown[],
+  options: ResourceChangeOptions,
+  force: boolean,
+  planned: P | undefined,
+  planOperations: () => Promise<P>,
+  pathsFor: (plan: P) => string[],
+  applyAction: (plan: P) => Promise<T>,
+  rollbackPrefix: string,
+): Promise<T> {
+  return withInstallationLocks(operations, options, async () => {
+    const plan = planned ?? await planOperations();
+    if (planned) {
+      const fingerprint = await fingerprintPaths(pathsFor(plan));
+      if (fingerprint !== plan.fingerprint) {
+        throw new Error('Change plan is outdated. Generate a new preview before applying.');
+      }
+    }
+    if (plan.conflicts.length > 0 && !force) {
+      throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
+    }
+
+    const snapshots = await snapshotFiles(pathsFor(plan));
+
+    try {
+      return await applyAction(plan);
     } catch (error) {
       try {
         await restoreFiles(snapshots);
       } catch (rollbackError) {
         throw new Error(
-          `Installation failed. Rollback failed; manual review may be required.\nRollback error: ${errorMessage(rollbackError)}\nOriginal error: ${errorMessage(error)}`,
+          `${rollbackPrefix}. Rollback failed; manual review may be required.\nRollback error: ${errorMessage(rollbackError)}\nOriginal error: ${errorMessage(error)}`,
           { cause: error },
         );
       }
       throw new Error(
-        `Installation failed. All changes were rolled back.\nCause: ${errorMessage(error)}`,
+        `${rollbackPrefix}. All changes were rolled back.\nCause: ${errorMessage(error)}`,
         { cause: error },
       );
     }
@@ -1358,13 +1381,20 @@ function safeDestination(root: string, resourcePath: string): string {
   return destination;
 }
 
-function publicResourceOperation(operation: ResourceOperation): ResourceOperation {
-  const result: ResourceOperation = {
+export function publicOperation(operation: {
+  resource: string;
+  harnesses: Harness[];
+  action: 'install' | 'uninstall';
+  version?: string;
+  scope?: ConfigScope;
+}): typeof operation {
+  const result: typeof operation = {
     resource: operation.resource,
     harnesses: operation.harnesses,
     action: operation.action,
   };
   if (operation.version !== undefined) result.version = operation.version;
+  if (operation.scope !== undefined) result.scope = operation.scope;
 
   return result;
 }

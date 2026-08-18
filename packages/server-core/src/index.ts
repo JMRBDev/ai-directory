@@ -406,6 +406,17 @@ export function installManifestPath(
     : getInstallManifestPath(options.homeDirectory);
 }
 
+function manifestPathFor(
+  isMcp: boolean,
+  scope: ConfigScope,
+  options: ServerOptions,
+  cwd: string,
+): string {
+  return isMcp
+    ? installManifestPath(scope, options, cwd)
+    : getInstallManifestPath(options.homeDirectory);
+}
+
 const cachedRegistry = createCachedRegistry();
 
 async function withRegistrySnapshot<T>(
@@ -428,6 +439,31 @@ function changeOptions(
   if (scope) result.scope = scope;
 
   return result;
+}
+
+type PlannedChangeSummary = {
+  fingerprint: string;
+  conflicts: string[];
+};
+
+type ApplyOutcome<T> =
+  | { stale: true; conflict: false; plan: PlannedChangeSummary }
+  | { stale: false; conflict: true; plan: PlannedChangeSummary }
+  | { stale: false; conflict: false; plan: PlannedChangeSummary; result: T };
+
+async function applyPlannedChange<T>(
+  planFingerprint: string | undefined,
+  force: boolean,
+  plan: PlannedChangeSummary,
+  apply: () => Promise<T>,
+): Promise<ApplyOutcome<T>> {
+  if (planFingerprint && planFingerprint !== plan.fingerprint) {
+    return { stale: true, conflict: false, plan };
+  }
+  if (plan.conflicts.length > 0 && !force) {
+    return { stale: false, conflict: true, plan };
+  }
+  return { stale: false, conflict: false, plan, result: await apply() };
 }
 
 async function resolveOperations<T extends boolean>(
@@ -682,21 +718,24 @@ export function createApp(options: ServerOptions = {}) {
     try {
       const request = parseChangeOperations(body);
       const plan = await withRegistrySnapshot(options, cwd, async (snapshot) => {
-        if (request.operations.some((operation) => isMcpResource(operation.resource))) {
-          if (!request.operations.every((operation) => isMcpResource(operation.resource))) {
-            throw new Error('A change plan cannot mix MCP servers with file resources.');
-          }
-          const scope = request.operations[0]?.scope ?? 'user';
+        const isMcp = request.operations.some((operation) => isMcpResource(operation.resource));
+        if (isMcp && !request.operations.every((operation) => isMcpResource(operation.resource))) {
+          throw new Error('A change plan cannot mix MCP servers with file resources.');
+        }
+        const scope = isMcp ? (request.operations[0]?.scope ?? 'user') : 'user';
+        const changeScopeOptions = changeOptions(options, cwd, isMcp ? scope : undefined);
+
+        if (isMcp) {
           return planMcpOperations(
             await resolveOperations(request.operations, snapshot, true),
-            changeOptions(options, cwd, scope),
+            changeScopeOptions,
             request.force,
           );
         }
 
         return planResourceOperations(
           await resolveOperations(request.operations, snapshot, false),
-          changeOptions(options, cwd),
+          changeScopeOptions,
           request.force,
         );
       });
@@ -726,58 +765,29 @@ export function createApp(options: ServerOptions = {}) {
           throw new Error('A change plan cannot mix MCP servers with file resources.');
         }
         const scope = isMcp ? (request.operations[0]?.scope ?? 'user') : 'user';
+        const changeScopeOptions = changeOptions(options, cwd, isMcp ? scope : undefined);
 
         if (isMcp) {
           const operations = await resolveOperations(request.operations, snapshot, true);
-          const plan = await planMcpOperations(
-            operations,
-            changeOptions(options, cwd, scope),
+          const plan = await planMcpOperations(operations, changeScopeOptions, request.force);
+          return applyPlannedChange(
+            request.planFingerprint,
             request.force,
-          );
-          if (request.planFingerprint && request.planFingerprint !== plan.fingerprint) {
-            return { stale: true as const, plan };
-          }
-          if (plan.conflicts.length > 0 && !request.force) {
-            return { conflict: true as const, plan };
-          }
-
-          return {
-            conflict: false as const,
             plan,
-            result: await applyMcpOperations(
-              operations,
-              changeOptions(options, cwd, scope),
-              request.force,
-              plan,
-            ),
-          };
+            () => applyMcpOperations(operations, changeScopeOptions, request.force, plan),
+          );
         }
 
         const operations = await resolveOperations(request.operations, snapshot, false);
-        const plan = await planResourceOperations(
-          operations,
-          changeOptions(options, cwd),
+        const plan = await planResourceOperations(operations, changeScopeOptions, request.force);
+        return applyPlannedChange(
+          request.planFingerprint,
           request.force,
-        );
-        if (request.planFingerprint && request.planFingerprint !== plan.fingerprint) {
-          return { stale: true as const, plan };
-        }
-        if (plan.conflicts.length > 0 && !request.force) {
-          return { conflict: true as const, plan };
-        }
-
-        return {
-          conflict: false as const,
           plan,
-          result: await applyResourceOperations(
-            operations,
-            changeOptions(options, cwd),
-            request.force,
-            plan,
-          ),
-        };
+          () => applyResourceOperations(operations, changeScopeOptions, request.force, plan),
+        );
       });
-      if ('stale' in result && result.stale) {
+      if (result.stale) {
         return context.json({
           error: 'The change plan is outdated. Generate a new preview before applying.',
           ...result.plan,
@@ -811,40 +821,31 @@ export function createApp(options: ServerOptions = {}) {
         request.resource,
         request.version,
       );
-      const scope = isMcpResource(request.resource) ? (request.scope ?? 'user') : 'user';
-
-      if (isMcpResource(request.resource)) {
-        const result = await applyMcpOperations(
-          [{
-            resource: request.resource,
-            harnesses: request.harnesses,
-            action: 'install',
-            scope,
-            resources: loaded.resources,
-            warningResources: [loaded.resource, ...loaded.resources],
-          }],
-          changeOptions(options, cwd, scope),
-          request.force,
-        );
-
-        return context.json({
-          resource: loaded.resource,
-          harnesses: request.harnesses,
-          records: result.installed,
-          warnings: result.warnings,
-        });
-      }
-
-      const result = await applyResourceOperations(
-        [{
-          ...request,
-          action: 'install',
-          resources: loaded.resources,
-          warningResources: [loaded.resource, ...loaded.resources],
-        }],
-        changeOptions(options, cwd),
-        request.force,
-      );
+      const isMcp = isMcpResource(request.resource);
+      const scope = isMcp ? (request.scope ?? 'user') : 'user';
+      const result = isMcp
+        ? await applyMcpOperations(
+            [{
+              resource: request.resource,
+              harnesses: request.harnesses,
+              action: 'install',
+              scope,
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+            }],
+            changeOptions(options, cwd, scope),
+            request.force,
+          )
+        : await applyResourceOperations(
+            [{
+              ...request,
+              action: 'install',
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+            }],
+            changeOptions(options, cwd),
+            request.force,
+          );
 
       return context.json({
         resource: loaded.resource,
@@ -873,10 +874,9 @@ export function createApp(options: ServerOptions = {}) {
       const request = parseResourceRequest(body);
       const isMcp = isMcpResource(request.resource);
       const scope = isMcp ? (request.scope ?? 'user') : 'user';
-      const manifestPath = isMcp
-        ? installManifestPath(scope, options, cwd)
-        : getInstallManifestPath(options.homeDirectory);
-      const manifest = await readInstallationManifest(manifestPath);
+      const manifest = await readInstallationManifest(
+        manifestPathFor(isMcp, scope, options, cwd),
+      );
       const loaded = await readRegistrySourceResource(
         registrySource(options, cwd),
         request.resource,
@@ -922,39 +922,30 @@ export function createApp(options: ServerOptions = {}) {
         });
       }
 
-      if (isMcp) {
-        const result = await applyMcpOperations(
-          [{
-            resource: request.resource,
-            harnesses: updatedHarnesses,
-            action: 'install',
-            scope,
-            resources: loaded.resources,
-            warningResources: [loaded.resource, ...loaded.resources],
-          }],
-          changeOptions(options, cwd, scope),
-          request.force,
-        );
-
-        return context.json({
-          updated: true,
-          harnesses: updatedHarnesses,
-          records: result.installed,
-          warnings: result.warnings,
-        });
-      }
-
-      const result = await applyResourceOperations(
-        [{
-          ...request,
-          harnesses: updatedHarnesses,
-          action: 'install',
-          resources: loaded.resources,
-          warningResources: [loaded.resource, ...loaded.resources],
-        }],
-        changeOptions(options, cwd),
-        request.force,
-      );
+      const result = isMcp
+        ? await applyMcpOperations(
+            [{
+              resource: request.resource,
+              harnesses: updatedHarnesses,
+              action: 'install',
+              scope,
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+            }],
+            changeOptions(options, cwd, scope),
+            request.force,
+          )
+        : await applyResourceOperations(
+            [{
+              ...request,
+              harnesses: updatedHarnesses,
+              action: 'install',
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+            }],
+            changeOptions(options, cwd),
+            request.force,
+          );
 
       return context.json({
         updated: true,
@@ -981,10 +972,9 @@ export function createApp(options: ServerOptions = {}) {
       const request = parseResourceRequest(rawRequest);
       const isMcp = isMcpResource(request.resource);
       const scope = isMcp ? (request.scope ?? 'user') : 'user';
-      const manifestPath = isMcp
-        ? installManifestPath(scope, options, cwd)
-        : getInstallManifestPath(options.homeDirectory);
-      const manifest = await readInstallationManifest(manifestPath);
+      const manifest = await readInstallationManifest(
+        manifestPathFor(isMcp, scope, options, cwd),
+      );
       const resourceIds = await installationResourceIds(
         request.resource,
         registrySource(options, cwd),
@@ -1008,31 +998,27 @@ export function createApp(options: ServerOptions = {}) {
         );
       }
 
-      if (isMcp) {
-        const result = await applyMcpOperations(
-          [{
-            resource: request.resource,
-            harnesses: request.harnesses,
-            action: 'uninstall',
-            resourceIds,
-            scope,
-          }],
-          changeOptions(options, cwd, scope),
-          request.force,
-        );
-
-        return context.json({ removed: result.removed, harnesses: request.harnesses });
-      }
-
-      const result = await applyResourceOperations(
-        [{
-          ...request,
-          action: 'uninstall',
-          resourceIds,
-        }],
-        changeOptions(options, cwd),
-        request.force,
-      );
+      const result = isMcp
+        ? await applyMcpOperations(
+            [{
+              resource: request.resource,
+              harnesses: request.harnesses,
+              action: 'uninstall',
+              resourceIds,
+              scope,
+            }],
+            changeOptions(options, cwd, scope),
+            request.force,
+          )
+        : await applyResourceOperations(
+            [{
+              ...request,
+              action: 'uninstall',
+              resourceIds,
+            }],
+            changeOptions(options, cwd),
+            request.force,
+          );
 
       return context.json({ removed: result.removed, harnesses: request.harnesses });
     } catch (caught) {

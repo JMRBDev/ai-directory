@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process';
 import {
   mkdir,
   mkdtemp,
-  readdir,
   readFile,
   realpath,
   rm,
@@ -25,7 +24,12 @@ import {
   type TemplateManifest,
 } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/contracts';
-import { writeFileAtomic, isMissingPathError, pathExists } from '@ai-directory/config';
+import {
+  isMissingPathError,
+  listFilesUnder,
+  pathExists,
+  writeFileAtomic,
+} from '@ai-directory/config';
 import { gt as isGreaterVersion, valid as isValidVersion } from 'semver';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -201,26 +205,6 @@ export async function readRegistryIndex(filePath: string): Promise<RegistryIndex
   return result.data;
 }
 
-async function readResourceFiles(directory: string, prefix = ''): Promise<ResourceFile[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = await Promise.all(
-    entries
-      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
-      .map(async (entry) => {
-        const filePath = join(directory, entry.name);
-        const resourcePath = prefix ? join(prefix, entry.name) : entry.name;
-
-        if (entry.isDirectory()) {
-          return readResourceFiles(filePath, resourcePath);
-        }
-
-        return [{ path: resourcePath, content: await readFile(filePath, 'utf8') }];
-      }),
-  );
-
-  return files.flat();
-}
-
 export async function readResourceVersion(
   indexPath: string,
   resourceId: string,
@@ -233,7 +217,13 @@ export async function readResourceVersion(
   let files: ResourceFile[];
 
   try {
-    files = await readResourceFiles(directory);
+    const paths = await listFilesUnder(directory);
+    files = await Promise.all(
+      paths.map(async (path) => ({
+        path: relative(directory, path),
+        content: await readFile(path, 'utf8'),
+      })),
+    );
   } catch (error) {
     if (isMissingPathError(error)) {
       throw new Error(`Resource version not found: ${resourceId}@${version}`, { cause: error });
@@ -633,7 +623,13 @@ export async function validateResourceDirectory(
 
   const resource = parseResourceId(options.resourceId);
   const sourceDirectory = await resolveDirectory(options.sourceDirectory, 'Resource source directory');
-  const files = await readResourceFiles(sourceDirectory);
+  const paths = await listFilesUnder(sourceDirectory);
+  const files = await Promise.all(
+    paths.map(async (path) => ({
+      path: relative(sourceDirectory, path),
+      content: await readFile(path, 'utf8'),
+    })),
+  );
   const entryFile = files.find((file) => file.path === RESOURCE_ENTRY_FILES[resource.type]);
 
   if (!entryFile) {
