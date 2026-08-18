@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import envPaths from 'env-paths';
@@ -61,6 +61,10 @@ export function findWorkspaceRoot(startDirectory: string): string | null {
     if (parent === directory) return null;
     directory = parent;
   }
+}
+
+export function resolveConfigCwd(): string {
+  return process.env.AI_DIRECTORY_CONFIG_CWD ?? findWorkspaceRoot(process.cwd()) ?? process.cwd();
 }
 
 export function readConfigFile(path: string): AiDirectoryConfig {
@@ -135,6 +139,16 @@ export function isPathExistsError(cause: unknown): boolean {
     'code' in cause &&
     cause.code === 'EEXIST'
   );
+}
+
+export async function listFilesUnder(root: string): Promise<string[]> {
+  const entries = await readdir(root, { recursive: true });
+  const files: string[] = [];
+  for (const name of entries) {
+    const stats = await lstat(join(root, name));
+    if (stats.isFile()) files.push(join(root, name));
+  }
+  return files.sort();
 }
 
 export function configuredPath(

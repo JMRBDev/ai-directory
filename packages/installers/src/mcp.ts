@@ -9,18 +9,16 @@ import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { z } from 'zod';
 import { resolveHarnessPaths, type Harness } from './harnesses.js';
 import {
+  applyChangePlanEnvelope,
   currentFile,
-  errorMessage,
   fingerprintPaths,
   hashContent,
   pickOpenCodeConfig,
+  publicOperation,
   readInstallationManifest,
   removeInstallationRecord,
   requestWarnings,
-  restoreFiles,
-  snapshotFiles,
   updateInstallationManifest,
-  withInstallationLocks,
   type InstallOptions,
   type InstallationRecord,
   type ResourceChangeOptions,
@@ -239,7 +237,7 @@ export async function planMcpOperations(
   ];
 
   return {
-    operations: operations.map(publicMcpOperation),
+    operations: operations.map(publicOperation),
     changes,
     conflicts: [...new Set(conflicts)],
     warnings: [...new Set(warnings)],
@@ -247,17 +245,6 @@ export async function planMcpOperations(
     projectionNotes: [],
     fingerprint: await fingerprintPaths(affectedPaths),
   };
-}
-
-function publicMcpOperation(operation: McpOperation): McpOperation {
-  const result: McpOperation = {
-    resource: operation.resource,
-    harnesses: operation.harnesses,
-    action: operation.action,
-  };
-  if (operation.version !== undefined) result.version = operation.version;
-  if (operation.scope !== undefined) result.scope = operation.scope;
-  return result;
 }
 
 export async function applyMcpOperations(
@@ -268,26 +255,16 @@ export async function applyMcpOperations(
 ): Promise<McpApplyResult> {
   const scope = operationScope(operations, options);
   const scopedOptions: ResourceChangeOptions = { ...options, scope };
+  const manifestPath = getScopeInstallManifestPath(scope, options.cwd, options.homeDirectory);
 
-  return withInstallationLocks(operations, scopedOptions, async () => {
-    const plan = planned ?? (await planMcpOperations(operations, scopedOptions, force));
-
-    if (planned) {
-      const currentPlan = await planMcpOperations(operations, scopedOptions, force);
-      if (currentPlan.fingerprint !== plan.fingerprint) {
-        throw new Error('Change plan is outdated. Generate a new preview before applying.');
-      }
-    }
-
-    if (plan.conflicts.length > 0 && !force) {
-      throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
-    }
-
-    const manifestPath = getScopeInstallManifestPath(scope, options.cwd, options.homeDirectory);
-    const paths = [...new Set([...plan.changes.map((change) => change.path), manifestPath])];
-    const snapshots = await snapshotFiles(paths);
-
-    try {
+  return applyChangePlanEnvelope(
+    operations,
+    scopedOptions,
+    force,
+    planned,
+    () => planMcpOperations(operations, scopedOptions, force),
+    (plan) => [...new Set([...plan.changes.map((change) => change.path), manifestPath])],
+    async (plan) => {
       const installed: InstallationRecord[] = [];
       const removed: InstallationRecord[] = [];
 
@@ -352,21 +329,9 @@ export async function applyMcpOperations(
         removed,
         warnings: [...new Set([...plan.warnings, ...plan.envNotes])],
       };
-    } catch (error) {
-      try {
-        await restoreFiles(snapshots);
-      } catch (rollbackError) {
-        throw new Error(
-          `MCP installation failed. Rollback failed; manual review may be required.\nRollback error: ${errorMessage(rollbackError)}\nOriginal error: ${errorMessage(error)}`,
-          { cause: error },
-        );
-      }
-      throw new Error(
-        `MCP installation failed. All changes were rolled back.\nCause: ${errorMessage(error)}`,
-        { cause: error },
-      );
-    }
-  });
+    },
+    'MCP installation failed',
+  );
 }
 
 async function assertMcpEntryUnchanged(

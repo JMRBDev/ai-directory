@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { findWorkspaceRoot, getRepositorySetting } from '@ai-directory/config';
+import { getRepositorySetting, resolveConfigCwd } from '@ai-directory/config';
 import {
   createCachedRegistry,
   readRegistrySourceIndex,
@@ -21,18 +21,10 @@ export interface RegistryView {
 
 const cachedRegistry = createCachedRegistry();
 
-function getConfigCwd(): string {
-  return (
-    process.env.AI_DIRECTORY_CONFIG_CWD ??
-    findWorkspaceRoot(process.cwd()) ??
-    process.cwd()
-  );
-}
-
 export function getRegistryIndexPath(): string | undefined {
   const path = process.env.AI_DIRECTORY_REGISTRY_INDEX?.trim();
   return path
-    ? resolve(process.env.AI_DIRECTORY_CONFIG_CWD ?? process.cwd(), path)
+    ? resolve(resolveConfigCwd(), path)
     : undefined;
 }
 
@@ -42,7 +34,7 @@ export function refreshRegistry(): Promise<void> {
 
 export async function loadRegistry(): Promise<RegistryView> {
   const indexPath = getRegistryIndexPath();
-  const repository = getRepositorySetting(undefined, getConfigCwd()).value;
+  const repository = getRepositorySetting(undefined, resolveConfigCwd()).value;
 
   try {
     const sourceOptions: RegistrySourceOptions = {};
