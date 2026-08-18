@@ -1,4 +1,5 @@
-import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
+import type { ResourceType } from '@ai-directory/contracts';
+import { resourceKey } from '@ai-directory/domain';
 
 export type Harness = 'claude-code' | 'opencode' | 'codex';
 export type InstallScope = 'user' | 'project';
@@ -15,9 +16,7 @@ export const scopeOptions: Array<{ value: InstallScope; label: string; hint: str
   { value: 'project', label: 'Project', hint: 'Shared with the team in this project' },
 ];
 
-export function resourceId(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>) {
-  return [resource.owner, resource.type, resource.name].join('/');
-}
+export { resourceKey as resourceId };
 
 export function shortenHomePath(path: string, homeDir?: string) {
   if (!homeDir) return path;

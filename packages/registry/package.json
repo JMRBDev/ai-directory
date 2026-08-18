@@ -17,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ai-directory/config": "workspace:*",
     "@ai-directory/contracts": "workspace:*",
     "@ai-directory/domain": "workspace:*",
     "semver": "^7.8.5",
