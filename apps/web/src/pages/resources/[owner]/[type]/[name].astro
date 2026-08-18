@@ -1,11 +1,11 @@
 ---
 import { homedir } from 'node:os';
 import type { ResourceSummary } from '@ai-directory/contracts';
+import { resourceKey } from '@ai-directory/domain';
 import { resolveApiUrl } from '../../../../lib/api';
 import {
   loadRegistry,
   loadResource,
-  resourceId,
   type RegistryView,
 } from '../../../../lib/registry';
 import ThemeInit from '../../../../components/ThemeInit.astro';
@@ -26,7 +26,7 @@ const requestedResourceId = [Astro.params.owner, Astro.params.type, Astro.params
 const registry = await loadRegistry();
 const resource = registry.index?.resources.find(
   (candidate) =>
-    candidate.lifecycleStatus === 'active' && resourceId(candidate) === requestedResourceId,
+    candidate.lifecycleStatus === 'active' && resourceKey(candidate) === requestedResourceId,
 );
 
 if (!resource) return Astro.redirect('/');
@@ -35,13 +35,13 @@ const result = await loadResource(registry.indexPath, resource, registry.reposit
 const props: Props = {
   resource,
   version: result.version,
-  componentResources: result.resources.map((item) => resourceId(item.resource)),
+  componentResources: result.resources.map((item) => resourceKey(item.resource)),
   source: registry.source,
 };
 if (result.error) props.fileError = result.error;
 const { version, componentResources, source, fileError } = props;
 const title = `${resource.name} | AI Directory`;
-const installBase = `aid install ${resourceId(resource)} --harness claude-code${resource.type === 'mcp-servers' ? ' --scope user' : ''}`;
+const installBase = `aid install ${resourceKey(resource)} --harness claude-code${resource.type === 'mcp-servers' ? ' --scope user' : ''}`;
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astro.url.hostname);
 ---
 
@@ -81,7 +81,7 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astr
       <div class="stats stats-vertical mt-8 w-full border-y border-base-300 sm:stats-horizontal" aria-label="Resource metadata">
         <div class="stat px-0 py-4 sm:pr-6">
           <div class="stat-title text-xs">Resource ID</div>
-          <div class="stat-value mt-1 break-all font-mono text-xs">{resourceId(resource)}</div>
+          <div class="stat-value mt-1 break-all font-mono text-xs">{resourceKey(resource)}</div>
         </div>
         <div class="stat border-base-300 px-0 py-4 sm:border-l sm:px-6">
           <div class="stat-title text-xs">Latest version</div>
@@ -107,7 +107,7 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astr
         client:load
         apiUrl={apiUrl}
         homeDir={homedir()}
-        resourceKey={resourceId(resource)}
+        resourceKey={resourceKey(resource)}
         resourceType={resource.type}
         componentResources={componentResources}
         installBase={installBase}

@@ -97,12 +97,16 @@ export function readConfigFile(path: string): AiDirectoryConfig {
 }
 
 export async function writeConfigFile(path: string, config: AiDirectoryConfig): Promise<void> {
+  await writeFileAtomic(path, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+export async function writeFileAtomic(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
 
   const temporaryPath = `${path}.tmp-${process.pid}`;
 
   try {
-    await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    await writeFile(temporaryPath, content, 'utf8');
     await rename(temporaryPath, path);
   } finally {
     await rm(temporaryPath, { force: true });

@@ -1,16 +1,15 @@
 import { resolve } from 'node:path';
 import { findWorkspaceRoot, getRepositorySetting } from '@ai-directory/config';
 import {
-  createRegistrySnapshot,
+  createCachedRegistry,
   readRegistrySourceIndex,
   readRegistrySourceResource,
   resolveRegistrySource,
-  type RegistrySnapshot,
-  type RegistrySource,
   type RegistrySourceOptions,
   type ResourceVersion,
 } from '@ai-directory/registry';
 import type { RegistryIndex, ResourceSummary } from '@ai-directory/contracts';
+import { resourceKey } from '@ai-directory/domain';
 
 export interface RegistryView {
   index: RegistryIndex | null;
@@ -20,14 +19,7 @@ export interface RegistryView {
   error?: string;
 }
 
-type CachedRemoteRegistry = {
-  key: string;
-  promise: Promise<{ index: RegistryIndex; snapshot: RegistrySnapshot }>;
-};
-
-type RemoteRegistrySource = Extract<RegistrySource, { type: 'remote' }>;
-
-let cachedRemoteRegistry: CachedRemoteRegistry | undefined;
+const cachedRegistry = createCachedRegistry();
 
 function getConfigCwd(): string {
   return (
@@ -44,59 +36,8 @@ export function getRegistryIndexPath(): string | undefined {
     : undefined;
 }
 
-export function resourceId(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>): string {
-  return `${resource.owner}/${resource.type}/${resource.name}`;
-}
-
-function remoteRegistryKey(source: RemoteRegistrySource): string {
-  return `${source.repositoryUrl}\u0000${source.baseBranch}`;
-}
-
-async function getRemoteRegistry(
-  source: RemoteRegistrySource,
-): Promise<{ index: RegistryIndex; snapshot: RegistrySnapshot }> {
-  const key = remoteRegistryKey(source);
-
-  if (cachedRemoteRegistry?.key === key) return cachedRemoteRegistry.promise;
-
-  const previous = cachedRemoteRegistry;
-  const promise = (async () => {
-    const snapshot = await createRegistrySnapshot(source);
-
-    try {
-      return { index: await snapshot.readIndex(), snapshot };
-    } catch (error) {
-      await snapshot.close();
-      throw error;
-    }
-  })();
-
-  cachedRemoteRegistry = { key, promise };
-
-  if (previous) {
-    void previous.promise.then(
-      ({ snapshot }) => snapshot.close(),
-      () => undefined,
-    );
-  }
-
-  promise.catch(() => {
-    if (cachedRemoteRegistry?.promise === promise) cachedRemoteRegistry = undefined;
-  });
-
-  return promise;
-}
-
-export async function refreshRegistry(): Promise<void> {
-  const previous = cachedRemoteRegistry;
-  cachedRemoteRegistry = undefined;
-
-  if (previous) {
-    await previous.promise.then(
-      ({ snapshot }) => snapshot.close(),
-      () => undefined,
-    );
-  }
+export function refreshRegistry(): Promise<void> {
+  return cachedRegistry.refresh();
 }
 
 export async function loadRegistry(): Promise<RegistryView> {
@@ -117,9 +58,9 @@ export async function loadRegistry(): Promise<RegistryView> {
       };
     }
 
-    const registry = await getRemoteRegistry(source);
+    const snapshot = await cachedRegistry.get(source);
     return {
-      index: registry.index,
+      index: await snapshot.readIndex(),
       repository: source.repositoryUrl,
       source: source.type,
     };
@@ -148,11 +89,11 @@ export async function loadResource(
     const source = resolveRegistrySource(sourceOptions);
 
     const result = source.type === 'remote'
-      ? await (await getRemoteRegistry(source)).snapshot.readResource(
-          resourceId(resource),
+      ? await (await cachedRegistry.get(source)).readResource(
+          resourceKey(resource),
           resource.latestVersion,
         )
-      : await readRegistrySourceResource(source, resourceId(resource), resource.latestVersion);
+      : await readRegistrySourceResource(source, resourceKey(resource), resource.latestVersion);
     return { version: result.resource, resources: result.resources };
   } catch (error) {
     return {

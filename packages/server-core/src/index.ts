@@ -20,6 +20,7 @@ import {
   applyResourceOperations,
   discoverLocalResources,
   enrichLocalResources,
+  errorMessage,
   planMcpOperations,
   planResourceOperations,
   readInstallationManifest,
@@ -33,7 +34,7 @@ import {
 } from '@ai-directory/installers';
 import { resourceKey } from '@ai-directory/domain';
 import {
-  createRegistrySnapshot,
+  createCachedRegistry,
   readRegistrySourceResource,
   resolveRegistrySource,
   submitResource,
@@ -355,7 +356,7 @@ async function githubUsername(options: ServerOptions, cwd: string): Promise<stri
   return username;
 }
 
-async function readInstallationRecords(
+export async function readInstallationRecords(
   homeDirectory?: string,
   cwd?: string,
 ): Promise<InstallationRecord[]> {
@@ -367,7 +368,7 @@ async function readInstallationRecords(
   return manifests.flatMap((manifest) => manifest.installations);
 }
 
-function localResourceFromMcpRecord(record: InstallationRecord): LocalResource {
+export function localResourceFromMcpRecord(record: InstallationRecord): LocalResource {
   const resource: LocalResource = {
     resource: record.resource,
     type: 'mcp-servers',
@@ -383,76 +384,41 @@ function localResourceFromMcpRecord(record: InstallationRecord): LocalResource {
   return resource;
 }
 
-async function installationResourceIds(
+export async function installationResourceIds(
   resource: string,
-  source: RegistrySource,
+  source: RegistrySource | undefined,
 ): Promise<string[]> {
   if (!resource.includes('/templates/')) return [resource];
+  if (!source) {
+    throw new Error('A registry source is required to inspect this template.');
+  }
 
   const loaded = await readRegistrySourceResource(source, resource);
   return loaded.resources.map((item) => resourceKey(item.resource));
 }
 
-type CachedRegistrySnapshot = {
-  key: string;
-  promise: Promise<RegistrySnapshot>;
-};
-
-let cachedRegistrySnapshot: CachedRegistrySnapshot | undefined;
-
-function registrySnapshotKey(source: RegistrySource): string {
-  return source.type === 'remote'
-    ? `remote\0${source.repositoryUrl}\0${source.baseBranch}`
-    : `local\0${source.indexPath}`;
+export function isMcpResource(resource: string): boolean {
+  return resource.includes('/mcp-servers/');
 }
 
-async function getRegistrySnapshot(source: RegistrySource): Promise<RegistrySnapshot> {
-  const key = registrySnapshotKey(source);
-
-  if (cachedRegistrySnapshot?.key === key) {
-    return cachedRegistrySnapshot.promise;
-  }
-
-  const previous = cachedRegistrySnapshot;
-  const promise = createRegistrySnapshot(source);
-
-  cachedRegistrySnapshot = {
-    key,
-    promise,
-  };
-
-  if (previous) {
-    void previous.promise.then(
-      (snapshot) => snapshot.close(),
-      () => undefined,
-    );
-  }
-
-  promise.catch(() => {
-    if (cachedRegistrySnapshot?.promise === promise) cachedRegistrySnapshot = undefined;
-  });
-
-  return promise;
+export function installManifestPath(
+  scope: ConfigScope,
+  options: ServerOptions = {},
+  cwd: string = process.cwd(),
+): string {
+  return scope === 'project'
+    ? getProjectInstallManifestPath(cwd)
+    : getInstallManifestPath(options.homeDirectory);
 }
 
-async function refreshRegistrySnapshot(): Promise<void> {
-  const previous = cachedRegistrySnapshot;
-  cachedRegistrySnapshot = undefined;
-
-  if (previous) {
-    await previous.promise.then(
-      (snapshot) => snapshot.close(),
-      () => undefined,
-    );
-  }
-}
+const cachedRegistry = createCachedRegistry();
 
 async function withRegistrySnapshot<T>(
   options: ServerOptions,
   cwd: string,
   action: (snapshot: RegistrySnapshot) => Promise<T>,
 ): Promise<T> {
-  const snapshot = await getRegistrySnapshot(registrySource(options, cwd));
+  const snapshot = await cachedRegistry.get(registrySource(options, cwd));
   return action(snapshot);
 }
 
@@ -467,20 +433,6 @@ function changeOptions(
   if (scope) result.scope = scope;
 
   return result;
-}
-
-function isMcpResource(resource: string): boolean {
-  return resource.includes('/mcp-servers/');
-}
-
-function installManifestPath(
-  scope: ConfigScope,
-  options: ServerOptions,
-  cwd: string,
-): string {
-  return scope === 'project'
-    ? getProjectInstallManifestPath(cwd)
-    : getInstallManifestPath(options.homeDirectory);
 }
 
 async function resolveMcpOperations(
@@ -528,7 +480,7 @@ export function createApp(options: ServerOptions = {}) {
   const cwd = resolve(options.cwd ?? process.cwd());
 
   if (options.prewarm) {
-    void getRegistrySnapshot(registrySource(options, cwd)).catch(() => undefined);
+    void cachedRegistry.get(registrySource(options, cwd)).catch(() => undefined);
   }
 
   app.get('/health', (context) => context.json({ ok: true }));
@@ -536,7 +488,7 @@ export function createApp(options: ServerOptions = {}) {
 
   app.post('/api/refresh', async (context) => {
     try {
-      await refreshRegistrySnapshot();
+      await cachedRegistry.refresh();
       return context.json({ ok: true });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 500);
@@ -699,7 +651,7 @@ export function createApp(options: ServerOptions = {}) {
 
       if (merged.some((resource) => resource.resource)) {
         try {
-          const snapshot = await getRegistrySnapshot(registrySource(options, cwd));
+          const snapshot = await cachedRegistry.get(registrySource(options, cwd));
           enriched = enrichLocalResources(merged, await snapshot.readIndex());
         } catch (caught) {
           registryError = errorMessage(caught);
@@ -1100,8 +1052,4 @@ export function createApp(options: ServerOptions = {}) {
 function queryBoolean(value: string | undefined): boolean | string | undefined {
   if (value === undefined) return undefined;
   return value === 'true' ? true : value === 'false' ? false : value;
-}
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

@@ -6,7 +6,6 @@ import {
   readdir,
   readFile,
   realpath,
-  rename,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -27,6 +26,7 @@ import {
   type TemplateManifest,
 } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/domain';
+import { writeFileAtomic } from '@ai-directory/config';
 import { gt as isGreaterVersion, valid as isValidVersion } from 'semver';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -227,18 +227,7 @@ export async function readResourceVersion(
   resourceId: string,
   requestedVersion?: string,
 ): Promise<ResourceVersion> {
-  const index = await readRegistryIndex(indexPath);
-  const resource = index.resources.find((candidate) => resourceKey(candidate) === resourceId);
-
-  if (!resource) {
-    throw new Error(`Resource not found: ${resourceId}`);
-  }
-
-  const version = requestedVersion ?? resource.latestVersion;
-
-  if (!resourceVersionSchema.safeParse(version).success) {
-    throw new Error(`Invalid resource version: ${version}`);
-  }
+  const { resource, version } = await findResourceVersion(indexPath, resourceId, requestedVersion);
 
   const directory = resourceDirectory(dirname(await realpath(indexPath)), resource, version);
 
@@ -450,6 +439,54 @@ export function resolveRegistrySource(options: RegistrySourceOptions): RegistryS
   }
 
   throw new Error('No registry source configured. Run `aid setup` or pass `--index <path>`.');
+}
+
+export type CachedRegistry = {
+  get(source: RegistrySource): Promise<RegistrySnapshot>;
+  refresh(): Promise<void>;
+};
+
+export function createCachedRegistry(): CachedRegistry {
+  let cached: { key: string; promise: Promise<RegistrySnapshot> } | undefined;
+
+  return {
+    get(source) {
+      const key = source.type === 'remote'
+        ? `remote\0${source.repositoryUrl}\0${source.baseBranch}`
+        : `local\0${source.indexPath}`;
+
+      if (cached?.key === key) return cached.promise;
+
+      const previous = cached;
+      const promise = createRegistrySnapshot(source);
+
+      cached = { key, promise };
+
+      if (previous) {
+        void previous.promise.then(
+          (snapshot) => snapshot.close(),
+          () => undefined,
+        );
+      }
+
+      promise.catch(() => {
+        if (cached?.promise === promise) cached = undefined;
+      });
+
+      return promise;
+    },
+    async refresh() {
+      const previous = cached;
+      cached = undefined;
+
+      if (previous) {
+        await previous.promise.then(
+          (snapshot) => snapshot.close(),
+          () => undefined,
+        );
+      }
+    },
+  };
 }
 
 export function readRegistrySourceIndex(source: RegistrySource): Promise<RegistryIndex> {
@@ -1048,14 +1085,7 @@ async function writeResourceFiles(directory: string, files: ResourceFile[]): Pro
 }
 
 async function writeRegistryIndex(indexPath: string, index: RegistryIndex): Promise<void> {
-  const temporaryPath = `${indexPath}.tmp-${process.pid}-${Date.now()}`;
-
-  try {
-    await writeFile(`${temporaryPath}`, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
-    await rename(temporaryPath, indexPath);
-  } finally {
-    await rm(temporaryPath, { force: true });
-  }
+  await writeFileAtomic(indexPath, `${JSON.stringify(index, null, 2)}\n`);
 }
 
 async function pathExists(path: string): Promise<boolean> {

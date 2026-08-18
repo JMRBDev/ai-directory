@@ -97,6 +97,9 @@ importers:
       '@ai-directory/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@ai-directory/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@ai-directory/registry':
         specifier: workspace:*
         version: link:../../packages/registry
@@ -219,6 +222,9 @@ importers:
 
   packages/registry:
     dependencies:
+      '@ai-directory/config':
+        specifier: workspace:*
+        version: link:../config
       '@ai-directory/contracts':
         specifier: workspace:*
         version: link:../contracts

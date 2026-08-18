@@ -19,7 +19,6 @@ import {
   findWorkspaceRoot,
   getConfigPath,
   getInstallManifestPath,
-  getProjectInstallManifestPath,
   getRepositorySetting,
   readConfigFile,
   resolveRepository,
@@ -55,6 +54,13 @@ import {
   type McpOperation,
   type ResourceOperation,
 } from '@ai-directory/installers';
+import {
+  installManifestPath,
+  installationResourceIds,
+  isMcpResource,
+  localResourceFromMcpRecord,
+  readInstallationRecords,
+} from '@ai-directory/server-core';
 import {
   readRemoteRegistryIndex,
   readRegistrySourceIndex,
@@ -412,15 +418,6 @@ async function promptHarnesses(initialValues?: Harness[]): Promise<Harness[] | u
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
 }
 
-async function readInstalledRecords(): Promise<InstallationRecord[]> {
-  const manifests = await Promise.all([
-    readInstallationManifest(getInstallManifestPath()),
-    readInstallationManifest(getProjectInstallManifestPath()),
-  ]);
-
-  return manifests.flatMap((manifest) => manifest.installations);
-}
-
 function parseScope(value: string | undefined): ConfigScope {
   const scope = value ?? 'user';
   if (scope !== 'user' && scope !== 'project') {
@@ -429,31 +426,10 @@ function parseScope(value: string | undefined): ConfigScope {
   return scope;
 }
 
-function isMcpResource(resource: string): boolean {
-  return resource.includes('/mcp-servers/');
-}
-
-function mcpInstallManifestPath(scope: ConfigScope): string {
-  return scope === 'project'
-    ? getProjectInstallManifestPath()
-    : getInstallManifestPath();
-}
-
 type InstalledResourceChoice = {
   resource: string;
   resources: string[];
 };
-
-async function resolveResourceMembers(
-  resource: string,
-  source?: ReturnType<typeof resolveRegistrySource>,
-): Promise<string[]> {
-  if (!resource.includes('/templates/')) return [resource];
-  if (!source) throw new Error('A registry source is required to inspect this template.');
-
-  const loaded = await readRegistrySourceResource(source, resource);
-  return loaded.resources.map((entry) => resourceKey(entry.resource));
-}
 
 async function promptInstalledResource(
   records: InstallationRecord[],
@@ -470,7 +446,7 @@ async function promptInstalledResource(
         .filter((resource) => resource.type === 'templates' && resource.lifecycleStatus === 'active')
         .map(async (resource) => {
           const id = resourceKey(resource);
-          const resources = await resolveResourceMembers(id, source);
+          const resources = await installationResourceIds(id, source);
           const installed = records.some((record) =>
             resources.every((member) =>
               records.some(
@@ -1167,7 +1143,7 @@ const install = defineCommand({
       }
 
       const manifestPath = isMcpResource(resource)
-        ? mcpInstallManifestPath(scope)
+        ? installManifestPath(scope)
         : getInstallManifestPath();
       const interactive = interactiveTerminal && (!resourceArgument || !explicitHarnesses);
 
@@ -1255,22 +1231,12 @@ const installed = defineCommand({
   },
   async run({ args }) {
     try {
-      const records = (await readInstalledRecords())
+      const records = (await readInstallationRecords())
         .sort((left, right) => left.resource.localeCompare(right.resource));
       let resources = await discoverLocalResources({ records });
       const mcpResources = records
         .filter((record) => record.kind === 'mcp')
-        .map((record) => ({
-          resource: record.resource,
-          type: 'mcp-servers' as const,
-          name: record.resource.split('/').at(-1) ?? record.resource,
-          harness: record.harness,
-          path: record.destination,
-          files: record.files,
-          state: 'managed' as const,
-          registryState: 'unknown' as const,
-          version: record.version,
-        }));
+        .map(localResourceFromMcpRecord);
       resources = [...resources, ...mcpResources];
 
       try {
@@ -1354,12 +1320,12 @@ const update = defineCommand({
       const explicitHarnesses = hasHarnessArgument(rawArgs);
       const source = getRegistrySource(args.index, args.repository, args.base);
       const installedRecords = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
-        ? await readInstalledRecords()
+        ? await readInstallationRecords()
         : [];
       const choice = resourceArgument
         ? {
             resource: resourceArgument,
-            resources: await resolveResourceMembers(resourceArgument, source),
+            resources: await installationResourceIds(resourceArgument, source),
           }
         : (
             interactiveTerminal
@@ -1384,7 +1350,7 @@ const update = defineCommand({
         args.force ?? false,
         async (force) => {
           const manifestPath = isMcpResource(resource)
-            ? mcpInstallManifestPath(scope)
+            ? installManifestPath(scope)
             : getInstallManifestPath();
           const manifest = await readInstallationManifest(manifestPath);
           const loaded = await readRegistrySourceResource(source, resource);
@@ -1534,12 +1500,12 @@ const uninstall = defineCommand({
         }
       })();
       const installedRecords = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
-        ? await readInstalledRecords()
+        ? await readInstallationRecords()
         : [];
       const choice = resourceArgument
         ? {
             resource: resourceArgument,
-            resources: await resolveResourceMembers(resourceArgument, source),
+            resources: await installationResourceIds(resourceArgument, source),
           }
         : (
             interactiveTerminal
@@ -1564,7 +1530,7 @@ const uninstall = defineCommand({
         args.force ?? false,
         async (force) => {
           const manifestPath = isMcpResource(resource)
-            ? mcpInstallManifestPath(scope)
+            ? installManifestPath(scope)
             : getInstallManifestPath();
           const manifest = await readInstallationManifest(manifestPath);
           const existing = harnesses.map((harness) =>
@@ -1615,7 +1581,7 @@ const uninstall = defineCommand({
 
       if (!result) return;
       console.log(`Uninstalled ${resource} for ${harnesses.join(', ')}.`);
-      console.log(`Tracked in: ${isMcpResource(resource) ? mcpInstallManifestPath(scope) : getInstallManifestPath()}`);
+      console.log(`Tracked in: ${isMcpResource(resource) ? installManifestPath(scope) : getInstallManifestPath()}`);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;

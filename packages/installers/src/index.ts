@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, open, readFile, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   getScopeInstallManifestPath,
+  writeFileAtomic,
   type ConfigScope,
 } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/domain';
@@ -142,19 +143,6 @@ export type {
 } from './discovery.js';
 export * from './mcp.js';
 
-export async function installClaudeCodeResource(
-  resource: ResourceVersion,
-  options: ClaudeCodeInstallOptions,
-): Promise<InstallResult> {
-  const [result] = await installClaudeCodeResources([resource], options);
-
-  if (!result) {
-    throw new Error('Resource installation did not produce a result.');
-  }
-
-  return result;
-}
-
 export async function installClaudeCodeResources(
   resources: ResourceVersion[],
   options: ClaudeCodeInstallOptions,
@@ -200,7 +188,7 @@ export async function installOpenCodeResources(
         ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
       ],
       ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: hashesForPlan(plan, fileHashes),
+      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
     };
     if (options.dryRun) {
       result.changes = [
@@ -251,7 +239,7 @@ export async function installCodexResources(
         ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
       ],
       ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: hashesForPlan(plan, fileHashes),
+      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
     };
     if (options.dryRun) {
       result.changes = [
@@ -295,7 +283,7 @@ async function installResources(
       skippedFiles: plan.skippedFiles,
       paths: plan.files.map((file) => file.destination),
       ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: hashesForPlan(plan, fileHashes),
+      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
     };
     if (options.dryRun) {
       result.changes = plan.files.map((file) => ({ path: file.destination, content: file.content }));
@@ -361,25 +349,25 @@ async function hashInstallPlans(plans: InstallPlan[]): Promise<Record<string, st
   return hashes;
 }
 
-function hashesForPlan(
-  plan: InstallPlan,
+function selectHashes(
+  paths: string[],
   hashes: Record<string, string>,
 ) {
-  const result: Record<string, string> = {};
+  const selected: Record<string, string> = {};
 
-  for (const file of plan.files) {
-    const hash = hashes[file.destination];
-    if (hash) result[file.destination] = hash;
+  for (const path of paths) {
+    const hash = hashes[path];
+    if (hash) selected[path] = hash;
   }
 
-  return result;
+  return selected;
 }
 
 export function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-async function hashFile(path: string): Promise<string | null> {
+export async function hashFile(path: string): Promise<string | null> {
   try {
     return hashContent(await readFile(path, 'utf8'));
   } catch (error) {
@@ -882,20 +870,6 @@ async function ownedInstallationFiles(
   return [...files];
 }
 
-function selectHashes(
-  paths: string[],
-  hashes: Record<string, string>,
-) {
-  const selected: Record<string, string> = {};
-
-  for (const path of paths) {
-    const hash = hashes[path];
-    if (hash) selected[path] = hash;
-  }
-
-  return selected;
-}
-
 async function removeSharedConfiguration(
   record: InstallationRecord,
   options: InstallOptions,
@@ -993,7 +967,7 @@ async function removeCodexGuidance(record: InstallationRecord): Promise<InstallC
   };
 }
 
-function resourceType(resource: string): ResourceKind | undefined {
+export function resourceType(resource: string): ResourceKind | undefined {
   const type = resource.split('/')[1];
   return type === 'skills' || type === 'agents' || type === 'rules'
     ? type
@@ -1074,16 +1048,12 @@ function createOpenCodePlan(
       resource.resource.type === 'agents' && file.path === 'AGENT.md'
         ? openCodeAgentContent(resource)
         : file.content,
-    destination: openCodeDestinationForFile(
-      root,
-      resource,
-      file.path,
-    ),
+    destination: destinationForFile(root, resource, file.path),
   }));
 
   return {
     resource,
-    destination: openCodeResourceDestination(root, resource),
+    destination: resourceDestination(root, resource),
     files,
     skippedFiles: projection.skippedFiles,
   };
@@ -1181,42 +1151,6 @@ function resourceDestination(root: string, resource: ResourceVersion): string {
   return join(root, resource.resource.type, `${resource.resource.name}.md`);
 }
 
-function openCodeDestinationForFile(
-  root: string,
-  resource: ResourceVersion,
-  resourcePath: string,
-): string {
-  if (resource.resource.type === 'skills') {
-    return safeDestination(
-      openCodeResourceDestination(root, resource),
-      resourcePath,
-    );
-  }
-
-  const type = resource.resource.type;
-  const entryFile = type === 'agents' ? 'AGENT.md' : 'RULE.md';
-
-  if (resourcePath === entryFile) {
-    return safeDestination(join(root, type), `${resource.resource.name}.md`);
-  }
-
-  return safeDestination(
-    join(root, type, `${resource.resource.name}.files`),
-    resourcePath,
-  );
-}
-
-function openCodeResourceDestination(
-  root: string,
-  resource: ResourceVersion,
-): string {
-  if (resource.resource.type === 'skills') {
-    return join(root, 'skills', resource.resource.name);
-  }
-
-  return join(root, resource.resource.type, `${resource.resource.name}.md`);
-}
-
 function codexDestinationForFile(
   paths: CodexInstallPaths,
   resource: ResourceVersion,
@@ -1265,7 +1199,7 @@ async function prepareOpenCodeInstructions(
   const entries = resources.map((resource) =>
     toPosixPath(relative(
       dirname(path),
-      openCodeResourceDestination(root, resource),
+      resourceDestination(root, resource),
     )),
   );
   const current = await readOptionalText(path);
@@ -1300,6 +1234,16 @@ async function prepareOpenCodeInstructions(
   };
 }
 
+export async function pickOpenCodeConfig(candidates: string[]): Promise<string> {
+  for (const path of candidates) {
+    if (await pathExists(path)) {
+      return path;
+    }
+  }
+
+  return candidates[candidates.length - 1] ?? '';
+}
+
 async function openCodeConfigPath(
   root: string,
   options: InstallOptions,
@@ -1310,15 +1254,7 @@ async function openCodeConfigPath(
     return customPath;
   }
 
-  const candidates = [join(root, 'opencode.jsonc'), join(root, 'opencode.json')];
-
-  for (const path of candidates) {
-    if (await pathExists(path)) {
-      return path;
-    }
-  }
-
-  return join(root, 'opencode.json');
+  return pickOpenCodeConfig([join(root, 'opencode.jsonc'), join(root, 'opencode.json')]);
 }
 
 async function prepareCodexGuidance(
@@ -1507,7 +1443,7 @@ function classifyChange(
   return before === after ? null : 'modified';
 }
 
-function requestWarnings(resources: ResourceVersion[]): string[] {
+export function requestWarnings(resources: ResourceVersion[]): string[] {
   return [...new Set(resources
     .filter((resource) => resource.resource.reviewStatus === 'unreviewed')
     .map((resource) => `${resourceKey(resource.resource)}@${resource.version}`))];
@@ -1538,7 +1474,7 @@ function resourcePlanPaths(
   ];
 }
 
-async function fingerprintPaths(paths: string[]): Promise<string> {
+export async function fingerprintPaths(paths: string[]): Promise<string> {
   const state = [];
 
   for (const path of [...new Set(paths)].sort()) {
@@ -1703,16 +1639,8 @@ async function readOptionalText(path: string): Promise<string | null> {
   }
 }
 
-export async function writeTextAtomic(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.tmp-${process.pid}`;
-
-  try {
-    await writeFile(temporaryPath, content, 'utf8');
-    await rename(temporaryPath, path);
-  } finally {
-    await rm(temporaryPath, { force: true });
-  }
+export function writeTextAtomic(path: string, content: string): Promise<void> {
+  return writeFileAtomic(path, content);
 }
 
 export async function pathExists(path: string): Promise<boolean> {
