@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useRef, useState } from 'preact/hooks';
 import type { ResourceSummary } from '@ai-directory/contracts';
 import { closeDrawers, errorMessage, request } from './api';
@@ -30,6 +31,8 @@ type ChangeDeckProviderProps = {
   homeDir: string;
   resources: ResourceSummary[];
   registryError?: string | undefined;
+  hideCatalog?: boolean;
+  children?: ComponentChildren;
 };
 
 function removeStagedKey(record: StagedMap, key: string) {
@@ -88,6 +91,8 @@ export default function ChangeDeckProvider({
   homeDir,
   resources,
   registryError,
+  hideCatalog = false,
+  children,
 }: ChangeDeckProviderProps) {
   const [installations, setInstallations] = useState<Installation[]>([]);
   const [localResources, setLocalResources] = useState<LocalResource[]>([]);
@@ -322,7 +327,7 @@ export default function ChangeDeckProvider({
 
   return (
     <ChangeDeckContext.Provider value={value}>
-      <ResourceCatalog resources={resources} registryError={registryError} />
+      {hideCatalog ? children : <ResourceCatalog resources={resources} registryError={registryError} />}
       <InstalledResources homeDir={homeDir} />
 
       <DrawerShell

@@ -47,6 +47,17 @@ export default function InstallResource({
   const [planError, setPlanError] = useState(false);
   const [force, setForce] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function copyCommand() {
+    try {
+      await navigator.clipboard.writeText(installBase);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   useMountEffect(() => {
     if (resourceType !== 'templates') void loadInstallation(['claude-code'], scope);
@@ -161,14 +172,13 @@ export default function InstallResource({
   const missing = harnesses.filter((harness) => !completeInstallation(records, harness));
   return (
     <section
-      className="mt-14 w-full border-t border-base-300 pt-8"
+      className="mt-14"
       aria-labelledby="install-title"
       data-resource-install
       data-resource-id={resourceKey}
       data-resource-type={resourceType}
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Install</p>
-      <h2 id="install-title" className="mt-2 text-xl font-semibold tracking-tight text-base-content">Use this resource locally</h2>
+      <h2 id="install-title" className="text-xl font-semibold tracking-tight text-base-content">Use this resource locally</h2>
       {resourceType === 'templates' && (
         <div className="alert alert-info mt-5 items-start text-sm leading-6" role="status">
           <i className="ph ph-package text-xl" aria-hidden="true"></i>
@@ -218,11 +228,13 @@ export default function InstallResource({
 
       {plan && <PlanView plan={plan} title="Review before applying" onClose={() => setPlan(null)} homeDir={homeDir} force={force} onForce={setForce} status={planStatus} statusError={planError} busy={busy} onApply={() => void applyChanges()} />}
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <div>
-          <p className="mb-2 text-xs font-semibold text-base-content/60">CLI</p>
-          <div className="mockup-code text-xs">
-            <pre data-prefix="$"><code>{installBase}</code></pre>
+      <div className="mt-5">
+        <div className="card card-border bg-base-100">
+          <div className="card-body flex-row items-center gap-3 p-4">
+            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs leading-6 text-base-content" title={installBase}>{installBase}</code>
+            <button className="btn btn-ghost btn-sm shrink-0 gap-1.5" type="button" onClick={() => void copyCommand()}>
+              <i className={'ph ' + (copied ? 'ph-check' : 'ph-copy-simple')} aria-hidden="true"></i>
+            </button>
           </div>
         </div>
       </div>

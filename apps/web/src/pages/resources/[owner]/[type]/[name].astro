@@ -1,25 +1,26 @@
 ---
 import { homedir } from 'node:os';
-import { resourceKey, type ResourceSummary } from '@ai-directory/contracts';
+import { resourceKey, type ResourceType } from '@ai-directory/contracts';
 import { resolveApiUrl } from '../../../../lib/api';
-import {
-  loadRegistry,
-  loadResource,
-  type RegistryView,
-} from '../../../../lib/registry';
+import { loadRegistry, loadResource } from '../../../../lib/registry';
 import ThemeInit from '../../../../components/ThemeInit.astro';
 import SiteHeader from '../../../../components/SiteHeader.astro';
+import ChangeDeckProvider from '../../../../components/preact/ChangeDeck';
 import InstallResource from '../../../../components/preact/InstallResource';
+import PublishForm from '../../../../components/preact/PublishForm';
 import SettingsDrawer from '../../../../components/preact/SettingsDrawer';
+import { RESOURCE_TYPE_LABELS } from '../../../../components/preact/lib';
 import '../../../../styles/global.css';
 
-interface Props {
-  resource: ResourceSummary;
-  version: Awaited<ReturnType<typeof loadResource>>['version'];
-  componentResources: string[];
-  source: RegistryView['source'];
-  fileError?: string;
-}
+// SAFETY: TYPE_ICONS covers every ResourceType.
+const TYPE_ICONS = {
+  skills: 'ph-lightning',
+  agents: 'ph-user-circle-gear',
+  rules: 'ph-scroll',
+  'mcp-servers': 'ph-plugs-connected',
+  templates: 'ph-layout',
+  plugins: 'ph-puzzle-piece',
+} satisfies Record<ResourceType, string>;
 
 const requestedResourceId = [Astro.params.owner, Astro.params.type, Astro.params.name].join('/');
 const registry = await loadRegistry();
@@ -31,17 +32,25 @@ const resource = registry.index?.resources.find(
 if (!resource) return Astro.redirect('/');
 
 const result = await loadResource(registry.indexPath, resource, registry.repository);
-const props: Props = {
-  resource,
+const { version, componentResources } = {
   version: result.version,
   componentResources: result.resources.map((item) => resourceKey(item.resource)),
-  source: registry.source,
 };
-if (result.error) props.fileError = result.error;
-const { version, componentResources, source, fileError } = props;
+const fileError = result.error;
+const activeResources = (registry.index?.resources ?? []).filter(
+  (candidate) => candidate.lifecycleStatus === 'active',
+);
 const title = `${resource.name} | AI Directory`;
 const installBase = `aid install ${resourceKey(resource)} --harness claude-code${resource.type === 'mcp-servers' ? ' --scope user' : ''}`;
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astro.url.hostname);
+const homeDir = homedir();
+
+const updatedLabel = (() => {
+  const date = new Date(resource.updatedAt);
+  return Number.isNaN(date.getTime())
+    ? resource.updatedAt
+    : new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date);
+})();
 ---
 
 <!doctype html>
@@ -53,102 +62,104 @@ const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astr
     <ThemeInit />
     <title>{title}</title>
   </head>
-  <body class="min-h-screen bg-base-100 font-sans text-base-content antialiased">
-    <SiteHeader sourceLabel={source === 'remote' ? 'Configured Git registry' : 'Explicit local index'} showSettings />
+  <body class="min-h-screen bg-base-100 font-sans text-base-content antialiased flex flex-col gap-2">
+    <SiteHeader showChanges showInstalled showPublish showRefresh showSettings />
 
-    <main class="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 lg:py-12">
-      <a class="btn btn-ghost btn-sm -ml-3" href="/">Back to catalog</a>
-
-      <section class="hero mt-10 max-w-3xl justify-start" aria-labelledby="resource-title">
-        <div class="hero-content block max-w-none p-0">
-          <div class="flex items-center gap-3 text-xs">
-            <span class="font-semibold uppercase tracking-[0.12em] text-primary">{resource.type}</span>
+    <main class="mx-auto w-full max-w-6xl px-5 sm:px-8 flex-1">
+      <ChangeDeckProvider
+        client:load
+        apiUrl={apiUrl}
+        homeDir={homeDir}
+        resources={activeResources}
+        registryError={registry.error}
+        hideCatalog
+      >
+        <section class="mt-8 max-w-3xl" aria-labelledby="resource-title">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="badge badge-primary badge-soft gap-1.5">
+              <i class={'ph ' + TYPE_ICONS[resource.type]} aria-hidden="true"></i>
+              {RESOURCE_TYPE_LABELS[resource.type]}
+            </span>
             <span
               class:list={[
-                'badge',
-                resource.reviewStatus === 'unreviewed' ? 'badge-warning' : 'badge-ghost',
+                'badge badge-soft gap-1',
+                resource.reviewStatus === 'reviewed' ? 'badge-success' : 'badge-warning',
               ]}
             >
+              <i
+                class={'ph ' + (resource.reviewStatus === 'reviewed' ? 'ph-check' : 'ph-warning')}
+                aria-hidden="true"
+              ></i>
               {resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed'}
+            </span>
+            <span class="badge badge-ghost gap-1">
+              <i class="ph ph-tag" aria-hidden="true"></i>
+              v{version?.version ?? resource.latestVersion}
             </span>
           </div>
           <h1 id="resource-title" class="mt-4 text-3xl font-semibold tracking-tight text-base-content sm:text-4xl">{resource.name}</h1>
-          <p class="mt-4 text-base leading-7 text-base-content/60">{resource.description}</p>
-        </div>
-      </section>
-
-      <div class="stats stats-vertical mt-8 w-full border-y border-base-300 sm:stats-horizontal" aria-label="Resource metadata">
-        <div class="stat px-0 py-4 sm:pr-6">
-          <div class="stat-title text-xs">Resource ID</div>
-          <div class="stat-value mt-1 break-all font-mono text-xs">{resourceKey(resource)}</div>
-        </div>
-        <div class="stat border-base-300 px-0 py-4 sm:border-l sm:px-6">
-          <div class="stat-title text-xs">Latest version</div>
-          <div class="stat-value mt-1 text-sm">v{resource.latestVersion}</div>
-        </div>
-        <div class="stat border-base-300 px-0 py-4 sm:border-l sm:pl-6">
-          <div class="stat-title text-xs">Owner</div>
-          <div class="stat-value mt-1 text-sm">{resource.owner}</div>
-        </div>
-      </div>
-
-      {resource.reviewStatus === 'unreviewed' && (
-        <div class="alert alert-warning mt-6 max-w-3xl items-start text-sm leading-6" role="status">
-          <i class="ph ph-warning text-xl" aria-hidden="true"></i>
-          <div>
-            This resource is unreviewed. You can stage it, but inspect its contents before applying
-            it to a project.
+          <p class="mt-3 text-base leading-7 text-base-content/60">{resource.description}</p>
+<div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-base-content/60">
+            <span class="inline-flex items-center gap-1.5">
+              <i class="ph ph-user" aria-hidden="true"></i>
+              {resource.owner}
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+              <i class="ph ph-clock" aria-hidden="true"></i>
+              Updated {updatedLabel}
+            </span>
           </div>
-        </div>
-      )}
+        </section>
 
-      <InstallResource
-        client:load
-        apiUrl={apiUrl}
-        homeDir={homedir()}
-        resourceKey={resourceKey(resource)}
-        resourceType={resource.type}
-        componentResources={componentResources}
-        installBase={installBase}
-      />
-      <SettingsDrawer client:load apiUrl={apiUrl} />
+        <InstallResource
+          client:load
+          apiUrl={apiUrl}
+          homeDir={homeDir}
+          resourceKey={resourceKey(resource)}
+          resourceType={resource.type}
+          componentResources={componentResources}
+          installBase={installBase}
+        />
 
-      <section class="mt-14 w-full border-t border-base-300 pt-8" aria-labelledby="files-title">
-        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Source</p>
-        <h2 id="files-title" class="mt-2 text-xl font-semibold tracking-tight text-base-content">Files in v{version?.version ?? resource.latestVersion}</h2>
-        {fileError ? (
-          <div class="alert alert-error mt-5 items-start text-sm" role="alert">
-            <i class="ph ph-warning-circle text-xl" aria-hidden="true"></i>
-            <div>
-              <strong class="font-semibold">Resource files are not available in this checkout.</strong>
-              <p class="mt-2">{fileError}</p>
+        <section class="mt-14" aria-labelledby="files-title">
+          <h2 id="files-title" class="text-xl font-semibold tracking-tight text-base-content">Source files</h2>
+          {fileError ? (
+            <div class="alert alert-error mt-5 items-start text-sm" role="alert">
+              <i class="ph ph-warning-circle text-xl" aria-hidden="true"></i>
+              <div>
+                <strong class="font-semibold">Resource files are not available in this checkout.</strong>
+                <p class="mt-2">{fileError}</p>
+              </div>
             </div>
-          </div>
-        ) : version ? (
-          <div class="card card-border mt-5 overflow-hidden bg-base-100">
-            {version.files.map((file, index) => (
-              <details class="collapse collapse-arrow rounded-none border-b border-base-300 last:border-b-0" open={index === 0}>
-                <summary class="collapse-title min-h-0 px-4 py-3 text-sm font-medium text-base-content">{file.path}</summary>
-                <div class="collapse-content p-0">
-                  <div class="mockup-code overflow-x-auto rounded-none border-t border-base-300 bg-base-200 p-4 text-xs leading-6 before:hidden">
-                    <pre><code>{file.content}</code></pre>
+          ) : version ? (
+            <div class="card card-border mt-5 overflow-hidden bg-base-100">
+              {version.files.map((file, index) => (
+                <details class="collapse collapse-arrow rounded-none border-b border-base-300 last:border-b-0" open={index === 0}>
+                  <summary class="collapse-title min-h-0 px-4 py-3 text-sm font-medium text-base-content">{file.path}</summary>
+                  <div class="collapse-content p-0">
+                    <div class="mockup-code overflow-x-auto rounded-none border-t border-base-300 bg-base-200 p-4 text-xs leading-6 before:hidden">
+                      <pre><code>{file.content}</code></pre>
+                    </div>
                   </div>
-                </div>
-              </details>
-            ))}
-          </div>
-        ) : (
-          <div class="card mt-5 border border-base-300 bg-base-100">
-            <div class="card-body p-6">
-              <strong class="font-semibold text-base-content">No files found.</strong>
-              <p class="mt-2 text-sm text-base-content/60">The registry index points to a package with no readable files.</p>
+                </details>
+              ))}
             </div>
-          </div>
-        )}
-      </section>
+          ) : (
+            <div class="card mt-5 border border-base-300 bg-base-100">
+              <div class="card-body p-6">
+                <strong class="font-semibold text-base-content">No files found.</strong>
+                <p class="mt-2 text-sm text-base-content/60">The registry index points to a package with no readable files.</p>
+              </div>
+            </div>
+          )}
+        </section>
+      </ChangeDeckProvider>
     </main>
 
-    <footer class="footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8">
+    <SettingsDrawer client:load apiUrl={apiUrl} />
+    <PublishForm client:load apiUrl={apiUrl} />
+
+    <footer class="flex justify-between items-center gap-3 footer mx-auto w-full max-w-6xl border-t border-base-300 px-5 py-6 text-xs text-base-content/60 sm:px-8">
       <p>Backed by the production branch of the resources repository.</p>
       <a class="link link-hover font-medium" href="/">Return to catalog</a>
     </footer>
