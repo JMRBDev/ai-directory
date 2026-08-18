@@ -1,25 +1,24 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { getScopeInstallManifestPath, type ConfigScope } from '@ai-directory/config';
-import { mcpEnvTokens, type McpServerManifest } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/domain';
+import { getScopeInstallManifestPath, writeFileAtomic, type ConfigScope } from '@ai-directory/config';
+import { mcpEnvTokens, mcpEnvTokenPattern, type McpServerManifest } from '@ai-directory/contracts';
+import { resourceKey } from '@ai-directory/contracts';
 import { readMcpServerManifest, type ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { z } from 'zod';
 import { resolveHarnessPaths, type Harness } from './harnesses.js';
 import {
+  applyChangePlanEnvelope,
   currentFile,
-  errorMessage,
+  fingerprintPaths,
   hashContent,
-  pathExists,
+  pickOpenCodeConfig,
+  publicOperation,
   readInstallationManifest,
   removeInstallationRecord,
-  restoreFiles,
-  snapshotFiles,
+  requestWarnings,
   updateInstallationManifest,
-  withInstallationLocks,
-  writeTextAtomic,
   type InstallOptions,
   type InstallationRecord,
   type ResourceChangeOptions,
@@ -137,8 +136,6 @@ const reservedClaudeServers = new Set([
   'Claude Browser',
 ]);
 
-const envTokenPattern = /\{env:([A-Za-z_][A-Za-z0-9_]*)\}/gu;
-
 export async function planMcpOperations(
   operations: McpOperation[],
   options: ResourceChangeOptions = {},
@@ -155,7 +152,7 @@ export async function planMcpOperations(
   const manifest = await readInstallationManifest(manifestPath);
 
   for (const operation of operations) {
-    warnings.push(...unreviewedWarnings(operation.warningResources ?? []));
+    warnings.push(...requestWarnings(operation.warningResources ?? []));
 
     for (const harness of operation.harnesses) {
       const path = await mcpConfigPath(harness, scope, options);
@@ -212,7 +209,7 @@ export async function planMcpOperations(
         );
 
         for (const record of records) {
-          const server = serverName(record.resource);
+          const server = resourceName(record.resource);
           const existing = readEntry(harness, content, path, server);
 
           if (existing === undefined) {
@@ -240,7 +237,7 @@ export async function planMcpOperations(
   ];
 
   return {
-    operations: operations.map(publicMcpOperation),
+    operations: operations.map(publicOperation),
     changes,
     conflicts: [...new Set(conflicts)],
     warnings: [...new Set(warnings)],
@@ -248,17 +245,6 @@ export async function planMcpOperations(
     projectionNotes: [],
     fingerprint: await fingerprintPaths(affectedPaths),
   };
-}
-
-function publicMcpOperation(operation: McpOperation): McpOperation {
-  const result: McpOperation = {
-    resource: operation.resource,
-    harnesses: operation.harnesses,
-    action: operation.action,
-  };
-  if (operation.version !== undefined) result.version = operation.version;
-  if (operation.scope !== undefined) result.scope = operation.scope;
-  return result;
 }
 
 export async function applyMcpOperations(
@@ -269,26 +255,16 @@ export async function applyMcpOperations(
 ): Promise<McpApplyResult> {
   const scope = operationScope(operations, options);
   const scopedOptions: ResourceChangeOptions = { ...options, scope };
+  const manifestPath = getScopeInstallManifestPath(scope, options.cwd, options.homeDirectory);
 
-  return withInstallationLocks(operations, scopedOptions, async () => {
-    const plan = planned ?? (await planMcpOperations(operations, scopedOptions, force));
-
-    if (planned) {
-      const currentPlan = await planMcpOperations(operations, scopedOptions, force);
-      if (currentPlan.fingerprint !== plan.fingerprint) {
-        throw new Error('Change plan is outdated. Generate a new preview before applying.');
-      }
-    }
-
-    if (plan.conflicts.length > 0 && !force) {
-      throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
-    }
-
-    const manifestPath = getScopeInstallManifestPath(scope, options.cwd, options.homeDirectory);
-    const paths = [...new Set([...plan.changes.map((change) => change.path), manifestPath])];
-    const snapshots = await snapshotFiles(paths);
-
-    try {
+  return applyChangePlanEnvelope(
+    operations,
+    scopedOptions,
+    force,
+    planned,
+    () => planMcpOperations(operations, scopedOptions, force),
+    (plan) => [...new Set([...plan.changes.map((change) => change.path), manifestPath])],
+    async (plan) => {
       const installed: InstallationRecord[] = [];
       const removed: InstallationRecord[] = [];
 
@@ -320,7 +296,7 @@ export async function applyMcpOperations(
               });
             }
 
-            await writeTextAtomic(path, content);
+            await writeFileAtomic(path, content);
             await updateInstallationManifest(manifestPath, records);
             installed.push(...records);
           } else {
@@ -336,8 +312,8 @@ export async function applyMcpOperations(
               const content = await currentFile(path);
 
               if (content !== null) {
-                const removal = removeEntry(harness, content, path, serverName(record.resource));
-                if (removal.changed) await writeTextAtomic(path, removal.content);
+                const removal = removeEntry(harness, content, path, resourceName(record.resource));
+                if (removal.changed) await writeFileAtomic(path, removal.content);
               }
 
               await removeInstallationRecord(manifestPath, record);
@@ -353,21 +329,9 @@ export async function applyMcpOperations(
         removed,
         warnings: [...new Set([...plan.warnings, ...plan.envNotes])],
       };
-    } catch (error) {
-      try {
-        await restoreFiles(snapshots);
-      } catch (rollbackError) {
-        throw new Error(
-          `MCP installation failed. Rollback failed; manual review may be required.\nRollback error: ${errorMessage(rollbackError)}\nOriginal error: ${errorMessage(error)}`,
-          { cause: error },
-        );
-      }
-      throw new Error(
-        `MCP installation failed. All changes were rolled back.\nCause: ${errorMessage(error)}`,
-        { cause: error },
-      );
-    }
-  });
+    },
+    'MCP installation failed',
+  );
 }
 
 async function assertMcpEntryUnchanged(
@@ -390,11 +354,11 @@ async function assertMcpEntryUnchanged(
     record.harness,
     content,
     record.destination,
-    serverName(record.resource),
+    resourceName(record.resource),
   );
   if (existing !== undefined && entryHash(existing) !== expected) {
     throw new Error(
-      `MCP entry for ${serverName(record.resource)} was modified. Use --force to continue.`,
+      `MCP entry for ${resourceName(record.resource)} was modified. Use --force to continue.`,
     );
   }
 }
@@ -415,7 +379,7 @@ async function mcpConfigPath(
     const cwd = resolve(options.cwd ?? process.cwd());
     switch (harness) {
       case 'claude-code': return join(cwd, '.mcp.json');
-      case 'opencode': return openCodeConfigPath(join(cwd, 'opencode.jsonc'), join(cwd, 'opencode.json'));
+      case 'opencode': return pickOpenCodeConfig([join(cwd, 'opencode.jsonc'), join(cwd, 'opencode.json')]);
       case 'codex': return join(cwd, '.codex', 'config.toml');
     }
   }
@@ -425,18 +389,10 @@ async function mcpConfigPath(
     case 'claude-code': return join(home, '.claude.json');
     case 'opencode': {
       const root = resolveHarnessPaths('opencode', options).root;
-      return openCodeConfigPath(join(root, 'opencode.jsonc'), join(root, 'opencode.json'));
+      return pickOpenCodeConfig([join(root, 'opencode.jsonc'), join(root, 'opencode.json')]);
     }
     case 'codex': return join(resolveHarnessPaths('codex', options).config, 'config.toml');
   }
-}
-
-async function openCodeConfigPath(jsoncPath: string, jsonPath: string): Promise<string> {
-  const candidates = [jsoncPath, jsonPath];
-  for (const candidate of candidates) {
-    if (await pathExists(candidate)) return candidate;
-  }
-  return jsonPath;
 }
 
 function containerKey(harness: Harness): 'mcp' | 'mcpServers' {
@@ -620,7 +576,7 @@ function rewriteHeaders(manifest: McpServerManifest, format: (name: string) => s
 }
 
 function rewriteEnvTokens(value: string, format: (name: string) => string): string {
-  return value.replace(envTokenPattern, (_, name: string) => format(name));
+  return value.replace(mcpEnvTokenPattern, (_, name: string) => format(name));
 }
 
 function validateServerName(harness: Harness, server: string): void {
@@ -670,12 +626,6 @@ function envNotesFor(
     });
 }
 
-function unreviewedWarnings(resources: ResourceVersion[]): string[] {
-  return [...new Set(resources
-    .filter((resource) => resource.resource.reviewStatus === 'unreviewed')
-    .map((resource) => `${resourceKey(resource.resource)}@${resource.version}`))];
-}
-
 function change(
   resource: string,
   harness: Harness,
@@ -703,7 +653,7 @@ function entryHash(entry: JsonValue | undefined): string {
   return hashContent(JSON.stringify(entry ?? null));
 }
 
-function serverName(resource: string): string {
+export function resourceName(resource: string): string {
   return resource.split('/').at(-1) ?? resource;
 }
 
@@ -715,14 +665,6 @@ async function contentFor(
   const value = await currentFile(path);
   contents.set(path, value);
   return value;
-}
-
-async function fingerprintPaths(paths: string[]): Promise<string> {
-  const state: Array<[string, string | null]> = [];
-  for (const path of [...new Set(paths)].sort()) {
-    state.push([path, await currentFile(path)]);
-  }
-  return hashContent(JSON.stringify(state));
 }
 
 function upsertEntry(

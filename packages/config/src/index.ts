@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import envPaths from 'env-paths';
@@ -15,15 +15,6 @@ const configSchema = z.object({
 });
 
 export type AiDirectoryConfig = z.infer<typeof configSchema>;
-
-export const CONFIG_OPTIONS = [
-  {
-    key: 'repository',
-    description: 'Git URL of the production resource registry.',
-  },
-] as const;
-
-export type ConfigKey = (typeof CONFIG_OPTIONS)[number]['key'];
 
 export type RepositorySetting = {
   value?: string;
@@ -72,6 +63,10 @@ export function findWorkspaceRoot(startDirectory: string): string | null {
   }
 }
 
+export function resolveConfigCwd(): string {
+  return process.env.AI_DIRECTORY_CONFIG_CWD ?? findWorkspaceRoot(process.cwd()) ?? process.cwd();
+}
+
 export function readConfigFile(path: string): AiDirectoryConfig {
   if (!existsSync(path)) return {};
 
@@ -97,12 +92,16 @@ export function readConfigFile(path: string): AiDirectoryConfig {
 }
 
 export async function writeConfigFile(path: string, config: AiDirectoryConfig): Promise<void> {
+  await writeFileAtomic(path, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+export async function writeFileAtomic(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
 
   const temporaryPath = `${path}.tmp-${process.pid}`;
 
   try {
-    await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    await writeFile(temporaryPath, content, 'utf8');
     await rename(temporaryPath, path);
   } finally {
     await rm(temporaryPath, { force: true });
@@ -111,6 +110,53 @@ export async function writeConfigFile(path: string, config: AiDirectoryConfig): 
 
 export async function clearConfigFile(path: string): Promise<void> {
   await rm(path, { force: true });
+}
+
+export async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+export function isMissingPathError(cause: unknown): boolean {
+  if (!(cause instanceof Object)) return false;
+  if ('code' in cause && cause.code === 'ENOENT') return true;
+  if ('cause' in cause) return isMissingPathError(cause.cause);
+
+  return false;
+}
+
+export function isPathExistsError(cause: unknown): boolean {
+  return (
+    cause instanceof Object &&
+    'code' in cause &&
+    cause.code === 'EEXIST'
+  );
+}
+
+export async function listFilesUnder(root: string): Promise<string[]> {
+  const entries = await readdir(root, { recursive: true });
+  const files: string[] = [];
+  for (const name of entries) {
+    const stats = await lstat(join(root, name));
+    if (stats.isFile()) files.push(join(root, name));
+  }
+  return files.sort();
+}
+
+export function configuredPath(
+  environment: NodeJS.ProcessEnv,
+  key: string,
+): string | undefined {
+  const value = environment[key]?.trim();
+  return value ? resolve(value) : undefined;
 }
 
 export function getRepositorySetting(

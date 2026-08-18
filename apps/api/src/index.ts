@@ -2,14 +2,13 @@ import { serve } from '@hono/node-server';
 import {
   DEFAULT_API_HOST,
   DEFAULT_API_PORT,
-  findWorkspaceRoot,
+  resolveConfigCwd,
 } from '@ai-directory/config';
 import { createApp } from '@ai-directory/server-core';
 
 const port = Number(process.env.AI_DIRECTORY_PORT ?? DEFAULT_API_PORT);
 const host = process.env.AI_DIRECTORY_HOST ?? DEFAULT_API_HOST;
-const cwd =
-  process.env.AI_DIRECTORY_CONFIG_CWD ?? findWorkspaceRoot(process.cwd()) ?? process.cwd();
+const cwd = resolveConfigCwd();
 
 serve({
   fetch: createApp({ cwd, prewarm: true }).fetch,

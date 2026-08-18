@@ -1,7 +1,8 @@
 ---
 import { homedir } from "node:os";
-import { loadRegistry, refreshRegistry, resourceId } from "../lib/registry";
+import { loadRegistry, refreshRegistry } from "../lib/registry";
 import { resolveApiUrl } from "../lib/api";
+import { resourceKey } from '@ai-directory/contracts';
 import ThemeInit from "../components/ThemeInit.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import ChangeDeckProvider from "../components/preact/ChangeDeck";
@@ -13,7 +14,7 @@ if (Astro.url.searchParams.get("refresh") === "1") await refreshRegistry();
 const registry = await loadRegistry();
 const resources = (registry.index?.resources ?? [])
   .filter((resource) => resource.lifecycleStatus === "active")
-  .sort((left, right) => resourceId(left).localeCompare(resourceId(right)));
+  .sort((left, right) => resourceKey(left).localeCompare(resourceKey(right)));
 const apiUrl =
   import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astro.url.hostname);
 const homeDir = homedir();

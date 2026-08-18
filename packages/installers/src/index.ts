@@ -1,11 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
+  configuredPath,
   getScopeInstallManifestPath,
+  isMissingPathError,
+  isPathExistsError,
+  pathExists,
+  writeFileAtomic,
   type ConfigScope,
 } from '@ai-directory/config';
-import { resourceKey } from '@ai-directory/domain';
+export { isMissingPathError, pathExists } from '@ai-directory/config';
+import { resourceKey } from '@ai-directory/contracts';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
 import { z } from 'zod';
@@ -31,8 +37,6 @@ export type InstallOptions = {
   scope?: ConfigScope;
   environment?: NodeJS.ProcessEnv;
 };
-
-export type ClaudeCodeInstallOptions = InstallOptions;
 
 export type InstallResult = {
   destination: string;
@@ -142,24 +146,36 @@ export type {
 } from './discovery.js';
 export * from './mcp.js';
 
-export async function installClaudeCodeResource(
-  resource: ResourceVersion,
-  options: ClaudeCodeInstallOptions,
-): Promise<InstallResult> {
-  const [result] = await installClaudeCodeResources([resource], options);
-
-  if (!result) {
-    throw new Error('Resource installation did not produce a result.');
-  }
-
-  return result;
-}
-
 export async function installClaudeCodeResources(
   resources: ResourceVersion[],
-  options: ClaudeCodeInstallOptions,
+  options: InstallOptions,
 ): Promise<InstallResult[]> {
-  return installResources(resources, options, createClaudeCodePlan, claudeCodeInstallRoot);
+  if (resources.length === 0) {
+    throw new Error('No resources to install.');
+  }
+
+  const root = claudeCodeInstallRoot(options);
+  const plans = resources.map((resource) => createClaudeCodePlan(root, resource));
+
+  await assertInstallPlansAvailable(plans, options);
+  await writeInstallPlans(plans, options.dryRun ?? false);
+
+  const fileHashes = await hashInstallPlans(plans);
+
+  return plans.map((plan) => {
+    const result: InstallResult = {
+      destination: plan.destination,
+      files: plan.files.map((file) => file.path),
+      skippedFiles: plan.skippedFiles,
+      paths: plan.files.map((file) => file.destination),
+      ownedPaths: plan.files.map((file) => file.destination),
+      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
+    };
+    if (options.dryRun) {
+      result.changes = plan.files.map((file) => ({ path: file.destination, content: file.content }));
+    }
+    return result;
+  });
 }
 
 export async function installOpenCodeResources(
@@ -185,7 +201,7 @@ export async function installOpenCodeResources(
   await writeInstallPlans(plans, options.dryRun ?? false);
 
   if (config && !options.dryRun) {
-    await writeTextAtomic(config.path, config.content);
+    await writeFileAtomic(config.path, config.content);
   }
 
   const fileHashes = await hashInstallPlans(plans);
@@ -200,7 +216,7 @@ export async function installOpenCodeResources(
         ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
       ],
       ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: hashesForPlan(plan, fileHashes),
+      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
     };
     if (options.dryRun) {
       result.changes = [
@@ -233,7 +249,7 @@ export async function installCodexResources(
   await writeInstallPlans(plans, options.dryRun ?? false);
 
   if (guidance && !options.dryRun) {
-    await writeTextAtomic(guidance.path, guidance.content);
+    await writeFileAtomic(guidance.path, guidance.content);
   }
 
   const fileHashes = await hashInstallPlans(plans);
@@ -251,7 +267,7 @@ export async function installCodexResources(
         ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
       ],
       ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: hashesForPlan(plan, fileHashes),
+      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
     };
     if (options.dryRun) {
       result.changes = [
@@ -260,45 +276,6 @@ export async function installCodexResources(
           ? [{ path: guidance.path, content: guidance.content }]
           : []),
       ];
-    }
-    return result;
-  });
-}
-
-async function installResources(
-  resources: ResourceVersion[],
-  options: InstallOptions,
-  createPlanForResource: (
-    root: string,
-    resource: ResourceVersion,
-  ) => InstallPlan,
-  getRoot: (options: InstallOptions) => string,
-): Promise<InstallResult[]> {
-  if (resources.length === 0) {
-    throw new Error('No resources to install.');
-  }
-
-  const root = getRoot(options);
-  const plans = resources.map((resource) =>
-    createPlanForResource(root, resource),
-  );
-
-  await assertInstallPlansAvailable(plans, options);
-  await writeInstallPlans(plans, options.dryRun ?? false);
-
-  const fileHashes = await hashInstallPlans(plans);
-
-  return plans.map((plan) => {
-    const result: InstallResult = {
-      destination: plan.destination,
-      files: plan.files.map((file) => file.path),
-      skippedFiles: plan.skippedFiles,
-      paths: plan.files.map((file) => file.destination),
-      ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: hashesForPlan(plan, fileHashes),
-    };
-    if (options.dryRun) {
-      result.changes = plan.files.map((file) => ({ path: file.destination, content: file.content }));
     }
     return result;
   });
@@ -344,7 +321,7 @@ async function writeInstallPlans(plans: InstallPlan[], dryRun: boolean): Promise
 
   for (const plan of plans) {
     for (const file of plan.files) {
-      await writeTextAtomic(file.destination, file.content);
+      await writeFileAtomic(file.destination, file.content);
     }
   }
 }
@@ -361,25 +338,25 @@ async function hashInstallPlans(plans: InstallPlan[]): Promise<Record<string, st
   return hashes;
 }
 
-function hashesForPlan(
-  plan: InstallPlan,
+function selectHashes(
+  paths: string[],
   hashes: Record<string, string>,
 ) {
-  const result: Record<string, string> = {};
+  const selected: Record<string, string> = {};
 
-  for (const file of plan.files) {
-    const hash = hashes[file.destination];
-    if (hash) result[file.destination] = hash;
+  for (const path of paths) {
+    const hash = hashes[path];
+    if (hash) selected[path] = hash;
   }
 
-  return result;
+  return selected;
 }
 
 export function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-async function hashFile(path: string): Promise<string | null> {
+export async function hashFile(path: string): Promise<string | null> {
   try {
     return hashContent(await readFile(path, 'utf8'));
   } catch (error) {
@@ -388,7 +365,7 @@ async function hashFile(path: string): Promise<string | null> {
   }
 }
 
-export const claudeCodeInstaller: HarnessAdapter = {
+const claudeCodeInstaller: HarnessAdapter = {
   harness: 'claude-code',
   installation: 'native-filesystem',
   capabilities: { skills: 'native', agents: 'native', rules: 'native', 'mcp-servers': 'configured' },
@@ -402,7 +379,7 @@ export const openCodeInstaller: HarnessAdapter = {
   install: installOpenCodeResources,
 };
 
-export const codexInstaller: HarnessAdapter = {
+const codexInstaller: HarnessAdapter = {
   harness: 'codex',
   installation: 'native-filesystem',
   capabilities: { skills: 'native', agents: 'translated', rules: 'configured', 'mcp-servers': 'configured' },
@@ -438,19 +415,12 @@ export async function updateInstallationManifest(
   path: string,
   records: InstallationRecord[],
 ): Promise<InstallationManifest> {
-  const current = await readInstallationManifest(path);
   const keys = new Set(records.map(installationKey));
-  const manifest = {
-    schemaVersion: 1 as const,
-    installations: [
-      ...current.installations.filter((record) => !keys.has(installationKey(record))),
-      ...records,
-    ],
-  };
 
-  await writeTextAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
-
-  return manifest;
+  return rewriteInstallationManifest(path, (current) => [
+    ...current.filter((record) => !keys.has(installationKey(record))),
+    ...records,
+  ]);
 }
 
 export function createInstallationRecords(
@@ -501,15 +471,22 @@ export async function removeInstallationRecord(
   path: string,
   target: InstallationRecord,
 ): Promise<InstallationManifest> {
+  return rewriteInstallationManifest(path, (current) =>
+    current.filter((record) => installationKey(record) !== installationKey(target)),
+  );
+}
+
+async function rewriteInstallationManifest(
+  path: string,
+  select: (records: InstallationRecord[]) => InstallationRecord[],
+): Promise<InstallationManifest> {
   const current = await readInstallationManifest(path);
   const manifest = {
     schemaVersion: 1 as const,
-    installations: current.installations.filter(
-      (record) => installationKey(record) !== installationKey(target),
-    ),
+    installations: select(current.installations),
   };
 
-  await writeTextAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFileAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
 
   return manifest;
 }
@@ -565,7 +542,7 @@ export async function uninstallInstallation(
 
   if (!options.dryRun) {
     for (const change of sharedChanges) {
-      if (change.content !== null) await writeTextAtomic(change.path, change.content);
+      if (change.content !== null) await writeFileAtomic(change.path, change.content);
     }
     await Promise.all(files.map((path) => rm(path, { force: true })));
   }
@@ -735,7 +712,7 @@ export async function planResourceOperations(
   }
 
   return {
-    operations: operations.map(publicResourceOperation),
+    operations: operations.map(publicOperation),
     changes,
     conflicts: [...new Set(conflicts)],
     warnings: [...new Set(warnings)],
@@ -750,22 +727,14 @@ export async function applyResourceOperations(
   force = false,
   planned?: ResourceChangePlan,
 ): Promise<ResourceApplyResult> {
-  return withInstallationLocks(operations, options, async () => {
-    const plan = planned ?? await planResourceOperations(operations, options, force);
-    if (planned) {
-      const fingerprint = await fingerprintPaths(resourcePlanPaths(operations, plan.changes, options));
-      if (fingerprint !== plan.fingerprint) {
-        throw new Error('Change plan is outdated. Generate a new preview before applying.');
-      }
-    }
-    if (plan.conflicts.length > 0 && !force) {
-      throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
-    }
-
-    const paths = resourcePlanPaths(operations, plan.changes, options);
-    const snapshots = await snapshotFiles(paths);
-
-    try {
+  return applyChangePlanEnvelope(
+    operations,
+    options,
+    force,
+    planned,
+    () => planResourceOperations(operations, options, force),
+    (plan) => resourcePlanPaths(operations, plan.changes, options),
+    async (plan) => {
       const installed: InstallationRecord[] = [];
       const removed: InstallationRecord[] = [];
       const warnings = [...plan.warnings];
@@ -816,17 +785,48 @@ export async function applyResourceOperations(
       }
 
       return { plan, installed, removed, warnings: [...new Set(warnings)] };
+    },
+    'Installation failed',
+  );
+}
+
+export async function applyChangePlanEnvelope<T, P extends { fingerprint: string; conflicts: string[] }>(
+  operations: readonly unknown[],
+  options: ResourceChangeOptions,
+  force: boolean,
+  planned: P | undefined,
+  planOperations: () => Promise<P>,
+  pathsFor: (plan: P) => string[],
+  applyAction: (plan: P) => Promise<T>,
+  rollbackPrefix: string,
+): Promise<T> {
+  return withInstallationLocks(operations, options, async () => {
+    const plan = planned ?? await planOperations();
+    if (planned) {
+      const fingerprint = await fingerprintPaths(pathsFor(plan));
+      if (fingerprint !== plan.fingerprint) {
+        throw new Error('Change plan is outdated. Generate a new preview before applying.');
+      }
+    }
+    if (plan.conflicts.length > 0 && !force) {
+      throw new Error(`Change plan contains conflicts: ${plan.conflicts.join(' ')}`);
+    }
+
+    const snapshots = await snapshotFiles(pathsFor(plan));
+
+    try {
+      return await applyAction(plan);
     } catch (error) {
       try {
         await restoreFiles(snapshots);
       } catch (rollbackError) {
         throw new Error(
-          `Installation failed. Rollback failed; manual review may be required.\nRollback error: ${errorMessage(rollbackError)}\nOriginal error: ${errorMessage(error)}`,
+          `${rollbackPrefix}. Rollback failed; manual review may be required.\nRollback error: ${errorMessage(rollbackError)}\nOriginal error: ${errorMessage(error)}`,
           { cause: error },
         );
       }
       throw new Error(
-        `Installation failed. All changes were rolled back.\nCause: ${errorMessage(error)}`,
+        `${rollbackPrefix}. All changes were rolled back.\nCause: ${errorMessage(error)}`,
         { cause: error },
       );
     }
@@ -880,20 +880,6 @@ async function ownedInstallationFiles(
   }
 
   return [...files];
-}
-
-function selectHashes(
-  paths: string[],
-  hashes: Record<string, string>,
-) {
-  const selected: Record<string, string> = {};
-
-  for (const path of paths) {
-    const hash = hashes[path];
-    if (hash) selected[path] = hash;
-  }
-
-  return selected;
 }
 
 async function removeSharedConfiguration(
@@ -993,7 +979,7 @@ async function removeCodexGuidance(record: InstallationRecord): Promise<InstallC
   };
 }
 
-function resourceType(resource: string): ResourceKind | undefined {
+export function resourceType(resource: string): ResourceKind | undefined {
   const type = resource.split('/')[1];
   return type === 'skills' || type === 'agents' || type === 'rules'
     ? type
@@ -1074,16 +1060,12 @@ function createOpenCodePlan(
       resource.resource.type === 'agents' && file.path === 'AGENT.md'
         ? openCodeAgentContent(resource)
         : file.content,
-    destination: openCodeDestinationForFile(
-      root,
-      resource,
-      file.path,
-    ),
+    destination: destinationForFile(root, resource, file.path),
   }));
 
   return {
     resource,
-    destination: openCodeResourceDestination(root, resource),
+    destination: resourceDestination(root, resource),
     files,
     skippedFiles: projection.skippedFiles,
   };
@@ -1181,42 +1163,6 @@ function resourceDestination(root: string, resource: ResourceVersion): string {
   return join(root, resource.resource.type, `${resource.resource.name}.md`);
 }
 
-function openCodeDestinationForFile(
-  root: string,
-  resource: ResourceVersion,
-  resourcePath: string,
-): string {
-  if (resource.resource.type === 'skills') {
-    return safeDestination(
-      openCodeResourceDestination(root, resource),
-      resourcePath,
-    );
-  }
-
-  const type = resource.resource.type;
-  const entryFile = type === 'agents' ? 'AGENT.md' : 'RULE.md';
-
-  if (resourcePath === entryFile) {
-    return safeDestination(join(root, type), `${resource.resource.name}.md`);
-  }
-
-  return safeDestination(
-    join(root, type, `${resource.resource.name}.files`),
-    resourcePath,
-  );
-}
-
-function openCodeResourceDestination(
-  root: string,
-  resource: ResourceVersion,
-): string {
-  if (resource.resource.type === 'skills') {
-    return join(root, 'skills', resource.resource.name);
-  }
-
-  return join(root, resource.resource.type, `${resource.resource.name}.md`);
-}
-
 function codexDestinationForFile(
   paths: CodexInstallPaths,
   resource: ResourceVersion,
@@ -1265,7 +1211,7 @@ async function prepareOpenCodeInstructions(
   const entries = resources.map((resource) =>
     toPosixPath(relative(
       dirname(path),
-      openCodeResourceDestination(root, resource),
+      resourceDestination(root, resource),
     )),
   );
   const current = await readOptionalText(path);
@@ -1300,25 +1246,27 @@ async function prepareOpenCodeInstructions(
   };
 }
 
-async function openCodeConfigPath(
-  root: string,
-  options: InstallOptions,
-): Promise<string> {
-  const customPath = configuredPath(options, 'OPENCODE_CONFIG');
-
-  if (customPath) {
-    return customPath;
-  }
-
-  const candidates = [join(root, 'opencode.jsonc'), join(root, 'opencode.json')];
-
+export async function pickOpenCodeConfig(candidates: string[]): Promise<string> {
   for (const path of candidates) {
     if (await pathExists(path)) {
       return path;
     }
   }
 
-  return join(root, 'opencode.json');
+  return candidates[candidates.length - 1] ?? '';
+}
+
+async function openCodeConfigPath(
+  root: string,
+  options: InstallOptions,
+): Promise<string> {
+  const customPath = configuredPath(options.environment ?? process.env, 'OPENCODE_CONFIG');
+
+  if (customPath) {
+    return customPath;
+  }
+
+  return pickOpenCodeConfig([join(root, 'opencode.jsonc'), join(root, 'opencode.json')]);
 }
 
 async function prepareCodexGuidance(
@@ -1433,13 +1381,20 @@ function safeDestination(root: string, resourcePath: string): string {
   return destination;
 }
 
-function publicResourceOperation(operation: ResourceOperation): ResourceOperation {
-  const result: ResourceOperation = {
+export function publicOperation(operation: {
+  resource: string;
+  harnesses: Harness[];
+  action: 'install' | 'uninstall';
+  version?: string;
+  scope?: ConfigScope;
+}): typeof operation {
+  const result: typeof operation = {
     resource: operation.resource,
     harnesses: operation.harnesses,
     action: operation.action,
   };
   if (operation.version !== undefined) result.version = operation.version;
+  if (operation.scope !== undefined) result.scope = operation.scope;
 
   return result;
 }
@@ -1478,7 +1433,7 @@ export async function restoreFiles(snapshots: FileSnapshot[]): Promise<void> {
     if (snapshot.content === null) {
       await rm(snapshot.path, { force: true });
     } else {
-      await writeTextAtomic(snapshot.path, snapshot.content);
+      await writeFileAtomic(snapshot.path, snapshot.content);
     }
   }
 }
@@ -1507,7 +1462,7 @@ function classifyChange(
   return before === after ? null : 'modified';
 }
 
-function requestWarnings(resources: ResourceVersion[]): string[] {
+export function requestWarnings(resources: ResourceVersion[]): string[] {
   return [...new Set(resources
     .filter((resource) => resource.resource.reviewStatus === 'unreviewed')
     .map((resource) => `${resourceKey(resource.resource)}@${resource.version}`))];
@@ -1538,7 +1493,7 @@ function resourcePlanPaths(
   ];
 }
 
-async function fingerprintPaths(paths: string[]): Promise<string> {
+export async function fingerprintPaths(paths: string[]): Promise<string> {
   const state = [];
 
   for (const path of [...new Set(paths)].sort()) {
@@ -1686,11 +1641,6 @@ function toPosixPath(path: string): string {
   return path.split(sep).join('/');
 }
 
-function configuredPath(options: InstallOptions, key: string): string | undefined {
-  const value = options.environment?.[key] ?? process.env[key];
-  return value?.trim() ? resolve(value) : undefined;
-}
-
 async function readOptionalText(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8');
@@ -1701,45 +1651,4 @@ async function readOptionalText(path: string): Promise<string | null> {
 
     throw error;
   }
-}
-
-export async function writeTextAtomic(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.tmp-${process.pid}`;
-
-  try {
-    await writeFile(temporaryPath, content, 'utf8');
-    await rename(temporaryPath, path);
-  } finally {
-    await rm(temporaryPath, { force: true });
-  }
-}
-
-export async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch (error) {
-    if (isMissingPathError(error)) {
-      return false;
-    }
-
-    throw error;
-  }
-}
-
-export function isMissingPathError(cause: unknown): boolean {
-  return (
-    cause instanceof Object &&
-    'code' in cause &&
-    cause.code === 'ENOENT'
-  );
-}
-
-function isPathExistsError(cause: unknown): boolean {
-  return (
-    cause instanceof Object &&
-    'code' in cause &&
-    cause.code === 'EEXIST'
-  );
 }

@@ -1,12 +1,9 @@
 import { execFile } from 'node:child_process';
 import {
-  access,
   mkdir,
   mkdtemp,
-  readdir,
   readFile,
   realpath,
-  rename,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -26,7 +23,13 @@ import {
   type RegistryIndex,
   type TemplateManifest,
 } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/domain';
+import { resourceKey } from '@ai-directory/contracts';
+import {
+  isMissingPathError,
+  listFilesUnder,
+  pathExists,
+  writeFileAtomic,
+} from '@ai-directory/config';
 import { gt as isGreaterVersion, valid as isValidVersion } from 'semver';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -202,50 +205,25 @@ export async function readRegistryIndex(filePath: string): Promise<RegistryIndex
   return result.data;
 }
 
-async function readResourceFiles(directory: string, prefix = ''): Promise<ResourceFile[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = await Promise.all(
-    entries
-      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
-      .map(async (entry) => {
-        const filePath = join(directory, entry.name);
-        const resourcePath = prefix ? join(prefix, entry.name) : entry.name;
-
-        if (entry.isDirectory()) {
-          return readResourceFiles(filePath, resourcePath);
-        }
-
-        return [{ path: resourcePath, content: await readFile(filePath, 'utf8') }];
-      }),
-  );
-
-  return files.flat();
-}
-
 export async function readResourceVersion(
   indexPath: string,
   resourceId: string,
   requestedVersion?: string,
 ): Promise<ResourceVersion> {
-  const index = await readRegistryIndex(indexPath);
-  const resource = index.resources.find((candidate) => resourceKey(candidate) === resourceId);
-
-  if (!resource) {
-    throw new Error(`Resource not found: ${resourceId}`);
-  }
-
-  const version = requestedVersion ?? resource.latestVersion;
-
-  if (!resourceVersionSchema.safeParse(version).success) {
-    throw new Error(`Invalid resource version: ${version}`);
-  }
+  const { resource, version } = await findResourceVersion(indexPath, resourceId, requestedVersion);
 
   const directory = resourceDirectory(dirname(await realpath(indexPath)), resource, version);
 
   let files: ResourceFile[];
 
   try {
-    files = await readResourceFiles(directory);
+    const paths = await listFilesUnder(directory);
+    files = await Promise.all(
+      paths.map(async (path) => ({
+        path: relative(directory, path),
+        content: await readFile(path, 'utf8'),
+      })),
+    );
   } catch (error) {
     if (isMissingPathError(error)) {
       throw new Error(`Resource version not found: ${resourceId}@${version}`, { cause: error });
@@ -452,6 +430,54 @@ export function resolveRegistrySource(options: RegistrySourceOptions): RegistryS
   throw new Error('No registry source configured. Run `aid setup` or pass `--index <path>`.');
 }
 
+export type CachedRegistry = {
+  get(source: RegistrySource): Promise<RegistrySnapshot>;
+  refresh(): Promise<void>;
+};
+
+export function createCachedRegistry(): CachedRegistry {
+  let cached: { key: string; promise: Promise<RegistrySnapshot> } | undefined;
+
+  return {
+    get(source) {
+      const key = source.type === 'remote'
+        ? `remote\0${source.repositoryUrl}\0${source.baseBranch}`
+        : `local\0${source.indexPath}`;
+
+      if (cached?.key === key) return cached.promise;
+
+      const previous = cached;
+      const promise = createRegistrySnapshot(source);
+
+      cached = { key, promise };
+
+      if (previous) {
+        void previous.promise.then(
+          (snapshot) => snapshot.close(),
+          () => undefined,
+        );
+      }
+
+      promise.catch(() => {
+        if (cached?.promise === promise) cached = undefined;
+      });
+
+      return promise;
+    },
+    async refresh() {
+      const previous = cached;
+      cached = undefined;
+
+      if (previous) {
+        await previous.promise.then(
+          (snapshot) => snapshot.close(),
+          () => undefined,
+        );
+      }
+    },
+  };
+}
+
 export function readRegistrySourceIndex(source: RegistrySource): Promise<RegistryIndex> {
   return source.type === 'local'
     ? readRegistryIndex(source.indexPath)
@@ -532,7 +558,7 @@ export async function publishResource(
     }
   }
 
-  const registryIndexPath = await resolveFile(options.indexPath, 'Registry index');
+  const registryIndexPath = await resolveDirectory(options.indexPath, 'Registry index');
   const packageDirectory = resourceDirectory(
     dirname(registryIndexPath),
     identity,
@@ -597,7 +623,13 @@ export async function validateResourceDirectory(
 
   const resource = parseResourceId(options.resourceId);
   const sourceDirectory = await resolveDirectory(options.sourceDirectory, 'Resource source directory');
-  const files = await readResourceFiles(sourceDirectory);
+  const paths = await listFilesUnder(sourceDirectory);
+  const files = await Promise.all(
+    paths.map(async (path) => ({
+      path: relative(sourceDirectory, path),
+      content: await readFile(path, 'utf8'),
+    })),
+  );
   const entryFile = files.find((file) => file.path === RESOURCE_ENTRY_FILES[resource.type]);
 
   if (!entryFile) {
@@ -692,7 +724,7 @@ async function submitResourceInCheckout(
     throw new Error(`Invalid resource ID: ${options.resourceId}`);
   }
 
-  const registryIndexPath = await resolveFile(options.indexPath, 'Registry index');
+  const registryIndexPath = await resolveDirectory(options.indexPath, 'Registry index');
   const registryRoot = dirname(registryIndexPath);
   const runner = options.commandRunner ?? runCommand;
   const baseBranch = options.baseBranch ?? 'main';
@@ -1035,10 +1067,6 @@ async function resolveDirectory(path: string, label: string): Promise<string> {
   }
 }
 
-async function resolveFile(path: string, label: string): Promise<string> {
-  return resolveDirectory(path, label);
-}
-
 async function writeResourceFiles(directory: string, files: ResourceFile[]): Promise<void> {
   for (const file of files) {
     const destination = join(directory, file.path);
@@ -1048,27 +1076,7 @@ async function writeResourceFiles(directory: string, files: ResourceFile[]): Pro
 }
 
 async function writeRegistryIndex(indexPath: string, index: RegistryIndex): Promise<void> {
-  const temporaryPath = `${indexPath}.tmp-${process.pid}-${Date.now()}`;
-
-  try {
-    await writeFile(`${temporaryPath}`, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
-    await rename(temporaryPath, indexPath);
-  } finally {
-    await rm(temporaryPath, { force: true });
-  }
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch (error) {
-    if (isMissingPathError(error)) {
-      return false;
-    }
-
-    throw error;
-  }
+  await writeFileAtomic(indexPath, `${JSON.stringify(index, null, 2)}\n`);
 }
 
 function defaultPullRequestBody(resource: ResourceSummary): string {
@@ -1109,12 +1117,4 @@ async function runCommand(
     stdout: result.stdout,
     stderr: result.stderr,
   };
-}
-
-function isMissingPathError(cause: unknown): boolean {
-  if (!(cause instanceof Object)) return false;
-  if ('code' in cause && cause.code === 'ENOENT') return true;
-  if ('cause' in cause) return isMissingPathError(cause.cause);
-
-  return false;
 }

@@ -19,7 +19,6 @@
   "dependencies": {
     "@ai-directory/config": "workspace:*",
     "@ai-directory/contracts": "workspace:*",
-    "@ai-directory/domain": "workspace:*",
     "@ai-directory/installers": "workspace:*",
     "@ai-directory/registry": "workspace:*",
     "hono": "^4.13.1",

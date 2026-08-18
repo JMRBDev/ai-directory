@@ -20,6 +20,7 @@ import {
   applyResourceOperations,
   discoverLocalResources,
   enrichLocalResources,
+  errorMessage,
   planMcpOperations,
   planResourceOperations,
   readInstallationManifest,
@@ -31,9 +32,9 @@ import {
   type ResourceDiscoveryOptions,
   type ResourceOperation,
 } from '@ai-directory/installers';
-import { resourceKey } from '@ai-directory/domain';
+import { harnessSchema, resourceKey } from '@ai-directory/contracts';
 import {
-  createRegistrySnapshot,
+  createCachedRegistry,
   readRegistrySourceResource,
   resolveRegistrySource,
   submitResource,
@@ -63,14 +64,12 @@ type RequestBody = Record<string, JsonValue | undefined>;
 type MultipartValue = string | File | Array<string | File>;
 type MultipartBody = Record<string, MultipartValue>;
 
-const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
 const configScopeSchema = z.enum(['user', 'project']);
 
 const harnessListSchema = z
   .union([
     z.array(harnessSchema),
     z.string(),
-    harnessSchema,
   ])
   .transform((value) => {
     const items = Array.isArray(value) ? value : value.split(',').map((item) => item.trim()).filter(Boolean);
@@ -81,7 +80,6 @@ const harnessListSchema = z
 const resourceRequestObjectSchema = z.object({
   resource: z.string().trim().min(1),
   harnesses: harnessListSchema.optional(),
-  harness: harnessListSchema.optional(),
   version: z.string().trim().min(1).optional(),
   scope: configScopeSchema.optional(),
   force: z.boolean().default(false),
@@ -98,15 +96,13 @@ type ResourceRequestData = {
 function resourceRequestFrom(data: {
   resource: string;
   harnesses?: Harness[] | undefined;
-  harness?: Harness[] | undefined;
   version?: string | undefined;
   scope?: ConfigScope | undefined;
   force: boolean;
 }): ResourceRequestData {
-  const harnesses = data.harnesses ?? data.harness ?? [];
   const result: ResourceRequestData = {
     resource: data.resource,
-    harnesses,
+    harnesses: data.harnesses ?? [],
     force: data.force,
   };
   if (data.version !== undefined) result.version = data.version;
@@ -115,8 +111,8 @@ function resourceRequestFrom(data: {
   return result;
 }
 
-function requireHarnesses(data: { harnesses?: unknown; harness?: unknown }) {
-  return data.harnesses !== undefined || data.harness !== undefined;
+function requireHarnesses(data: { harnesses?: unknown }) {
+  return data.harnesses !== undefined;
 }
 
 const resourceRequestSchema = resourceRequestObjectSchema
@@ -166,7 +162,7 @@ function requestErrorMessage(issues: z.ZodIssue[]): string {
     if (issue.code === 'custom') return issue.message;
     const field = issue.path[issue.path.length - 1];
     if (field === 'resource') return 'resource must be a non-empty string.';
-    if (field === 'harness' || field === 'harnesses') {
+    if (field === 'harnesses') {
       return issue.code === 'too_small'
         ? 'harnesses must include one or more of claude-code, opencode, or codex.'
         : 'harnesses must include only claude-code, opencode, or codex.';
@@ -355,7 +351,7 @@ async function githubUsername(options: ServerOptions, cwd: string): Promise<stri
   return username;
 }
 
-async function readInstallationRecords(
+export async function readInstallationRecords(
   homeDirectory?: string,
   cwd?: string,
 ): Promise<InstallationRecord[]> {
@@ -367,7 +363,7 @@ async function readInstallationRecords(
   return manifests.flatMap((manifest) => manifest.installations);
 }
 
-function localResourceFromMcpRecord(record: InstallationRecord): LocalResource {
+export function localResourceFromMcpRecord(record: InstallationRecord): LocalResource {
   const resource: LocalResource = {
     resource: record.resource,
     type: 'mcp-servers',
@@ -383,76 +379,52 @@ function localResourceFromMcpRecord(record: InstallationRecord): LocalResource {
   return resource;
 }
 
-async function installationResourceIds(
+export async function installationResourceIds(
   resource: string,
-  source: RegistrySource,
+  source: RegistrySource | undefined,
 ): Promise<string[]> {
   if (!resource.includes('/templates/')) return [resource];
+  if (!source) {
+    throw new Error('A registry source is required to inspect this template.');
+  }
 
   const loaded = await readRegistrySourceResource(source, resource);
   return loaded.resources.map((item) => resourceKey(item.resource));
 }
 
-type CachedRegistrySnapshot = {
-  key: string;
-  promise: Promise<RegistrySnapshot>;
-};
-
-let cachedRegistrySnapshot: CachedRegistrySnapshot | undefined;
-
-function registrySnapshotKey(source: RegistrySource): string {
-  return source.type === 'remote'
-    ? `remote\0${source.repositoryUrl}\0${source.baseBranch}`
-    : `local\0${source.indexPath}`;
+export function isMcpResource(resource: string): boolean {
+  return resource.includes('/mcp-servers/');
 }
 
-async function getRegistrySnapshot(source: RegistrySource): Promise<RegistrySnapshot> {
-  const key = registrySnapshotKey(source);
-
-  if (cachedRegistrySnapshot?.key === key) {
-    return cachedRegistrySnapshot.promise;
-  }
-
-  const previous = cachedRegistrySnapshot;
-  const promise = createRegistrySnapshot(source);
-
-  cachedRegistrySnapshot = {
-    key,
-    promise,
-  };
-
-  if (previous) {
-    void previous.promise.then(
-      (snapshot) => snapshot.close(),
-      () => undefined,
-    );
-  }
-
-  promise.catch(() => {
-    if (cachedRegistrySnapshot?.promise === promise) cachedRegistrySnapshot = undefined;
-  });
-
-  return promise;
+export function installManifestPath(
+  scope: ConfigScope,
+  options: ServerOptions = {},
+  cwd: string = process.cwd(),
+): string {
+  return scope === 'project'
+    ? getProjectInstallManifestPath(cwd)
+    : getInstallManifestPath(options.homeDirectory);
 }
 
-async function refreshRegistrySnapshot(): Promise<void> {
-  const previous = cachedRegistrySnapshot;
-  cachedRegistrySnapshot = undefined;
-
-  if (previous) {
-    await previous.promise.then(
-      (snapshot) => snapshot.close(),
-      () => undefined,
-    );
-  }
+function manifestPathFor(
+  isMcp: boolean,
+  scope: ConfigScope,
+  options: ServerOptions,
+  cwd: string,
+): string {
+  return isMcp
+    ? installManifestPath(scope, options, cwd)
+    : getInstallManifestPath(options.homeDirectory);
 }
+
+const cachedRegistry = createCachedRegistry();
 
 async function withRegistrySnapshot<T>(
   options: ServerOptions,
   cwd: string,
   action: (snapshot: RegistrySnapshot) => Promise<T>,
 ): Promise<T> {
-  const snapshot = await getRegistrySnapshot(registrySource(options, cwd));
+  const snapshot = await cachedRegistry.get(registrySource(options, cwd));
   return action(snapshot);
 }
 
@@ -469,54 +441,65 @@ function changeOptions(
   return result;
 }
 
-function isMcpResource(resource: string): boolean {
-  return resource.includes('/mcp-servers/');
+type PlannedChangeSummary = {
+  fingerprint: string;
+  conflicts: string[];
+};
+
+type ApplyOutcome<T> =
+  | { stale: true; conflict: false; plan: PlannedChangeSummary }
+  | { stale: false; conflict: true; plan: PlannedChangeSummary }
+  | { stale: false; conflict: false; plan: PlannedChangeSummary; result: T };
+
+async function applyPlannedChange<T>(
+  planFingerprint: string | undefined,
+  force: boolean,
+  plan: PlannedChangeSummary,
+  apply: () => Promise<T>,
+): Promise<ApplyOutcome<T>> {
+  if (planFingerprint && planFingerprint !== plan.fingerprint) {
+    return { stale: true, conflict: false, plan };
+  }
+  if (plan.conflicts.length > 0 && !force) {
+    return { stale: false, conflict: true, plan };
+  }
+  return { stale: false, conflict: false, plan, result: await apply() };
 }
 
-function installManifestPath(
-  scope: ConfigScope,
-  options: ServerOptions,
-  cwd: string,
-): string {
-  return scope === 'project'
-    ? getProjectInstallManifestPath(cwd)
-    : getInstallManifestPath(options.homeDirectory);
-}
-
-async function resolveMcpOperations(
+async function resolveOperations<T extends boolean>(
   operations: ChangeOperationData[],
   snapshot: RegistrySnapshot,
-): Promise<McpOperation[]> {
-  return Promise.all(operations.map(async (operation) => {
+  isMcp: T,
+): Promise<T extends true ? McpOperation[] : ResourceOperation[]> {
+  const resolved = await Promise.all(operations.map(async (operation) => {
     const loaded = await snapshot.readResource(operation.resource, operation.version);
-    const result: McpOperation = {
-      resource: operation.resource,
-      harnesses: operation.harnesses,
-      action: operation.action,
-      resources: loaded.resources,
-      warningResources: [loaded.resource, ...loaded.resources],
-    };
-    if (operation.scope) result.scope = operation.scope;
-    if (operation.version !== undefined) result.version = operation.version;
-    if (operation.action === 'uninstall') {
-      result.resourceIds = loaded.resources.map((item) => resourceKey(item.resource));
+
+    if (isMcp) {
+      const result: McpOperation = {
+        resource: operation.resource,
+        harnesses: operation.harnesses,
+        action: operation.action,
+        resources: loaded.resources,
+        warningResources: [loaded.resource, ...loaded.resources],
+      };
+      if (operation.scope) result.scope = operation.scope;
+      if (operation.version !== undefined) result.version = operation.version;
+      if (operation.action === 'uninstall') {
+        result.resourceIds = loaded.resources.map((item) => resourceKey(item.resource));
+      }
+      return result;
     }
-    return result;
-  }));
-}
 
-async function resolveResourceOperations(
-  operations: ChangeOperationData[],
-  snapshot: RegistrySnapshot,
-): Promise<ResourceOperation[]> {
-  return Promise.all(operations.map(async (operation) => {
-    const loaded = await snapshot.readResource(operation.resource, operation.version);
     return {
       ...operation,
       resources: loaded.resources,
       warningResources: [loaded.resource, ...loaded.resources],
     };
   }));
+
+  // SAFETY: The isMcp branch above yields McpOperation entries, the other
+  // ResourceOperation entries, so the conditional type matches the data.
+  return resolved as T extends true ? McpOperation[] : ResourceOperation[];
 }
 
 async function jsonBody(context: { req: { json: <T>() => Promise<T> } }): Promise<RequestBody> {
@@ -528,7 +511,7 @@ export function createApp(options: ServerOptions = {}) {
   const cwd = resolve(options.cwd ?? process.cwd());
 
   if (options.prewarm) {
-    void getRegistrySnapshot(registrySource(options, cwd)).catch(() => undefined);
+    void cachedRegistry.get(registrySource(options, cwd)).catch(() => undefined);
   }
 
   app.get('/health', (context) => context.json({ ok: true }));
@@ -536,7 +519,7 @@ export function createApp(options: ServerOptions = {}) {
 
   app.post('/api/refresh', async (context) => {
     try {
-      await refreshRegistrySnapshot();
+      await cachedRegistry.refresh();
       return context.json({ ok: true });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 500);
@@ -699,7 +682,7 @@ export function createApp(options: ServerOptions = {}) {
 
       if (merged.some((resource) => resource.resource)) {
         try {
-          const snapshot = await getRegistrySnapshot(registrySource(options, cwd));
+          const snapshot = await cachedRegistry.get(registrySource(options, cwd));
           enriched = enrichLocalResources(merged, await snapshot.readIndex());
         } catch (caught) {
           registryError = errorMessage(caught);
@@ -735,21 +718,24 @@ export function createApp(options: ServerOptions = {}) {
     try {
       const request = parseChangeOperations(body);
       const plan = await withRegistrySnapshot(options, cwd, async (snapshot) => {
-        if (request.operations.some((operation) => isMcpResource(operation.resource))) {
-          if (!request.operations.every((operation) => isMcpResource(operation.resource))) {
-            throw new Error('A change plan cannot mix MCP servers with file resources.');
-          }
-          const scope = request.operations[0]?.scope ?? 'user';
+        const isMcp = request.operations.some((operation) => isMcpResource(operation.resource));
+        if (isMcp && !request.operations.every((operation) => isMcpResource(operation.resource))) {
+          throw new Error('A change plan cannot mix MCP servers with file resources.');
+        }
+        const scope = isMcp ? (request.operations[0]?.scope ?? 'user') : 'user';
+        const changeScopeOptions = changeOptions(options, cwd, isMcp ? scope : undefined);
+
+        if (isMcp) {
           return planMcpOperations(
-            await resolveMcpOperations(request.operations, snapshot),
-            changeOptions(options, cwd, scope),
+            await resolveOperations(request.operations, snapshot, true),
+            changeScopeOptions,
             request.force,
           );
         }
 
         return planResourceOperations(
-          await resolveResourceOperations(request.operations, snapshot),
-          changeOptions(options, cwd),
+          await resolveOperations(request.operations, snapshot, false),
+          changeScopeOptions,
           request.force,
         );
       });
@@ -779,58 +765,29 @@ export function createApp(options: ServerOptions = {}) {
           throw new Error('A change plan cannot mix MCP servers with file resources.');
         }
         const scope = isMcp ? (request.operations[0]?.scope ?? 'user') : 'user';
+        const changeScopeOptions = changeOptions(options, cwd, isMcp ? scope : undefined);
 
         if (isMcp) {
-          const operations = await resolveMcpOperations(request.operations, snapshot);
-          const plan = await planMcpOperations(
-            operations,
-            changeOptions(options, cwd, scope),
+          const operations = await resolveOperations(request.operations, snapshot, true);
+          const plan = await planMcpOperations(operations, changeScopeOptions, request.force);
+          return applyPlannedChange(
+            request.planFingerprint,
             request.force,
+            plan,
+            () => applyMcpOperations(operations, changeScopeOptions, request.force, plan),
           );
-          if (request.planFingerprint && request.planFingerprint !== plan.fingerprint) {
-            return { stale: true as const, plan };
-          }
-          if (plan.conflicts.length > 0 && !request.force) {
-            return { conflict: true as const, plan };
-          }
-
-          return {
-            conflict: false as const,
-            plan,
-            result: await applyMcpOperations(
-              operations,
-              changeOptions(options, cwd, scope),
-              request.force,
-              plan,
-            ),
-          };
         }
 
-        const operations = await resolveResourceOperations(request.operations, snapshot);
-        const plan = await planResourceOperations(
-          operations,
-          changeOptions(options, cwd),
+        const operations = await resolveOperations(request.operations, snapshot, false);
+        const plan = await planResourceOperations(operations, changeScopeOptions, request.force);
+        return applyPlannedChange(
+          request.planFingerprint,
           request.force,
-        );
-        if (request.planFingerprint && request.planFingerprint !== plan.fingerprint) {
-          return { stale: true as const, plan };
-        }
-        if (plan.conflicts.length > 0 && !request.force) {
-          return { conflict: true as const, plan };
-        }
-
-        return {
-          conflict: false as const,
           plan,
-          result: await applyResourceOperations(
-            operations,
-            changeOptions(options, cwd),
-            request.force,
-            plan,
-          ),
-        };
+          () => applyResourceOperations(operations, changeScopeOptions, request.force, plan),
+        );
       });
-      if ('stale' in result && result.stale) {
+      if (result.stale) {
         return context.json({
           error: 'The change plan is outdated. Generate a new preview before applying.',
           ...result.plan,
@@ -864,40 +821,31 @@ export function createApp(options: ServerOptions = {}) {
         request.resource,
         request.version,
       );
-      const scope = isMcpResource(request.resource) ? (request.scope ?? 'user') : 'user';
-
-      if (isMcpResource(request.resource)) {
-        const result = await applyMcpOperations(
-          [{
-            resource: request.resource,
-            harnesses: request.harnesses,
-            action: 'install',
-            scope,
-            resources: loaded.resources,
-            warningResources: [loaded.resource, ...loaded.resources],
-          }],
-          changeOptions(options, cwd, scope),
-          request.force,
-        );
-
-        return context.json({
-          resource: loaded.resource,
-          harnesses: request.harnesses,
-          records: result.installed,
-          warnings: result.warnings,
-        });
-      }
-
-      const result = await applyResourceOperations(
-        [{
-          ...request,
-          action: 'install',
-          resources: loaded.resources,
-          warningResources: [loaded.resource, ...loaded.resources],
-        }],
-        changeOptions(options, cwd),
-        request.force,
-      );
+      const isMcp = isMcpResource(request.resource);
+      const scope = isMcp ? (request.scope ?? 'user') : 'user';
+      const result = isMcp
+        ? await applyMcpOperations(
+            [{
+              resource: request.resource,
+              harnesses: request.harnesses,
+              action: 'install',
+              scope,
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+            }],
+            changeOptions(options, cwd, scope),
+            request.force,
+          )
+        : await applyResourceOperations(
+            [{
+              ...request,
+              action: 'install',
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+            }],
+            changeOptions(options, cwd),
+            request.force,
+          );
 
       return context.json({
         resource: loaded.resource,
@@ -926,10 +874,9 @@ export function createApp(options: ServerOptions = {}) {
       const request = parseResourceRequest(body);
       const isMcp = isMcpResource(request.resource);
       const scope = isMcp ? (request.scope ?? 'user') : 'user';
-      const manifestPath = isMcp
-        ? installManifestPath(scope, options, cwd)
-        : getInstallManifestPath(options.homeDirectory);
-      const manifest = await readInstallationManifest(manifestPath);
+      const manifest = await readInstallationManifest(
+        manifestPathFor(isMcp, scope, options, cwd),
+      );
       const loaded = await readRegistrySourceResource(
         registrySource(options, cwd),
         request.resource,
@@ -975,39 +922,30 @@ export function createApp(options: ServerOptions = {}) {
         });
       }
 
-      if (isMcp) {
-        const result = await applyMcpOperations(
-          [{
-            resource: request.resource,
-            harnesses: updatedHarnesses,
-            action: 'install',
-            scope,
-            resources: loaded.resources,
-            warningResources: [loaded.resource, ...loaded.resources],
-          }],
-          changeOptions(options, cwd, scope),
-          request.force,
-        );
-
-        return context.json({
-          updated: true,
-          harnesses: updatedHarnesses,
-          records: result.installed,
-          warnings: result.warnings,
-        });
-      }
-
-      const result = await applyResourceOperations(
-        [{
-          ...request,
-          harnesses: updatedHarnesses,
-          action: 'install',
-          resources: loaded.resources,
-          warningResources: [loaded.resource, ...loaded.resources],
-        }],
-        changeOptions(options, cwd),
-        request.force,
-      );
+      const result = isMcp
+        ? await applyMcpOperations(
+            [{
+              resource: request.resource,
+              harnesses: updatedHarnesses,
+              action: 'install',
+              scope,
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+            }],
+            changeOptions(options, cwd, scope),
+            request.force,
+          )
+        : await applyResourceOperations(
+            [{
+              ...request,
+              harnesses: updatedHarnesses,
+              action: 'install',
+              resources: loaded.resources,
+              warningResources: [loaded.resource, ...loaded.resources],
+            }],
+            changeOptions(options, cwd),
+            request.force,
+          );
 
       return context.json({
         updated: true,
@@ -1024,7 +962,6 @@ export function createApp(options: ServerOptions = {}) {
     const rawRequest = {
       resource: context.req.query('resource'),
       harnesses: context.req.query('harnesses'),
-      harness: context.req.query('harness'),
       force: queryBoolean(context.req.query('force')),
     };
     const error = requestError(rawRequest);
@@ -1035,10 +972,9 @@ export function createApp(options: ServerOptions = {}) {
       const request = parseResourceRequest(rawRequest);
       const isMcp = isMcpResource(request.resource);
       const scope = isMcp ? (request.scope ?? 'user') : 'user';
-      const manifestPath = isMcp
-        ? installManifestPath(scope, options, cwd)
-        : getInstallManifestPath(options.homeDirectory);
-      const manifest = await readInstallationManifest(manifestPath);
+      const manifest = await readInstallationManifest(
+        manifestPathFor(isMcp, scope, options, cwd),
+      );
       const resourceIds = await installationResourceIds(
         request.resource,
         registrySource(options, cwd),
@@ -1062,31 +998,27 @@ export function createApp(options: ServerOptions = {}) {
         );
       }
 
-      if (isMcp) {
-        const result = await applyMcpOperations(
-          [{
-            resource: request.resource,
-            harnesses: request.harnesses,
-            action: 'uninstall',
-            resourceIds,
-            scope,
-          }],
-          changeOptions(options, cwd, scope),
-          request.force,
-        );
-
-        return context.json({ removed: result.removed, harnesses: request.harnesses });
-      }
-
-      const result = await applyResourceOperations(
-        [{
-          ...request,
-          action: 'uninstall',
-          resourceIds,
-        }],
-        changeOptions(options, cwd),
-        request.force,
-      );
+      const result = isMcp
+        ? await applyMcpOperations(
+            [{
+              resource: request.resource,
+              harnesses: request.harnesses,
+              action: 'uninstall',
+              resourceIds,
+              scope,
+            }],
+            changeOptions(options, cwd, scope),
+            request.force,
+          )
+        : await applyResourceOperations(
+            [{
+              ...request,
+              action: 'uninstall',
+              resourceIds,
+            }],
+            changeOptions(options, cwd),
+            request.force,
+          );
 
       return context.json({ removed: result.removed, harnesses: request.harnesses });
     } catch (caught) {
@@ -1100,8 +1032,4 @@ export function createApp(options: ServerOptions = {}) {
 function queryBoolean(value: string | undefined): boolean | string | undefined {
   if (value === undefined) return undefined;
   return value === 'true' ? true : value === 'false' ? false : value;
-}
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
