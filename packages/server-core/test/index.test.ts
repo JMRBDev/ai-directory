@@ -531,6 +531,55 @@ describe('local control API', () => {
       installations: [],
     });
   });
+
+  it('re-plans the file group after an MCP apply so the shared manifest does not invalidate it', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const combinedIndexPath = fileURLToPath(
+      new URL('../../registry/test/fixtures/combined-index.json', import.meta.url),
+    );
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: combinedIndexPath });
+    const mcpOperation = { resource: 'john-doe/mcp-servers/github', harnesses: ['opencode'] as const, action: 'install' as const };
+    const fileOperation = { resource: 'jane-doe/agents/api-reviewer', harnesses: ['claude-code'] as const, action: 'install' as const };
+    const agentPath = join(homeDirectory, '.claude', 'agents', 'api-reviewer.md');
+
+    async function plan(operations: typeof mcpOperation[]) {
+      const response = await app.request('/api/plan', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operations }),
+      });
+      expect(response.status).toBe(200);
+      // SAFETY: /api/plan resolves to a ChangePlan, which carries a fingerprint on every success.
+      return (await response.json()) as { fingerprint: string };
+    }
+
+    async function apply(operations: typeof mcpOperation[], fingerprint?: string) {
+      const payload = { operations, planFingerprint: fingerprint } satisfies {
+        operations: typeof mcpOperation[];
+        planFingerprint?: string;
+      };
+      return app.request('/api/apply', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    const mcpPlan = await plan([mcpOperation]);
+    const filePlan = await plan([fileOperation]);
+    expect((await apply([mcpOperation], mcpPlan.fingerprint)).status).toBe(200);
+
+    const staleFileApply = await apply([fileOperation], filePlan.fingerprint);
+    expect(staleFileApply.status).toBe(409);
+    await expect(staleFileApply.json()).resolves.toMatchObject({
+      error: 'The change plan is outdated. Generate a new preview before applying.',
+    });
+
+    const freshFilePlan = await plan([fileOperation]);
+    expect((await apply([fileOperation], freshFilePlan.fingerprint)).status).toBe(200);
+    await expect(readFile(agentPath, 'utf8')).resolves.toContain('API Reviewer');
+  });
 });
 
 async function createTemporaryDirectory(): Promise<string> {

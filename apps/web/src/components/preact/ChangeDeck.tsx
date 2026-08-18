@@ -55,6 +55,27 @@ function operationsFor(
   });
 }
 
+function groupItems(items: StagedItem[]) {
+  const mcp: StagedItem[] = [];
+  const files: StagedItem[] = [];
+  for (const item of items) {
+    if (item.type === 'mcp-servers') mcp.push(item);
+    else files.push(item);
+  }
+  return { mcp, files };
+}
+
+function mergePlans(plans: ChangePlan[]): ChangePlan {
+  return {
+    changes: plans.flatMap((plan) => plan.changes),
+    conflicts: [...new Set(plans.flatMap((plan) => plan.conflicts))],
+    warnings: [...new Set(plans.flatMap((plan) => plan.warnings))],
+    projectionNotes: [...new Set(plans.flatMap((plan) => plan.projectionNotes))],
+    fingerprint: '',
+    operations: plans.flatMap((plan) => plan.operations ?? []),
+  };
+}
+
 function stagedActions(items: StagedItem[]) {
   const actions: ActionMap = {};
   for (const item of items) actions[item.resource] = item.action;
@@ -75,6 +96,7 @@ export default function ChangeDeckProvider({
   const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
   const [scope, setScope] = useState<InstallScope>('user');
   const [plan, setPlan] = useState<ChangePlan | null>(null);
+  const [planFingerprints, setPlanFingerprints] = useState<Record<string, string>>({});
   const [planLoading, setPlanLoading] = useState(false);
   const [planStatus, setPlanStatus] = useState('');
   const [planError, setPlanError] = useState(false);
@@ -129,12 +151,17 @@ export default function ChangeDeckProvider({
     const items = Object.values(nextStaged);
     if (items.length === 0 || nextHarnesses.length === 0) {
       setPlan(null);
+      setPlanFingerprints({});
       setPlanStatus('');
       return;
     }
 
     const currentRequest = ++requestId.current;
-    const operations = operationsFor(items, nextHarnesses, nextScope);
+    const groups = groupItems(items);
+    const groupRequests = [
+      { name: 'mcp', items: groups.mcp },
+      { name: 'files', items: groups.files },
+    ].filter((group) => group.items.length > 0);
     setForce(false);
     setApplied(false);
     setPlanError(false);
@@ -142,13 +169,21 @@ export default function ChangeDeckProvider({
     setPlanStatus('Updating preview…');
 
     try {
-      const result = await request<ChangePlan>(apiUrl, '/api/plan', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operations }),
-      });
-      if (currentRequest !== requestId.current) return;
-      setPlan(result);
+      const plans: ChangePlan[] = [];
+      const fingerprints: Record<string, string> = {};
+      for (const group of groupRequests) {
+        const operations = operationsFor(group.items, nextHarnesses, nextScope);
+        const result = await request<ChangePlan>(apiUrl, '/api/plan', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ operations }),
+        });
+        if (currentRequest !== requestId.current) return;
+        fingerprints[group.name] = result.fingerprint;
+        plans.push(result);
+      }
+      setPlan(mergePlans(plans));
+      setPlanFingerprints(fingerprints);
       setPlanStatus('');
     } catch (cause) {
       if (currentRequest === requestId.current) {
@@ -197,6 +232,7 @@ export default function ChangeDeckProvider({
     clearTimeout(planTimer.current);
     setStaged({});
     setPlan(null);
+    setPlanFingerprints({});
     setPlanStatus('');
     setApplied(false);
   }
@@ -217,27 +253,48 @@ export default function ChangeDeckProvider({
     setBusy(true);
     setPlanError(false);
     setPlanStatus('Applying all changes…');
-    const operations = operationsFor(stagedItems, harnesses, scope);
+    const groups = groupItems(stagedItems);
+    const groupRequests = [
+      { name: 'mcp', items: groups.mcp },
+      { name: 'files', items: groups.files },
+    ].filter((group) => group.items.length > 0);
     try {
-      const result = await request<{ plan: ChangePlan; warnings?: string[] }>(apiUrl, '/api/apply', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operations, force, planFingerprint: plan.fingerprint }),
-      });
+      let appliedChanges = 0;
+      const warnings: string[] = [];
+      for (const [index, group] of groupRequests.entries()) {
+        const operations = operationsFor(group.items, harnesses, scope);
+        let fingerprint = planFingerprints[group.name];
+        if (index > 0) {
+          const fresh = await request<ChangePlan>(apiUrl, '/api/plan', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ operations }),
+          });
+          fingerprint = fresh.fingerprint;
+        }
+        const result = await request<{ plan: ChangePlan; warnings?: string[] }>(apiUrl, '/api/apply', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ operations, force, planFingerprint: fingerprint }),
+        });
+        appliedChanges += result.plan.changes.length;
+        warnings.push(...(result.warnings ?? []));
+      }
       setApplied(true);
       setPlanError(false);
       setStaged({});
-      const warnings = result.warnings ?? [];
+      setPlanFingerprints({});
       setPlanStatus(
-        'Applied ' + result.plan.changes.length + ' file change'
-        + (result.plan.changes.length === 1 ? '' : 's') + '.'
-        + (warnings.length ? '\n' + warnings.join('\n') : ''),
+        'Applied ' + appliedChanges + ' file change'
+        + (appliedChanges === 1 ? '' : 's') + '.'
+        + (warnings.length ? '\n' + [...new Set(warnings)].join('\n') : ''),
       );
       void loadInstallations();
       void loadLocalResources();
     } catch (cause) {
       setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
+      schedulePlan(staged, harnesses, scope);
     } finally {
       setBusy(false);
     }
