@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import DrawerShell from './DrawerShell';
 import { closeDrawers } from './api';
 import { useChangeDeck, type StagedItem } from './ChangeDeckContext';
-import { shortenHomePath } from './types';
+import { harnessOptions, shortenHomePath } from './types';
 import type { Action, Harness, LocalResource } from './types';
 
 type Props = {
@@ -12,11 +12,10 @@ type Props = {
 type HarnessFilter = 'all' | Harness;
 type SourceFilter = 'all' | 'registry' | 'local';
 
-const harnessLabels = {
-  'claude-code': 'Claude Code',
-  opencode: 'OpenCode',
-  codex: 'Codex',
-} satisfies Record<Harness, string>;
+// SAFETY: harnessOptions lists every harness in the Harness union.
+const harnessLabels = Object.fromEntries(
+  harnessOptions.map((option) => [option.value, option.label]),
+) as Record<Harness, string>;
 
 const typeLabels = {
   skills: 'Skill',
