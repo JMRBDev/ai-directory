@@ -1,8 +1,8 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { getScopeInstallManifestPath, type ConfigScope } from '@ai-directory/config';
-import { mcpEnvTokens, type McpServerManifest } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/domain';
+import { getScopeInstallManifestPath, writeFileAtomic, type ConfigScope } from '@ai-directory/config';
+import { mcpEnvTokens, mcpEnvTokenPattern, type McpServerManifest } from '@ai-directory/contracts';
+import { resourceKey } from '@ai-directory/contracts';
 import { readMcpServerManifest, type ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
@@ -21,7 +21,6 @@ import {
   snapshotFiles,
   updateInstallationManifest,
   withInstallationLocks,
-  writeTextAtomic,
   type InstallOptions,
   type InstallationRecord,
   type ResourceChangeOptions,
@@ -138,8 +137,6 @@ const reservedClaudeServers = new Set([
   'Claude Preview',
   'Claude Browser',
 ]);
-
-const envTokenPattern = /\{env:([A-Za-z_][A-Za-z0-9_]*)\}/gu;
 
 export async function planMcpOperations(
   operations: McpOperation[],
@@ -322,7 +319,7 @@ export async function applyMcpOperations(
               });
             }
 
-            await writeTextAtomic(path, content);
+            await writeFileAtomic(path, content);
             await updateInstallationManifest(manifestPath, records);
             installed.push(...records);
           } else {
@@ -339,7 +336,7 @@ export async function applyMcpOperations(
 
               if (content !== null) {
                 const removal = removeEntry(harness, content, path, resourceName(record.resource));
-                if (removal.changed) await writeTextAtomic(path, removal.content);
+                if (removal.changed) await writeFileAtomic(path, removal.content);
               }
 
               await removeInstallationRecord(manifestPath, record);
@@ -614,7 +611,7 @@ function rewriteHeaders(manifest: McpServerManifest, format: (name: string) => s
 }
 
 function rewriteEnvTokens(value: string, format: (name: string) => string): string {
-  return value.replace(envTokenPattern, (_, name: string) => format(name));
+  return value.replace(mcpEnvTokenPattern, (_, name: string) => format(name));
 }
 
 function validateServerName(harness: Harness, server: string): void {

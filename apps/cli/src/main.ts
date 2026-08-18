@@ -6,13 +6,13 @@ import { join, resolve } from 'node:path';
 import { defineCommand, runCommand, runMain, showUsage } from 'citty';
 import {
   RESOURCE_ENTRY_FILES,
+  harnessSchema,
   resourceIdSchema,
   resourceTypeSchema,
   resourceVersionSchema,
   type ResourceType,
 } from '@ai-directory/contracts';
 import {
-  CONFIG_OPTIONS,
   DEFAULT_API_HOST,
   DEFAULT_API_PORT,
   clearConfigFile,
@@ -23,7 +23,6 @@ import {
   readConfigFile,
   resolveRepository,
   writeConfigFile,
-  type ConfigKey,
   type ConfigScope,
 } from '@ai-directory/config';
 import {
@@ -40,7 +39,7 @@ import {
   type AutocompleteMultiSelectOptions,
   type TextOptions,
 } from '@clack/prompts';
-import { resourceKey } from '@ai-directory/domain';
+import { resourceKey } from '@ai-directory/contracts';
 import {
   applyMcpOperations,
   applyResourceOperations,
@@ -143,7 +142,7 @@ function hasHarnessArgument(rawArgs: string[]): boolean {
 }
 
 function isHarness(value: string): value is Harness {
-  return value === 'claude-code' || value === 'opencode' || value === 'codex';
+  return harnessSchema.safeParse(value).success;
 }
 
 const harnessOptions = [
@@ -1923,11 +1922,9 @@ const doctor = defineCommand({
   },
 });
 
-function assertConfigKey(key: string): asserts key is ConfigKey {
-  if (!CONFIG_OPTIONS.some((option) => option.key === key)) {
-    throw new Error(
-      `Unknown config key: ${key}. Supported keys: ${CONFIG_OPTIONS.map((option) => option.key).join(', ')}.`,
-    );
+function assertRepositoryKey(key: string): void {
+  if (key !== 'repository') {
+    throw new Error('Unknown config key: repository is the only supported key.');
   }
 }
 
@@ -1938,12 +1935,8 @@ const configList = defineCommand({
   },
   run() {
     console.log('Available configuration options:');
-
-    for (const option of CONFIG_OPTIONS) {
-      console.log(`\n${option.key}`);
-      console.log(`  ${option.description}`);
-    }
-
+    console.log('\nrepository');
+    console.log('  Git URL of the production resource registry.');
     console.log('\nUse `aid config get <key>` to inspect the effective value.');
   },
 });
@@ -1966,7 +1959,7 @@ const configGet = defineCommand({
     },
   },
   run({ args }) {
-    assertConfigKey(args.key);
+    assertRepositoryKey(args.key);
 
     if (args.scope) {
       // SAFETY: citty validates enum args against the ['user', 'project'] options.
@@ -2006,7 +1999,7 @@ const configSet = defineCommand({
     },
   },
   async run({ args }) {
-    assertConfigKey(args.key);
+    assertRepositoryKey(args.key);
     const value = args.value.trim();
 
     if (!value) throw new Error('Repository URL cannot be empty.');
@@ -2040,7 +2033,7 @@ const configClear = defineCommand({
     },
   },
   async run({ args }) {
-    assertConfigKey(args.key);
+    assertRepositoryKey(args.key);
 
     // SAFETY: citty validates enum args against the ['user', 'project'] options.
     const scope = args.scope as ConfigScope;

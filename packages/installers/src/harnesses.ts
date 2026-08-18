@@ -2,8 +2,10 @@ import { constants } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
+import { configuredPath, pathExists } from '@ai-directory/config';
+import type { Harness } from '@ai-directory/contracts';
 
-export type Harness = 'claude-code' | 'opencode' | 'codex';
+export type { Harness } from '@ai-directory/contracts';
 
 export type HarnessPathOptions = {
   cwd?: string;
@@ -187,11 +189,6 @@ function codexLocation(
   };
 }
 
-function configuredPath(environment: NodeJS.ProcessEnv, key: string): string | undefined {
-  const value = environment[key]?.trim();
-  return value ? resolve(value) : undefined;
-}
-
 async function existingPaths(paths: string[]): Promise<string[]> {
   const results = await Promise.all(
     paths.map(async (path) => (await pathExists(path) ? path : undefined)),
@@ -222,13 +219,4 @@ async function findExecutable(
   }
 
   return undefined;
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
 }

@@ -32,7 +32,7 @@ import {
   type ResourceDiscoveryOptions,
   type ResourceOperation,
 } from '@ai-directory/installers';
-import { resourceKey } from '@ai-directory/domain';
+import { harnessSchema, resourceKey } from '@ai-directory/contracts';
 import {
   createCachedRegistry,
   readRegistrySourceResource,
@@ -64,14 +64,12 @@ type RequestBody = Record<string, JsonValue | undefined>;
 type MultipartValue = string | File | Array<string | File>;
 type MultipartBody = Record<string, MultipartValue>;
 
-const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
 const configScopeSchema = z.enum(['user', 'project']);
 
 const harnessListSchema = z
   .union([
     z.array(harnessSchema),
     z.string(),
-    harnessSchema,
   ])
   .transform((value) => {
     const items = Array.isArray(value) ? value : value.split(',').map((item) => item.trim()).filter(Boolean);
@@ -82,7 +80,6 @@ const harnessListSchema = z
 const resourceRequestObjectSchema = z.object({
   resource: z.string().trim().min(1),
   harnesses: harnessListSchema.optional(),
-  harness: harnessListSchema.optional(),
   version: z.string().trim().min(1).optional(),
   scope: configScopeSchema.optional(),
   force: z.boolean().default(false),
@@ -99,15 +96,13 @@ type ResourceRequestData = {
 function resourceRequestFrom(data: {
   resource: string;
   harnesses?: Harness[] | undefined;
-  harness?: Harness[] | undefined;
   version?: string | undefined;
   scope?: ConfigScope | undefined;
   force: boolean;
 }): ResourceRequestData {
-  const harnesses = data.harnesses ?? data.harness ?? [];
   const result: ResourceRequestData = {
     resource: data.resource,
-    harnesses,
+    harnesses: data.harnesses ?? [],
     force: data.force,
   };
   if (data.version !== undefined) result.version = data.version;
@@ -116,8 +111,8 @@ function resourceRequestFrom(data: {
   return result;
 }
 
-function requireHarnesses(data: { harnesses?: unknown; harness?: unknown }) {
-  return data.harnesses !== undefined || data.harness !== undefined;
+function requireHarnesses(data: { harnesses?: unknown }) {
+  return data.harnesses !== undefined;
 }
 
 const resourceRequestSchema = resourceRequestObjectSchema
@@ -167,7 +162,7 @@ function requestErrorMessage(issues: z.ZodIssue[]): string {
     if (issue.code === 'custom') return issue.message;
     const field = issue.path[issue.path.length - 1];
     if (field === 'resource') return 'resource must be a non-empty string.';
-    if (field === 'harness' || field === 'harnesses') {
+    if (field === 'harnesses') {
       return issue.code === 'too_small'
         ? 'harnesses must include one or more of claude-code, opencode, or codex.'
         : 'harnesses must include only claude-code, opencode, or codex.';
@@ -435,40 +430,40 @@ function changeOptions(
   return result;
 }
 
-async function resolveMcpOperations(
+async function resolveOperations<T extends boolean>(
   operations: ChangeOperationData[],
   snapshot: RegistrySnapshot,
-): Promise<McpOperation[]> {
-  return Promise.all(operations.map(async (operation) => {
+  isMcp: T,
+): Promise<T extends true ? McpOperation[] : ResourceOperation[]> {
+  const resolved = await Promise.all(operations.map(async (operation) => {
     const loaded = await snapshot.readResource(operation.resource, operation.version);
-    const result: McpOperation = {
-      resource: operation.resource,
-      harnesses: operation.harnesses,
-      action: operation.action,
-      resources: loaded.resources,
-      warningResources: [loaded.resource, ...loaded.resources],
-    };
-    if (operation.scope) result.scope = operation.scope;
-    if (operation.version !== undefined) result.version = operation.version;
-    if (operation.action === 'uninstall') {
-      result.resourceIds = loaded.resources.map((item) => resourceKey(item.resource));
-    }
-    return result;
-  }));
-}
 
-async function resolveResourceOperations(
-  operations: ChangeOperationData[],
-  snapshot: RegistrySnapshot,
-): Promise<ResourceOperation[]> {
-  return Promise.all(operations.map(async (operation) => {
-    const loaded = await snapshot.readResource(operation.resource, operation.version);
+    if (isMcp) {
+      const result: McpOperation = {
+        resource: operation.resource,
+        harnesses: operation.harnesses,
+        action: operation.action,
+        resources: loaded.resources,
+        warningResources: [loaded.resource, ...loaded.resources],
+      };
+      if (operation.scope) result.scope = operation.scope;
+      if (operation.version !== undefined) result.version = operation.version;
+      if (operation.action === 'uninstall') {
+        result.resourceIds = loaded.resources.map((item) => resourceKey(item.resource));
+      }
+      return result;
+    }
+
     return {
       ...operation,
       resources: loaded.resources,
       warningResources: [loaded.resource, ...loaded.resources],
     };
   }));
+
+  // SAFETY: The isMcp branch above yields McpOperation entries, the other
+  // ResourceOperation entries, so the conditional type matches the data.
+  return resolved as T extends true ? McpOperation[] : ResourceOperation[];
 }
 
 async function jsonBody(context: { req: { json: <T>() => Promise<T> } }): Promise<RequestBody> {
@@ -693,14 +688,14 @@ export function createApp(options: ServerOptions = {}) {
           }
           const scope = request.operations[0]?.scope ?? 'user';
           return planMcpOperations(
-            await resolveMcpOperations(request.operations, snapshot),
+            await resolveOperations(request.operations, snapshot, true),
             changeOptions(options, cwd, scope),
             request.force,
           );
         }
 
         return planResourceOperations(
-          await resolveResourceOperations(request.operations, snapshot),
+          await resolveOperations(request.operations, snapshot, false),
           changeOptions(options, cwd),
           request.force,
         );
@@ -733,7 +728,7 @@ export function createApp(options: ServerOptions = {}) {
         const scope = isMcp ? (request.operations[0]?.scope ?? 'user') : 'user';
 
         if (isMcp) {
-          const operations = await resolveMcpOperations(request.operations, snapshot);
+          const operations = await resolveOperations(request.operations, snapshot, true);
           const plan = await planMcpOperations(
             operations,
             changeOptions(options, cwd, scope),
@@ -758,7 +753,7 @@ export function createApp(options: ServerOptions = {}) {
           };
         }
 
-        const operations = await resolveResourceOperations(request.operations, snapshot);
+        const operations = await resolveOperations(request.operations, snapshot, false);
         const plan = await planResourceOperations(
           operations,
           changeOptions(options, cwd),
@@ -976,7 +971,6 @@ export function createApp(options: ServerOptions = {}) {
     const rawRequest = {
       resource: context.req.query('resource'),
       harnesses: context.req.query('harnesses'),
-      harness: context.req.query('harness'),
       force: queryBoolean(context.req.query('force')),
     };
     const error = requestError(rawRequest);

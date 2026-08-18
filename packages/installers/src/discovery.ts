@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import type { RegistryIndex } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/domain';
+import { resourceKey } from '@ai-directory/contracts';
 import { isResourceVersionOutdated } from '@ai-directory/registry';
 import {
   hashFile,

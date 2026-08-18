@@ -40,7 +40,7 @@ export const mcpEnvVarSchema = z.object({
   description: z.string().min(1).optional(),
 });
 
-const mcpEnvTokenPattern = /\{env:([A-Za-z_][A-Za-z0-9_]*)\}/gu;
+export const mcpEnvTokenPattern = /\{env:([A-Za-z_][A-Za-z0-9_]*)\}/gu;
 
 export function mcpEnvTokens(value: string): string[] {
   return [...value.matchAll(mcpEnvTokenPattern)]
@@ -114,6 +114,9 @@ export type ResourceSummary = z.infer<typeof resourceSummarySchema>;
 export type RegistryIndex = z.infer<typeof registryIndexSchema>;
 export type TemplateManifest = z.infer<typeof templateManifestSchema>;
 
+export type Harness = 'claude-code' | 'opencode' | 'codex';
+export const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
+
 export const RESOURCE_ENTRY_FILES = {
   skills: 'SKILL.md',
   agents: 'AGENT.md',
@@ -121,3 +124,7 @@ export const RESOURCE_ENTRY_FILES = {
   'mcp-servers': 'MCP.md',
   templates: 'TEMPLATE.md',
 } satisfies Record<ResourceType, string>;
+
+export function resourceKey(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>): string {
+  return `${resource.owner}/${resource.type}/${resource.name}`;
+}

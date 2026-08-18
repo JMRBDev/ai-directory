@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import envPaths from 'env-paths';
@@ -15,15 +15,6 @@ const configSchema = z.object({
 });
 
 export type AiDirectoryConfig = z.infer<typeof configSchema>;
-
-export const CONFIG_OPTIONS = [
-  {
-    key: 'repository',
-    description: 'Git URL of the production resource registry.',
-  },
-] as const;
-
-export type ConfigKey = (typeof CONFIG_OPTIONS)[number]['key'];
 
 export type RepositorySetting = {
   value?: string;
@@ -115,6 +106,43 @@ export async function writeFileAtomic(path: string, content: string): Promise<vo
 
 export async function clearConfigFile(path: string): Promise<void> {
   await rm(path, { force: true });
+}
+
+export async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+export function isMissingPathError(cause: unknown): boolean {
+  if (!(cause instanceof Object)) return false;
+  if ('code' in cause && cause.code === 'ENOENT') return true;
+  if ('cause' in cause) return isMissingPathError(cause.cause);
+
+  return false;
+}
+
+export function isPathExistsError(cause: unknown): boolean {
+  return (
+    cause instanceof Object &&
+    'code' in cause &&
+    cause.code === 'EEXIST'
+  );
+}
+
+export function configuredPath(
+  environment: NodeJS.ProcessEnv,
+  key: string,
+): string | undefined {
+  const value = environment[key]?.trim();
+  return value ? resolve(value) : undefined;
 }
 
 export function getRepositorySetting(
