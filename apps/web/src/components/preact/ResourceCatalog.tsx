@@ -1,7 +1,8 @@
 import { useRef, useState } from 'preact/hooks';
-import type { ResourceSummary, ResourceType } from '@ai-directory/contracts';
+import { resourceKey, type ResourceSummary, type ResourceType } from '@ai-directory/contracts';
 import { useChangeDeck } from './ChangeDeckContext';
-import { resourceId, type Action } from './types';
+import { RESOURCE_TYPE_LABELS } from './lib';
+import type { Action } from './types';
 
 type Props = {
   resources: ResourceSummary[];
@@ -13,13 +14,11 @@ type InstalledFilter = 'all' | 'installed' | 'not-installed';
 type SortOption = 'updated' | 'name' | 'version';
 
 const PAGE_SIZE = 6;
-const RESOURCE_TYPES: Array<{ value: ResourceType; label: string }> = [
-  { value: 'skills', label: 'Skills' },
-  { value: 'agents', label: 'Agents' },
-  { value: 'rules', label: 'Rules' },
-  { value: 'mcp-servers', label: 'MCP Servers' },
-  { value: 'templates', label: 'Templates' },
-];
+// SAFETY: RESOURCE_TYPE_LABELS keys are exactly the ResourceType union.
+const RESOURCE_TYPES = (Object.keys(RESOURCE_TYPE_LABELS) as ResourceType[]).map((value) => ({
+  value,
+  label: RESOURCE_TYPE_LABELS[value] + 's',
+}));
 
 function resourceTypeLabel(type: ResourceType) {
   return RESOURCE_TYPES.find((option) => option.value === type)?.label ?? type;
@@ -49,7 +48,7 @@ function CatalogCard({
   presentLocally: boolean;
   onSelect: (checked: boolean) => void;
 }) {
-  const id = resourceId(resource);
+  const id = resourceKey(resource);
   const reviewed = resource.reviewStatus === 'reviewed';
   const isStaged = stagedAction !== undefined;
   const selectedClass = stagedAction === 'uninstall'
@@ -149,12 +148,12 @@ export default function ResourceCatalog({ resources, registryError }: Props) {
 
   const activeTypeResources = resources.filter((resource) => resource.type === activeType);
   const filteredResources = activeTypeResources.filter((resource) => {
-    const matchesQuery = [resourceId(resource), resource.description]
+    const matchesQuery = [resourceKey(resource), resource.description]
       .join(' ')
       .toLowerCase()
       .includes(query.trim().toLowerCase());
     const matchesReview = reviewFilter === 'all' || resource.reviewStatus === reviewFilter;
-    const isInstalled = installedIds.has(resourceId(resource));
+    const isInstalled = installedIds.has(resourceKey(resource));
     const matchesInstalled = installedFilter === 'all'
       || (installedFilter === 'installed' ? isInstalled : !isInstalled);
     return matchesQuery && matchesReview && matchesInstalled;
@@ -197,7 +196,7 @@ export default function ResourceCatalog({ resources, registryError }: Props) {
   }
 
   function selectResource(resource: ResourceSummary, checked: boolean) {
-    const id = resourceId(resource);
+    const id = resourceKey(resource);
     if (checked) {
       stage({
         key: id,
@@ -317,10 +316,10 @@ export default function ResourceCatalog({ resources, registryError }: Props) {
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   {visibleResources.map((resource) => (
                     <CatalogCard
-                      key={resourceId(resource)}
+                      key={resourceKey(resource)}
                       resource={resource}
-                      stagedAction={staged[resourceId(resource)]?.action}
-                      installed={installedIds.has(resourceId(resource))}
+                      stagedAction={staged[resourceKey(resource)]?.action}
+                      installed={installedIds.has(resourceKey(resource))}
                       presentLocally={locallyPresentKeys.has(resource.type + '/' + resource.name)}
                       onSelect={(checked) => selectResource(resource, checked)}
                     />

@@ -1,8 +1,10 @@
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { closeDrawers, errorMessage, request } from './api';
+import { API_PATHS, DRAWER_TOGGLES, JSON_HEADERS, useStatus } from './lib';
 import DrawerShell from './DrawerShell';
 import ThemeSelector from './ThemeSelector';
+import type { InstallScope } from './types';
 
 type Props = {
   apiUrl: string;
@@ -39,20 +41,14 @@ function Section({
 
 export default function SettingsDrawer({ apiUrl }: Props) {
   const [repository, setRepository] = useState('');
-  const [scope, setScope] = useState<'user' | 'project'>('user');
+  const [scope, setScope] = useState<InstallScope>('user');
   const [source, setSource] = useState('Loading');
-  const [status, setStatus] = useState('');
-  const [error, setError] = useState(false);
+  const { status, error, showStatus } = useStatus();
   const [busy, setBusy] = useState(false);
-
-  function showStatus(message: string, isError = false) {
-    setStatus(message);
-    setError(isError);
-  }
 
   async function loadSettings() {
     try {
-      const result = await request<ConfigResponse>(apiUrl, '/api/config');
+      const result = await request<ConfigResponse>(apiUrl, API_PATHS.config);
       setRepository(result.repository ?? '');
       setScope(result.source === 'project' ? 'project' : 'user');
       setSource(result.source === 'none' ? 'Not configured' : result.source);
@@ -64,7 +60,7 @@ export default function SettingsDrawer({ apiUrl }: Props) {
 
   async function mutate(path: string, init: RequestInit, success: (result: ConfigResponse) => string) {
     setBusy(true);
-    showStatus(path === '/api/config' ? 'Saving…' : 'Clearing…');
+    showStatus(path === API_PATHS.config ? 'Saving…' : 'Clearing…');
     try {
       const result = await request<ConfigResponse>(apiUrl, path, init);
       setSource(result.source === 'none' ? 'Not configured' : result.source);
@@ -85,9 +81,9 @@ export default function SettingsDrawer({ apiUrl }: Props) {
       return;
     }
 
-    void mutate('/api/config', {
+    void mutate(API_PATHS.config, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ repository: value, scope }),
     }, (result) => result.source !== result.savedScope
       ? 'Saved in the ' + result.savedScope + ' config. The ' + result.source + ' setting is still active.'
@@ -95,16 +91,16 @@ export default function SettingsDrawer({ apiUrl }: Props) {
   }
 
   function clearSettings() {
-    void mutate('/api/config?scope=' + scope, { method: 'DELETE' }, (result) => result.source !== 'none' && result.source !== result.clearedScope
+    void mutate(API_PATHS.config + '?scope=' + scope, { method: 'DELETE' }, (result) => result.source !== 'none' && result.source !== result.clearedScope
       ? 'Cleared the ' + result.clearedScope + ' config. The ' + result.source + ' setting is still active.'
       : 'Cleared the ' + result.clearedScope + ' config.');
   }
 
   return (
     <DrawerShell
-      id="settings-drawer-toggle"
+      id={DRAWER_TOGGLES.settings}
       title="Settings"
-      onOpen={() => { closeDrawers('change-deck-toggle', 'publish-drawer-toggle'); void loadSettings(); }}
+      onOpen={() => { closeDrawers(DRAWER_TOGGLES.changeDeck, DRAWER_TOGGLES.publish); void loadSettings(); }}
     >
       <div className="min-h-0 flex-1 divide-y divide-base-300">
         <Section

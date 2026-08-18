@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { z } from 'zod';
 import { useMountEffect } from './useMountEffect';
 import { closeDrawers, errorMessage, request } from './api';
+import { API_PATHS, DRAWER_TOGGLES, RESOURCE_TYPE_LABELS, useStatus } from './lib';
 import DrawerShell from './DrawerShell';
 
 type Props = {
@@ -46,8 +47,7 @@ export default function PublishForm({ apiUrl }: Props) {
   const [description, setDescription] = useState('');
   const [review, setReview] = useState<Review | null>(null);
   const [validated, setValidated] = useState(false);
-  const [status, setStatus] = useState('Loading GitHub username…');
-  const [error, setError] = useState(false);
+  const { status, error, showStatus } = useStatus('Loading GitHub username…');
   const [busy, setBusy] = useState(false);
   const [pullRequestUrl, setPullRequestUrl] = useState('');
 
@@ -55,14 +55,9 @@ export default function PublishForm({ apiUrl }: Props) {
     void loadGithubUsername();
   });
 
-  function showStatus(message: string, isError = false) {
-    setStatus(message);
-    setError(isError);
-  }
-
   async function loadGithubUsername() {
     try {
-      const result = apiResultSchema.parse(await request<unknown>(apiUrl, '/api/github-user'));
+      const result = apiResultSchema.parse(await request<unknown>(apiUrl, API_PATHS.githubUser));
       const username = result.username?.trim();
       if (!username) {
         throw new Error(result.error ?? 'Could not determine the GitHub username.');
@@ -118,7 +113,7 @@ export default function PublishForm({ apiUrl }: Props) {
     setBusy(true);
     showStatus('Validating resource…');
     try {
-      const result = apiResultSchema.parse(await submit('/api/validate'));
+      const result = apiResultSchema.parse(await submit(API_PATHS.validate));
       const nextReview = {
         resource: result.resource ?? [owner, type, name].join('/'),
         version: result.version ?? version,
@@ -143,7 +138,7 @@ export default function PublishForm({ apiUrl }: Props) {
     setBusy(true);
     showStatus('Creating pull request…');
     try {
-      const result = apiResultSchema.parse(await submit('/api/submit'));
+      const result = apiResultSchema.parse(await submit(API_PATHS.submit));
       const url = result.pullRequestUrl ?? '';
       setPullRequestUrl(url);
       setValidated(false);
@@ -173,11 +168,9 @@ export default function PublishForm({ apiUrl }: Props) {
             <label className="fieldset">
               <span className="fieldset-legend">Type</span>
               <select className="select w-full" value={type} onChange={(event) => { setType(event.currentTarget.value); resetValidation(); }} required disabled={busy}>
-                <option value="skills">Skill</option>
-                <option value="agents">Agent</option>
-                <option value="rules">Rule</option>
-                <option value="mcp-servers">MCP Server</option>
-                <option value="templates">Template</option>
+                {Object.entries(RESOURCE_TYPE_LABELS).map(([value, label]) => (
+                  <option value={value} key={value}>{label}</option>
+                ))}
               </select>
             </label>
             <label className="fieldset sm:col-span-2 lg:col-span-1">
@@ -198,7 +191,7 @@ export default function PublishForm({ apiUrl }: Props) {
         <fieldset className="fieldset">
           <legend className="fieldset-legend text-base font-semibold">Resource files</legend>
           <p className="text-sm text-base-content/60">Choose the folder that contains the resource files.</p>
-          <input className="file-input mt-2 w-full" type="file" multiple required ref={(element) => element?.setAttribute('webkitdirectory', '')} onChange={onFilesChange} disabled={busy} />
+          <input className="file-input mt-2 w-full" type="file" multiple required aria-label="Resource files directory" ref={(element) => element?.setAttribute('webkitdirectory', '')} onChange={onFilesChange} disabled={busy} />
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-base-content/60">
             <span className="badge badge-ghost">{paths.length} file{paths.length === 1 ? '' : 's'}</span>
             {folder && <span>Folder: {folder}</span>}
@@ -294,9 +287,9 @@ export default function PublishForm({ apiUrl }: Props) {
 
   return (
     <DrawerShell
-      id="publish-drawer-toggle"
+      id={DRAWER_TOGGLES.publish}
       title="Publish resource"
-      onOpen={() => closeDrawers('change-deck-toggle', 'settings-drawer-toggle')}
+      onOpen={() => closeDrawers(DRAWER_TOGGLES.changeDeck, DRAWER_TOGGLES.settings)}
     >
       {content}
     </DrawerShell>

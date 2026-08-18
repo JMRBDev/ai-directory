@@ -1,12 +1,9 @@
 import type { Harness } from '@ai-directory/contracts';
-import { resourceKey } from '@ai-directory/contracts';
 
 export type { Harness } from '@ai-directory/contracts';
 export type {
   InstallationRecord as Installation,
   LocalResource,
-  LocalResourceRegistryState,
-  LocalResourceState,
   PlannedResourceChange as PlanChange,
   ResourceChangePlan as ChangePlan,
 } from '@ai-directory/installers';
@@ -23,8 +20,6 @@ export const scopeOptions: Array<{ value: InstallScope; label: string; hint: str
   { value: 'user', label: 'User', hint: 'Available in all your projects' },
   { value: 'project', label: 'Project', hint: 'Shared with the team in this project' },
 ];
-
-export { resourceKey as resourceId };
 
 export function shortenHomePath(path: string, homeDir?: string) {
   if (!homeDir) return path;

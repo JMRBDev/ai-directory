@@ -1,6 +1,7 @@
 import { useRef, useState } from 'preact/hooks';
 import type { ResourceSummary } from '@ai-directory/contracts';
 import { closeDrawers, errorMessage, request } from './api';
+import { API_PATHS, appliedChangesMessage, DRAWER_TOGGLES, JSON_HEADERS } from './lib';
 import {
   ChangeDeckContext,
   type ActionMap,
@@ -114,7 +115,7 @@ export default function ChangeDeckProvider({
 
   async function loadInstallations() {
     try {
-      const result = await request<{ installations?: Installation[] }>(apiUrl, '/api/installed');
+      const result = await request<{ installations?: Installation[] }>(apiUrl, API_PATHS.installed);
       setInstallations(result.installations ?? []);
     } catch {
       setInstallations([]);
@@ -126,7 +127,7 @@ export default function ChangeDeckProvider({
     try {
       const result = await request<{ resources?: LocalResource[]; registryError?: string }>(
         apiUrl,
-        '/api/local-resources',
+        API_PATHS.localResources,
       );
       setLocalResources(result.resources ?? []);
       setLocalRegistryError(result.registryError);
@@ -173,9 +174,9 @@ export default function ChangeDeckProvider({
       const fingerprints: Record<string, string> = {};
       for (const group of groupRequests) {
         const operations = operationsFor(group.items, nextHarnesses, nextScope);
-        const result = await request<ChangePlan>(apiUrl, '/api/plan', {
+        const result = await request<ChangePlan>(apiUrl, API_PATHS.plan, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: JSON_HEADERS,
           body: JSON.stringify({ operations }),
         });
         if (currentRequest !== requestId.current) return;
@@ -265,16 +266,16 @@ export default function ChangeDeckProvider({
         const operations = operationsFor(group.items, harnesses, scope);
         let fingerprint = planFingerprints[group.name];
         if (index > 0) {
-          const fresh = await request<ChangePlan>(apiUrl, '/api/plan', {
+          const fresh = await request<ChangePlan>(apiUrl, API_PATHS.plan, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: JSON_HEADERS,
             body: JSON.stringify({ operations }),
           });
           fingerprint = fresh.fingerprint;
         }
-        const result = await request<{ plan: ChangePlan; warnings?: string[] }>(apiUrl, '/api/apply', {
+        const result = await request<{ plan: ChangePlan; warnings?: string[] }>(apiUrl, API_PATHS.apply, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: JSON_HEADERS,
           body: JSON.stringify({ operations, force, planFingerprint: fingerprint }),
         });
         appliedChanges += result.plan.changes.length;
@@ -284,11 +285,7 @@ export default function ChangeDeckProvider({
       setPlanError(false);
       setStaged({});
       setPlanFingerprints({});
-      setPlanStatus(
-        'Applied ' + appliedChanges + ' file change'
-        + (appliedChanges === 1 ? '' : 's') + '.'
-        + (warnings.length ? '\n' + [...new Set(warnings)].join('\n') : ''),
-      );
+      setPlanStatus(appliedChangesMessage(appliedChanges, warnings));
       void loadInstallations();
       void loadLocalResources();
     } catch (cause) {
@@ -318,8 +315,6 @@ export default function ChangeDeckProvider({
     unstage,
     unstageResource,
     clear,
-    setHarnesses,
-    setScope,
     setForce,
     loadLocalResources,
     applyChanges,
@@ -331,9 +326,9 @@ export default function ChangeDeckProvider({
       <InstalledResources homeDir={homeDir} />
 
       <DrawerShell
-        id="change-deck-toggle"
+        id={DRAWER_TOGGLES.changeDeck}
         title="Change deck"
-        onOpen={() => closeDrawers('installed-drawer-toggle', 'settings-drawer-toggle', 'publish-drawer-toggle')}
+        onOpen={() => closeDrawers(DRAWER_TOGGLES.installed, DRAWER_TOGGLES.settings, DRAWER_TOGGLES.publish)}
       >
         {stagedItems.length > 0 && (
           <div className="mb-5 flex items-center justify-between gap-3">

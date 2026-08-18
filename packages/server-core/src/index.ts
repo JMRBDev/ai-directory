@@ -11,6 +11,7 @@ import {
   getInstallManifestPath,
   getProjectInstallManifestPath,
   getRepositorySetting,
+  getScopeInstallManifestPath,
   readConfigFile,
   writeConfigFile,
   type ConfigScope,
@@ -18,6 +19,7 @@ import {
 import {
   applyMcpOperations,
   applyResourceOperations,
+  assertInstalledFor,
   discoverLocalResources,
   enrichLocalResources,
   errorMessage,
@@ -401,20 +403,7 @@ export function installManifestPath(
   options: ServerOptions = {},
   cwd: string = process.cwd(),
 ): string {
-  return scope === 'project'
-    ? getProjectInstallManifestPath(cwd)
-    : getInstallManifestPath(options.homeDirectory);
-}
-
-function manifestPathFor(
-  isMcp: boolean,
-  scope: ConfigScope,
-  options: ServerOptions,
-  cwd: string,
-): string {
-  return isMcp
-    ? installManifestPath(scope, options, cwd)
-    : getInstallManifestPath(options.homeDirectory);
+  return getScopeInstallManifestPath(scope, cwd, options.homeDirectory);
 }
 
 const cachedRegistry = createCachedRegistry();
@@ -875,7 +864,7 @@ export function createApp(options: ServerOptions = {}) {
       const isMcp = isMcpResource(request.resource);
       const scope = isMcp ? (request.scope ?? 'user') : 'user';
       const manifest = await readInstallationManifest(
-        manifestPathFor(isMcp, scope, options, cwd),
+        installManifestPath(scope, options, cwd),
       );
       const loaded = await readRegistrySourceResource(
         registrySource(options, cwd),
@@ -891,14 +880,12 @@ export function createApp(options: ServerOptions = {}) {
         ),
       );
 
-      if (existing.some((records) => records.some((record) => !record))) {
-        const missing = request.harnesses.filter((_, index) =>
-          existing[index]?.some((record) => !record),
-        );
-        throw new Error(
-          `${request.resource} is not installed for ${missing.join(', ')}.`,
-        );
-      }
+      assertInstalledFor(
+        manifest,
+        loaded.resources.map((resource) => resourceKey(resource.resource)),
+        request.harnesses,
+        request.resource,
+      );
 
       const existingRecords = existing.flatMap((records) =>
         records.filter(
@@ -973,30 +960,13 @@ export function createApp(options: ServerOptions = {}) {
       const isMcp = isMcpResource(request.resource);
       const scope = isMcp ? (request.scope ?? 'user') : 'user';
       const manifest = await readInstallationManifest(
-        manifestPathFor(isMcp, scope, options, cwd),
+        installManifestPath(scope, options, cwd),
       );
       const resourceIds = await installationResourceIds(
         request.resource,
         registrySource(options, cwd),
       );
-      const existing = request.harnesses.map((harness) =>
-        resourceIds.map((resource) =>
-          manifest.installations.find(
-            (record) =>
-              record.resource === resource &&
-              record.harness === harness,
-          ),
-        ),
-      );
-
-      if (existing.some((records) => records.some((record) => !record))) {
-        const missing = request.harnesses.filter((_, index) =>
-          existing[index]?.some((record) => !record),
-        );
-        throw new Error(
-          `${request.resource} is not installed for ${missing.join(', ')}.`,
-        );
-      }
+      assertInstalledFor(manifest, resourceIds, request.harnesses, request.resource);
 
       const result = isMcp
         ? await applyMcpOperations(
