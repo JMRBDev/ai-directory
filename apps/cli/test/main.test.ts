@@ -196,6 +196,45 @@ describe('CLI', () => {
     }
   });
 
+  it('creates a plugin bundle scaffold with a manifest', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-plugin-create-'));
+
+    try {
+      const result = runAid(
+        [
+          'create',
+          'review-pack',
+          '--type',
+          'plugins',
+          '--owner',
+          'jane-doe',
+          '--description',
+          'A review pack.',
+          '--output',
+          'bundle',
+        ],
+        cwd,
+      );
+      const entry = readFileSync(
+        join(cwd, 'bundle', '.claude-plugin', 'plugin.json'),
+        'utf8',
+      );
+
+      expect(result.code).toBe(0);
+      expect(entry).toContain('"name": "review-pack"');
+      expect(entry).toContain('"description": "A review pack."');
+
+      const validation = runAid(
+        ['validate', 'bundle', '--id', 'jane-doe/plugins/review-pack'],
+        cwd,
+      );
+      expect(validation.code).toBe(0);
+      expect(validation.stdout).toContain('Valid: jane-doe/plugins/review-pack@1.0.0');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('reports missing arguments without prompting without a terminal', () => {
     const result = runAid(['install']);
 

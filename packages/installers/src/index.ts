@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rm } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   configuredPath,
@@ -12,7 +13,7 @@ import {
 } from '@ai-directory/config';
 export { isMissingPathError, pathExists } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/contracts';
-import type { ResourceVersion } from '@ai-directory/registry';
+import type { ResourceFile, ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
 import { z } from 'zod';
 import {
@@ -241,8 +242,12 @@ export async function installCodexResources(
   const paths = codexInstallPaths(options);
   const plans = resources.map((resource) => createCodexPlan(paths, resource));
   const rules = plans.filter((plan) => plan.resource.resource.type === 'rules');
+  const plugins = plans.filter((plan) => plan.resource.resource.type === 'plugins');
   const guidance = rules.length > 0
     ? await prepareCodexGuidance(paths.guidanceRoot, rules, options.force ?? false)
+    : undefined;
+  const marketplace = plugins.length > 0
+    ? await prepareCodexMarketplace(paths, plugins, options.force ?? false)
     : undefined;
 
   await assertInstallPlansAvailable(plans, options);
@@ -252,9 +257,14 @@ export async function installCodexResources(
     await writeFileAtomic(guidance.path, guidance.content);
   }
 
+  if (marketplace && !options.dryRun) {
+    await writeFileAtomic(marketplace.path, marketplace.content);
+  }
+
   const fileHashes = await hashInstallPlans(plans);
 
   return plans.map((plan) => {
+    const isPlugin = plan.resource.resource.type === 'plugins';
     const result: InstallResult = {
       destination:
         plan.resource.resource.type === 'rules' && guidance
@@ -265,6 +275,7 @@ export async function installCodexResources(
       paths: [
         ...plan.files.map((file) => file.destination),
         ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
+        ...(isPlugin && marketplace ? [marketplace.path] : []),
       ],
       ownedPaths: plan.files.map((file) => file.destination),
       fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
@@ -274,6 +285,9 @@ export async function installCodexResources(
         ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
         ...(plan.resource.resource.type === 'rules' && guidance
           ? [{ path: guidance.path, content: guidance.content }]
+          : []),
+        ...(isPlugin && marketplace
+          ? [{ path: marketplace.path, content: marketplace.content }]
           : []),
       ];
     }
@@ -368,21 +382,39 @@ export async function hashFile(path: string): Promise<string | null> {
 const claudeCodeInstaller: HarnessAdapter = {
   harness: 'claude-code',
   installation: 'native-filesystem',
-  capabilities: { skills: 'native', agents: 'native', rules: 'native', 'mcp-servers': 'configured' },
+  capabilities: {
+    skills: 'native',
+    agents: 'native',
+    rules: 'native',
+    'mcp-servers': 'configured',
+    plugins: 'native',
+  },
   install: installClaudeCodeResources,
 };
 
 export const openCodeInstaller: HarnessAdapter = {
   harness: 'opencode',
   installation: 'native-filesystem',
-  capabilities: { skills: 'native', agents: 'translated', rules: 'configured', 'mcp-servers': 'configured' },
+  capabilities: {
+    skills: 'native',
+    agents: 'translated',
+    rules: 'configured',
+    'mcp-servers': 'configured',
+    plugins: 'native',
+  },
   install: installOpenCodeResources,
 };
 
 const codexInstaller: HarnessAdapter = {
   harness: 'codex',
   installation: 'native-filesystem',
-  capabilities: { skills: 'native', agents: 'translated', rules: 'configured', 'mcp-servers': 'configured' },
+  capabilities: {
+    skills: 'native',
+    agents: 'translated',
+    rules: 'configured',
+    'mcp-servers': 'configured',
+    plugins: 'configured',
+  },
   install: installCodexResources,
 };
 
@@ -908,6 +940,11 @@ async function removeSharedConfiguration(
 ): Promise<InstallChange[]> {
   const type = resourceType(record.resource);
 
+  if (type === 'plugins' && record.harness === 'codex') {
+    const change = await removeCodexMarketplaceEntry(record, options);
+    return change ? [change] : [];
+  }
+
   if (type !== 'rules') return [];
 
   if (record.harness === 'opencode') {
@@ -1001,7 +1038,7 @@ async function removeCodexGuidance(record: InstallationRecord): Promise<InstallC
 
 export function resourceType(resource: string): ResourceKind | undefined {
   const type = resource.split('/')[1];
-  return type === 'skills' || type === 'agents' || type === 'rules'
+  return type === 'skills' || type === 'agents' || type === 'rules' || type === 'plugins'
     ? type
     : undefined;
 }
@@ -1037,6 +1074,7 @@ type CodexInstallPaths = {
   codexHome: string;
   skillsRoot: string;
   guidanceRoot: string;
+  marketplacePath: string;
 };
 
 function createClaudeCodePlan(
@@ -1047,6 +1085,10 @@ function createClaudeCodePlan(
     throw new Error(
       'Claude Code installation supports skills, agents, and rules. Templates must be expanded first.',
     );
+  }
+
+  if (resource.resource.type === 'plugins') {
+    return createPluginPlan(join(root, 'skills'), resource);
   }
 
   const projection = projectFiles(resource, 'claude-code');
@@ -1071,6 +1113,29 @@ function createOpenCodePlan(
     throw new Error(
       'OpenCode installation supports skills, agents, and rules. Templates must be expanded first.',
     );
+  }
+
+  if (resource.resource.type === 'plugins') {
+    const moduleFile = openCodePluginModule(resource);
+
+    if (!moduleFile) {
+      throw new Error(
+        `Plugin is missing an OpenCode module (.opencode/plugin.ts or .opencode/plugin.js): ${resourceKey(resource.resource)}`,
+      );
+    }
+
+    const extension = moduleFile.path.endsWith('.ts') ? '.ts' : '.js';
+    const destination = safeDestination(
+      join(root, 'plugins'),
+      `${resource.resource.name}${extension}`,
+    );
+
+    return {
+      resource,
+      destination,
+      files: [{ ...moduleFile, destination }],
+      skippedFiles: [],
+    };
   }
 
   const projection = projectFiles(resource, 'opencode');
@@ -1101,6 +1166,10 @@ function createCodexPlan(
     );
   }
 
+  if (resource.resource.type === 'plugins') {
+    return createPluginPlan(join(paths.codexHome, 'plugins'), resource);
+  }
+
   const projection = projectFiles(resource, 'codex');
   const files = projection.files.map((file) => ({
     ...file,
@@ -1117,6 +1186,24 @@ function createCodexPlan(
     files,
     skippedFiles: projection.skippedFiles,
   };
+}
+
+function createPluginPlan(
+  root: string,
+  resource: ResourceVersion,
+): InstallPlan {
+  const destination = join(root, resource.resource.name);
+  const files = resource.files.map((file) => ({
+    ...file,
+    destination: safeDestination(destination, file.path),
+  }));
+
+  return { resource, destination, files, skippedFiles: [] };
+}
+
+function openCodePluginModule(resource: ResourceVersion): ResourceFile | undefined {
+  return resource.files.find((file) => file.path === '.opencode/plugin.ts')
+    ?? resource.files.find((file) => file.path === '.opencode/plugin.js');
 }
 
 function projectFiles(resource: ResourceVersion, harness: Harness) {
@@ -1172,6 +1259,12 @@ function codexInstallPaths(options: InstallOptions): CodexInstallPaths {
     codexHome: location.config,
     skillsRoot: location.skills,
     guidanceRoot: location.guidance,
+    marketplacePath: join(
+      resolve(options.homeDirectory ?? homedir()),
+      '.agents',
+      'plugins',
+      'marketplace.json',
+    ),
   };
 }
 
@@ -1356,6 +1449,126 @@ function upsertCodexRule(
       : '\n\n';
 
   return `${contents}${separator}${block}\n`;
+}
+
+const marketplacePluginSchema = z
+  .object({
+    name: z.string().min(1),
+    source: z
+      .object({
+        source: z.string().min(1),
+        path: z.string().min(1),
+      })
+      .passthrough(),
+    policy: z
+      .object({
+        installation: z.string().min(1),
+        authentication: z.string().min(1),
+      })
+      .passthrough(),
+    category: z.string().min(1),
+  })
+  .passthrough();
+
+const marketplaceSchema = z
+  .object({
+    name: z.string().optional(),
+    plugins: z.array(marketplacePluginSchema).optional(),
+  })
+  .passthrough();
+
+type MarketplaceData = z.infer<typeof marketplaceSchema>;
+type MarketplacePlugin = z.infer<typeof marketplacePluginSchema>;
+type MarketplaceRemoval = {
+  content: string;
+  changed: boolean;
+};
+
+function marketplacePluginEntry(name: string): MarketplacePlugin {
+  return {
+    name,
+    source: { source: 'local', path: `../.codex/plugins/${name}` },
+    policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+    category: 'AI Directory',
+  };
+}
+
+async function prepareCodexMarketplace(
+  paths: CodexInstallPaths,
+  plans: InstallPlan[],
+  force: boolean,
+): Promise<PreparedText> {
+  const current = (await currentFile(paths.marketplacePath)) ?? '';
+  const data = current.trim() ? parseMarketplace(current, paths.marketplacePath) : {};
+  const plugins = [...(data.plugins ?? [])];
+
+  for (const plan of plans) {
+    const name = plan.resource.resource.name;
+    const existing = plugins.findIndex((plugin) => plugin.name === name);
+
+    if (existing !== -1 && !force) {
+      throw new Error(
+        `Codex plugin is already registered in the marketplace: ${name}. Use --force to overwrite.`,
+      );
+    }
+
+    const entry = marketplacePluginEntry(name);
+    if (existing !== -1) plugins[existing] = entry;
+    else plugins.push(entry);
+  }
+
+  return {
+    path: paths.marketplacePath,
+    content: `${JSON.stringify({ name: data.name ?? 'ai-directory', plugins }, null, 2)}\n`,
+  };
+}
+
+function parseMarketplace(content: string, path: string): MarketplaceData {
+  if (!content.trim()) return {};
+  const errors: Array<{ error: number; offset: number; length: number }> = [];
+  const result = marketplaceSchema.safeParse(parse(content, errors));
+
+  if (errors.length > 0 || !result.success) {
+    throw new Error(`Codex marketplace is not a valid object: ${path}`);
+  }
+
+  return result.data;
+}
+
+function removeCodexMarketplacePlugin(
+  content: string,
+  name: string,
+  path: string,
+): MarketplaceRemoval {
+  if (!content.trim()) return { content, changed: false };
+  const data = parseMarketplace(content, path);
+
+  if (!data.plugins) return { content, changed: false };
+
+  const plugins = data.plugins.filter((plugin) => plugin.name !== name);
+  if (plugins.length === data.plugins.length) return { content, changed: false };
+
+  return {
+    content: `${JSON.stringify({ ...data, plugins }, null, 2)}\n`,
+    changed: true,
+  };
+}
+
+async function removeCodexMarketplaceEntry(
+  record: InstallationRecord,
+  options: InstallOptions,
+): Promise<InstallChange | null> {
+  const paths = codexInstallPaths(options);
+  const current = await currentFile(paths.marketplacePath);
+
+  if (current === null) return null;
+
+  const name = record.resource.split('/').at(-1) ?? record.resource;
+  const removal = removeCodexMarketplacePlugin(current, name, paths.marketplacePath);
+
+  if (!removal.changed) return null;
+
+  return { path: paths.marketplacePath, content: removal.content };
 }
 
 function openCodeAgentContent(resource: ResourceVersion): string {

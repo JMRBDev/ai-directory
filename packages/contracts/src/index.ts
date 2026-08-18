@@ -1,6 +1,13 @@
 import { z } from 'zod';
 
-export const resourceTypeSchema = z.enum(['skills', 'agents', 'rules', 'mcp-servers', 'templates']);
+export const resourceTypeSchema = z.enum([
+  'skills',
+  'agents',
+  'rules',
+  'mcp-servers',
+  'templates',
+  'plugins',
+]);
 export const resourceReviewStatusSchema = z.enum(['unreviewed', 'reviewed']);
 export const resourceLifecycleStatusSchema = z.enum(['active', 'retired']);
 export const resourceVisibilitySchema = z.enum(['private', 'targeted', 'public']);
@@ -11,7 +18,7 @@ export const resourceVersionSchema = z
   .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 
 export const resourceIdSchema = z.string().regex(
-  /^[a-z0-9]+(?:-[a-z0-9]+)*\/(?:skills|agents|rules|mcp-servers|templates)\/[a-z0-9]+(?:-[a-z0-9]+)*$/,
+  /^[a-z0-9]+(?:-[a-z0-9]+)*\/(?:skills|agents|rules|mcp-servers|templates|plugins)\/[a-z0-9]+(?:-[a-z0-9]+)*$/,
 );
 
 const templateResourceIdSchema = resourceIdSchema.refine(
@@ -31,6 +38,16 @@ export const templateManifestSchema = z.object({
     )
     .min(1),
 });
+
+export const pluginManifestSchema = z
+  .object({
+    name: slugSchema,
+    description: z.string().min(1).optional(),
+    version: resourceVersionSchema.optional(),
+  })
+  .passthrough();
+
+export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 
 export const mcpTransportSchema = z.enum(['stdio', 'http', 'sse', 'ws']);
 
@@ -123,7 +140,17 @@ export const RESOURCE_ENTRY_FILES = {
   rules: 'RULE.md',
   'mcp-servers': 'MCP.md',
   templates: 'TEMPLATE.md',
+  plugins: '.claude-plugin/plugin.json',
 } satisfies Record<ResourceType, string>;
+
+export const PLUGIN_ENTRY_FILES = [
+  '.claude-plugin/plugin.json',
+  '.codex-plugin/plugin.json',
+] as const;
+
+export function resourceEntryFiles(type: ResourceType): readonly string[] {
+  return type === 'plugins' ? PLUGIN_ENTRY_FILES : [RESOURCE_ENTRY_FILES[type]];
+}
 
 export function resourceKey(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>): string {
   return `${resource.owner}/${resource.type}/${resource.name}`;

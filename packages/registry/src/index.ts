@@ -11,13 +11,16 @@ import { dirname, join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import {
-  RESOURCE_ENTRY_FILES,
+  PLUGIN_ENTRY_FILES,
   mcpServerManifestSchema,
+  pluginManifestSchema,
   registryIndexSchema,
+  resourceEntryFiles,
   resourceIdSchema,
   resourceVersionSchema,
   templateManifestSchema,
   type McpServerManifest,
+  type PluginManifest,
   type ResourceType,
   type ResourceSummary,
   type RegistryIndex,
@@ -630,19 +633,35 @@ export async function validateResourceDirectory(
       content: await readFile(path, 'utf8'),
     })),
   );
-  const entryFile = files.find((file) => file.path === RESOURCE_ENTRY_FILES[resource.type]);
+  const entryFile = files.find((file) => resourceEntryFiles(resource.type).includes(file.path));
 
   if (!entryFile) {
-    throw new Error(
-      `${options.resourceId}@${options.version} is missing ${RESOURCE_ENTRY_FILES[resource.type]}`,
-    );
+    const expected = resourceEntryFiles(resource.type).join(' or ');
+    throw new Error(`${options.resourceId}@${options.version} is missing ${expected}`);
   }
 
   if (!entryFile.content.trim()) {
     throw new Error(`${options.resourceId}@${options.version} has an empty ${entryFile.path}`);
   }
 
-  const description = options.description?.trim() || inferResourceDescription(entryFile.content);
+  const resourceVersion: ResourceVersion = {
+    resource: {
+      ...resource,
+      description: 'Local resource validation',
+      latestVersion: options.version,
+      reviewStatus: 'unreviewed',
+      lifecycleStatus: 'active',
+      visibility: 'public',
+      updatedAt: 'local',
+    },
+    version: options.version,
+    files,
+  };
+
+  const description = options.description?.trim()
+    || (resource.type === 'plugins'
+      ? readPluginManifest(resourceVersion).manifest.description
+      : inferResourceDescription(entryFile.content));
   if (!description) {
     throw new Error(
       `${options.resourceId}@${options.version} has no usable description. Add a description to ${entryFile.path} or pass one explicitly.`,
@@ -650,35 +669,15 @@ export async function validateResourceDirectory(
   }
 
   if (resource.type === 'templates') {
-    readTemplateManifest({
-      resource: {
-        ...resource,
-        description: 'Local resource validation',
-        latestVersion: options.version,
-        reviewStatus: 'unreviewed',
-        lifecycleStatus: 'active',
-        visibility: 'public',
-        updatedAt: 'local',
-      },
-      version: options.version,
-      files,
-    });
+    readTemplateManifest(resourceVersion);
   }
 
   if (resource.type === 'mcp-servers') {
-    readMcpServerManifest({
-      resource: {
-        ...resource,
-        description: 'Local resource validation',
-        latestVersion: options.version,
-        reviewStatus: 'unreviewed',
-        lifecycleStatus: 'active',
-        visibility: 'public',
-        updatedAt: 'local',
-      },
-      version: options.version,
-      files,
-    });
+    readMcpServerManifest(resourceVersion);
+  }
+
+  if (resource.type === 'plugins') {
+    readPluginManifest(resourceVersion);
   }
 
   return { sourceDirectory, resource, entryFile, files, description };
@@ -765,7 +764,12 @@ async function submitResourceInCheckout(
     const indexFile = relative(registryRoot, registryIndexPath);
     const packageDirectory = relative(registryRoot, published.packageDirectory);
 
-    await executeCommand(runner, 'git', ['add', '--', indexFile, packageDirectory], registryRoot);
+    await executeCommand(
+      runner,
+      'git',
+      ['add', '--sparse', '--', indexFile, packageDirectory],
+      registryRoot,
+    );
     await executeCommand(
       runner,
       'git',
@@ -972,6 +976,58 @@ export function readMcpServerManifest(resource: ResourceVersion): McpServerManif
   return result.data;
 }
 
+export type PluginManifestResult = {
+  file: ResourceFile;
+  manifest: PluginManifest;
+};
+
+export function readPluginManifest(resource: ResourceVersion): PluginManifestResult {
+  if (resource.resource.type !== 'plugins') {
+    throw new Error(`Resource is not a plugin: ${resourceKey(resource.resource)}`);
+  }
+
+  const entryFile = resource.files.find((file) =>
+    PLUGIN_ENTRY_FILES.some((entry) => entry === file.path),
+  );
+
+  if (!entryFile) {
+    throw new Error(
+      `Plugin is missing a manifest (${PLUGIN_ENTRY_FILES.join(' or ')}): ${resourceKey(resource.resource)}`,
+    );
+  }
+
+  let data: unknown;
+
+  try {
+    data = JSON.parse(entryFile.content);
+  } catch (error) {
+    throw new Error(
+      `Plugin manifest is not valid JSON: ${resourceKey(resource.resource)}@${resource.version}`,
+      { cause: error },
+    );
+  }
+
+  const result = pluginManifestSchema.safeParse(data);
+
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `${issue.path.join('.') || 'manifest'}: ${issue.message}`)
+      .join('; ');
+
+    throw new Error(
+      `Plugin manifest is invalid (${resourceKey(resource.resource)}@${resource.version}): ${issues}`,
+    );
+  }
+
+  if (result.data.name !== resource.resource.name) {
+    throw new Error(
+      `Plugin manifest name does not match resource name: ${result.data.name} !== ${resource.resource.name}`,
+    );
+  }
+
+  return { file: entryFile, manifest: result.data };
+}
+
 export async function readTemplateResources(
   indexPath: string,
   template: ResourceVersion,
@@ -1013,10 +1069,14 @@ async function validateResourceIndex(
     try {
       const loadedVersion = await readVersion(resource);
       const files = loadedVersion.files;
-      const entryFile = files.find((file) => file.path === RESOURCE_ENTRY_FILES[resource.type]);
+      const entryFile = files.find((file) =>
+        resourceEntryFiles(resource.type).includes(file.path),
+      );
 
       if (!entryFile) {
-        issues.push(`${id}@${requestedVersion} is missing ${RESOURCE_ENTRY_FILES[resource.type]}`);
+        issues.push(
+          `${id}@${requestedVersion} is missing ${resourceEntryFiles(resource.type).join(' or ')}`,
+        );
       } else if (!entryFile.content.trim()) {
         issues.push(`${id}@${requestedVersion} has an empty ${entryFile.path}`);
       }
