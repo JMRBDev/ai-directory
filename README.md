@@ -25,7 +25,6 @@ apps/
 packages/
   config/          Shared user/project configuration
   contracts/        Shared API and registry contracts
-  domain/           Resource and version rules
   installers/       Harness adapter boundary
   registry/         Git-backed registry boundary
   server-core/      Reusable Hono application

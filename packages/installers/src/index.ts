@@ -411,6 +411,26 @@ export async function readInstallationManifest(path: string): Promise<Installati
   return result.data;
 }
 
+export function assertInstalledFor(
+  manifest: InstallationManifest,
+  resources: string[],
+  harnesses: Harness[],
+  resource: string,
+): void {
+  const missing = harnesses.filter((harness) =>
+    resources.some(
+      (id) =>
+        !manifest.installations.some(
+          (record) => record.resource === id && record.harness === harness,
+        ),
+    ),
+  );
+
+  if (missing.length > 0) {
+    throw new Error(`${resource} is not installed for ${missing.join(', ')}.`);
+  }
+}
+
 export async function updateInstallationManifest(
   path: string,
   records: InstallationRecord[],
@@ -449,7 +469,7 @@ export function createInstallationRecords(
   });
 }
 
-export async function saveInstallationRecords(
+async function saveInstallationRecords(
   path: string,
   records: InstallationRecord[],
   options: InstallOptions,
@@ -491,7 +511,7 @@ async function rewriteInstallationManifest(
   return manifest;
 }
 
-export async function assertInstallationFilesUnchanged(
+async function assertInstallationFilesUnchanged(
   record: InstallationRecord,
   force = false,
 ): Promise<void> {
@@ -928,7 +948,7 @@ async function removeOpenCodeInstruction(
 ): Promise<InstallChange | null> {
   const root = openCodeInstallRoot(options);
   const path = await openCodeConfigPath(root, options);
-  const current = await readOptionalText(path);
+  const current = await currentFile(path);
 
   if (current === null) return null;
 
@@ -953,7 +973,7 @@ async function removeOpenCodeInstruction(
 }
 
 async function removeCodexGuidance(record: InstallationRecord): Promise<InstallChange | null> {
-  const current = await readOptionalText(record.destination);
+  const current = await currentFile(record.destination);
 
   if (current === null) return null;
 
@@ -1214,7 +1234,7 @@ async function prepareOpenCodeInstructions(
       resourceDestination(root, resource),
     )),
   );
-  const current = await readOptionalText(path);
+  const current = await currentFile(path);
 
   if (current === null) {
     return {
@@ -1275,7 +1295,7 @@ async function prepareCodexGuidance(
   force: boolean,
 ): Promise<PreparedText> {
   const path = await codexGuidancePath(codexHome);
-  let content = (await readOptionalText(path)) ?? '';
+  let content = (await currentFile(path)) ?? '';
 
   for (const plan of plans) {
     content = upsertCodexRule(content, plan.resource, force);
@@ -1639,16 +1659,4 @@ function isProcessRunning(pid: number): boolean {
 
 function toPosixPath(path: string): string {
   return path.split(sep).join('/');
-}
-
-async function readOptionalText(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, 'utf8');
-  } catch (error) {
-    if (isMissingPathError(error)) {
-      return null;
-    }
-
-    throw error;
-  }
 }

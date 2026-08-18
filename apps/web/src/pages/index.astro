@@ -2,7 +2,7 @@
 import { homedir } from "node:os";
 import { loadRegistry, refreshRegistry } from "../lib/registry";
 import { resolveApiUrl } from "../lib/api";
-import { resourceKey } from '@ai-directory/contracts';
+import { API_PATHS } from "../components/preact/lib";
 import ThemeInit from "../components/ThemeInit.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 import ChangeDeckProvider from "../components/preact/ChangeDeck";
@@ -12,15 +12,15 @@ import "../styles/global.css";
 
 if (Astro.url.searchParams.get("refresh") === "1") await refreshRegistry();
 const registry = await loadRegistry();
-const resources = (registry.index?.resources ?? [])
-  .filter((resource) => resource.lifecycleStatus === "active")
-  .sort((left, right) => resourceKey(left).localeCompare(resourceKey(right)));
+const resources = (registry.index?.resources ?? []).filter(
+  (resource) => resource.lifecycleStatus === "active",
+);
 const apiUrl =
   import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astro.url.hostname);
 const homeDir = homedir();
 
 if (Astro.url.searchParams.get("refresh") === "1") {
-  void fetch(apiUrl + "/api/refresh", { method: "POST" }).catch(() => undefined);
+  void fetch(apiUrl + API_PATHS.refresh, { method: "POST" }).catch(() => undefined);
 }
 ---
 

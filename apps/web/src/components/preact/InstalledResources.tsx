@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import DrawerShell from './DrawerShell';
 import { closeDrawers } from './api';
 import { useChangeDeck, type StagedItem } from './ChangeDeckContext';
+import { DRAWER_TOGGLES, RESOURCE_TYPE_LABELS } from './lib';
 import { harnessOptions, shortenHomePath } from './types';
 import type { Action, Harness, LocalResource } from './types';
 
@@ -16,13 +17,6 @@ type SourceFilter = 'all' | 'registry' | 'local';
 const harnessLabels = Object.fromEntries(
   harnessOptions.map((option) => [option.value, option.label]),
 ) as Record<Harness, string>;
-
-const typeLabels = {
-  skills: 'Skill',
-  agents: 'Agent',
-  rules: 'Rule',
-  'mcp-servers': 'MCP Server',
-} satisfies Record<LocalResource['type'], string>;
 
 const typeIcons = {
   skills: 'ph-lightning',
@@ -113,10 +107,10 @@ export default function InstalledResources({ homeDir }: Props) {
 
   return (
     <DrawerShell
-      id="installed-drawer-toggle"
+      id={DRAWER_TOGGLES.installed}
       title="Installed resources"
       onOpen={() => {
-        closeDrawers('change-deck-toggle', 'settings-drawer-toggle', 'publish-drawer-toggle');
+        closeDrawers(DRAWER_TOGGLES.changeDeck, DRAWER_TOGGLES.settings, DRAWER_TOGGLES.publish);
         void loadLocalResources();
       }}
     >
@@ -138,9 +132,9 @@ export default function InstalledResources({ homeDir }: Props) {
             setHarness(event.currentTarget.value as HarnessFilter);
           }}>
             <option value="all">All harnesses</option>
-            <option value="claude-code">Claude Code</option>
-            <option value="opencode">OpenCode</option>
-            <option value="codex">Codex</option>
+            {harnessOptions.map((option) => (
+              <option value={option.value} key={option.value}>{option.label}</option>
+            ))}
           </select>
         </label>
         <label className="fieldset">
@@ -191,7 +185,7 @@ export default function InstalledResources({ homeDir }: Props) {
                     )}
                   </div>
                   <p className="mt-1 text-xs text-base-content/60">
-                    {typeLabels[resource.type]} · {harnessLabels[resource.harness]}
+                    {RESOURCE_TYPE_LABELS[resource.type]} · {harnessLabels[resource.harness]}
                     {resource.version ? ` · v${resource.version}` : ''}
                     {resource.latestVersion && resource.latestVersion !== resource.version ? ` · latest v${resource.latestVersion}` : ''}
                   </p>

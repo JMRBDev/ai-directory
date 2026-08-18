@@ -21,7 +21,7 @@ export interface RegistryView {
 
 const cachedRegistry = createCachedRegistry();
 
-export function getRegistryIndexPath(): string | undefined {
+function getRegistryIndexPath(): string | undefined {
   const path = process.env.AI_DIRECTORY_REGISTRY_INDEX?.trim();
   return path
     ? resolve(resolveConfigCwd(), path)

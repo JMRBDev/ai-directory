@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { useMountEffect } from './useMountEffect';
 import PlanView from './PlanView';
 import { errorMessage, request } from './api';
+import { API_PATHS, appliedChangesMessage, JSON_HEADERS, useStatus } from './lib';
 import {
   harnessOptions,
   scopeOptions,
@@ -39,21 +40,17 @@ export default function InstallResource({
   const [records, setRecords] = useState<Installation[]>([]);
   const [plan, setPlan] = useState<ChangePlan | null>(null);
   const [operations, setOperations] = useState<ChangeOperation[]>([]);
-  const [status, setStatus] = useState(resourceType === 'templates' ? 'Ready to install.' : 'Checking local installations…');
+  const { status, error, showStatus } = useStatus(
+    resourceType === 'templates' ? 'Ready to install.' : 'Checking local installations…',
+  );
   const [planStatus, setPlanStatus] = useState('');
   const [planError, setPlanError] = useState(false);
-  const [error, setError] = useState(false);
   const [force, setForce] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useMountEffect(() => {
     if (resourceType !== 'templates') void loadInstallation(['claude-code'], scope);
   });
-
-  function showStatus(message: string, isError = false) {
-    setStatus(message);
-    setError(isError);
-  }
 
   function completeInstallation(items: Installation[], harness: Harness) {
     return trackedResources.every((resource) =>
@@ -80,7 +77,7 @@ export default function InstallResource({
       return;
     }
     try {
-      const result = await request<{ installations?: Installation[] }>(apiUrl, '/api/installed');
+      const result = await request<{ installations?: Installation[] }>(apiUrl, API_PATHS.installed);
       // SAFETY: The installation manifest stores harness values from the known set.
       const nextRecords = (result.installations ?? []).filter(
         (item) => trackedResources.includes(item.resource)
@@ -117,9 +114,9 @@ export default function InstallResource({
       };
       if (isMcp) nextOperation.scope = scope;
       const nextOperations = [nextOperation];
-      const result = await request<ChangePlan>(apiUrl, '/api/plan', {
+      const result = await request<ChangePlan>(apiUrl, API_PATHS.plan, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ operations: nextOperations }),
       });
       setOperations(nextOperations);
@@ -143,19 +140,15 @@ export default function InstallResource({
     setPlanError(false);
     setPlanStatus('Applying all changes…');
     try {
-      const result = await request<{ plan: ChangePlan; warnings?: string[] }>(apiUrl, '/api/apply', {
+      const result = await request<{ plan: ChangePlan; warnings?: string[] }>(apiUrl, API_PATHS.apply, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ operations, force, planFingerprint: plan.fingerprint }),
       });
       await loadInstallation(harnesses, scope);
       setOperations([]);
       setPlanError(false);
-      const warnings = result.warnings ?? [];
-      setPlanStatus(
-        'Applied ' + result.plan.changes.length + ' file change' + (result.plan.changes.length === 1 ? '' : 's') + '.'
-        + (warnings.length ? '\n' + warnings.join('\n') : ''),
-      );
+      setPlanStatus(appliedChangesMessage(result.plan.changes.length, result.warnings ?? []));
     } catch (cause) {
       setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
