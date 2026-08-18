@@ -76,6 +76,23 @@ const ruleResource = {
   ],
 } satisfies ResourceVersion;
 
+const pluginResource = {
+  ...resource,
+  resource: {
+    ...resource.resource,
+    type: 'plugins',
+    name: 'review-pack',
+  },
+  files: [
+    {
+      path: '.claude-plugin/plugin.json',
+      content: '{"name":"review-pack","description":"A review pack.","version":"1.0.0"}\n',
+    },
+    { path: 'skills/reviewer/SKILL.md', content: '# Reviewer\n' },
+    { path: '.opencode/plugin.ts', content: 'export const ReviewPack = async () => ({})\n' },
+  ],
+} satisfies ResourceVersion;
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -359,18 +376,21 @@ describe('portable harness installers', () => {
       agents: 'native',
       rules: 'native',
       'mcp-servers': 'configured',
+      plugins: 'native',
     });
     expect(getHarnessAdapter('opencode').capabilities).toEqual({
       skills: 'native',
       agents: 'translated',
       rules: 'configured',
       'mcp-servers': 'configured',
+      plugins: 'native',
     });
     expect(getHarnessAdapter('codex').capabilities).toEqual({
       skills: 'native',
       agents: 'translated',
       rules: 'configured',
       'mcp-servers': 'configured',
+      plugins: 'configured',
     });
   });
 
@@ -700,6 +720,103 @@ describe('portable harness installers', () => {
     await expect(readFile(configPath, 'utf8')).resolves.toContain(
       'rules/typescript-quality.md',
     );
+  });
+
+  it('installs a plugin as a Claude Code skills-directory plugin', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    const [result] = await installClaudeCodeResources([pluginResource], {
+      homeDirectory,
+    });
+
+    expect(result.destination).toBe(join(homeDirectory, '.claude', 'skills', 'review-pack'));
+    await expect(
+      readFile(join(result.destination, '.claude-plugin', 'plugin.json'), 'utf8'),
+    ).resolves.toContain('"name":"review-pack"');
+    await expect(
+      readFile(join(result.destination, 'skills', 'reviewer', 'SKILL.md'), 'utf8'),
+    ).resolves.toBe('# Reviewer\n');
+  });
+
+  it('installs the OpenCode plugin module into the plugins directory', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    const [result] = await installOpenCodeResources([pluginResource], {
+      homeDirectory,
+    });
+
+    expect(result.destination).toBe(
+      join(homeDirectory, '.config', 'opencode', 'plugins', 'review-pack.ts'),
+    );
+    await expect(readFile(result.destination, 'utf8')).resolves.toBe(
+      'export const ReviewPack = async () => ({})\n',
+    );
+  });
+
+  it('refuses to install a plugin for OpenCode without a module', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    await expect(
+      installOpenCodeResources(
+        [{
+          ...pluginResource,
+          files: pluginResource.files.filter(
+            (file) => !file.path.startsWith('.opencode/'),
+          ),
+        }],
+        { homeDirectory },
+      ),
+    ).rejects.toThrow('missing an OpenCode module');
+  });
+
+  it('installs a Codex plugin bundle and registers a personal marketplace', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    const [result] = await installCodexResources([pluginResource], {
+      homeDirectory,
+    });
+
+    expect(result.destination).toBe(join(homeDirectory, '.codex', 'plugins', 'review-pack'));
+    await expect(
+      readFile(join(result.destination, '.claude-plugin', 'plugin.json'), 'utf8'),
+    ).resolves.toContain('"name":"review-pack"');
+    const marketplace = await readFile(
+      join(homeDirectory, '.agents', 'plugins', 'marketplace.json'),
+      'utf8',
+    );
+    expect(marketplace).toContain('"name": "review-pack"');
+    expect(marketplace).toContain('../.codex/plugins/review-pack');
+  });
+
+  it('uninstalls a Codex plugin and removes its marketplace entry', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    const [result] = await installCodexResources([pluginResource], {
+      homeDirectory,
+    });
+    const record = {
+      resource: resourceKey(pluginResource.resource),
+      version: pluginResource.version,
+      harness: 'codex',
+      destination: result.destination,
+      files: result.ownedPaths,
+      fileHashes: result.fileHashes,
+      installedAt: new Date().toISOString(),
+    } satisfies InstallationRecord;
+
+    await uninstallInstallation(record, { homeDirectory });
+
+    await expect(
+      readFile(
+        join(homeDirectory, '.codex', 'plugins', 'review-pack', '.claude-plugin', 'plugin.json'),
+        'utf8',
+      ),
+    ).rejects.toThrow();
+    const marketplace = await readFile(
+      join(homeDirectory, '.agents', 'plugins', 'marketplace.json'),
+      'utf8',
+    );
+    expect(marketplace).not.toContain('"name": "review-pack"');
   });
 });
 

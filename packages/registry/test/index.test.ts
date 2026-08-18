@@ -8,6 +8,7 @@ import {
   isResourceVersionOutdated,
   publishResource,
   readMcpServerManifest,
+  readPluginManifest,
   readRemoteRegistryIndex,
   readRemoteResource,
   resolveRegistrySource,
@@ -421,6 +422,92 @@ describe('validateResourceDirectory', () => {
 
     expect(result.description).toBe('Review web changes.');
   });
+
+  it('validates a self-contained plugin bundle manifest', async () => {
+    const { sourceDirectory } = await createPublishFixture();
+    await mkdir(join(sourceDirectory, '.claude-plugin'), { recursive: true });
+    await writeFile(
+      join(sourceDirectory, '.claude-plugin', 'plugin.json'),
+      '{"name":"review-pack","description":"A review pack.","version":"1.0.0"}\n',
+      'utf8',
+    );
+
+    const result = await validateResourceDirectory({
+      sourceDirectory,
+      resourceId: 'john-doe/plugins/review-pack',
+      version: '1.0.0',
+    });
+
+    expect(result.resource.type).toBe('plugins');
+    expect(result.entryFile.path).toBe('.claude-plugin/plugin.json');
+    expect(result.description).toBe('A review pack.');
+  });
+
+  it('accepts a Codex-only plugin bundle', async () => {
+    const { sourceDirectory } = await createPublishFixture();
+    await mkdir(join(sourceDirectory, '.codex-plugin'), { recursive: true });
+    await writeFile(
+      join(sourceDirectory, '.codex-plugin', 'plugin.json'),
+      '{"name":"review-pack","description":"A review pack."}\n',
+      'utf8',
+    );
+
+    const result = await validateResourceDirectory({
+      sourceDirectory,
+      resourceId: 'john-doe/plugins/review-pack',
+      version: '1.0.0',
+    });
+
+    expect(result.entryFile.path).toBe('.codex-plugin/plugin.json');
+  });
+
+  it('rejects a plugin bundle without any harness manifest', async () => {
+    const { sourceDirectory } = await createPublishFixture();
+
+    await expect(
+      validateResourceDirectory({
+        sourceDirectory,
+        resourceId: 'john-doe/plugins/review-pack',
+        version: '1.0.0',
+      }),
+    ).rejects.toThrow(
+      'is missing .claude-plugin/plugin.json or .codex-plugin/plugin.json',
+    );
+  });
+
+  it('rejects a plugin whose manifest name does not match the resource', async () => {
+    const { sourceDirectory } = await createPublishFixture();
+    await mkdir(join(sourceDirectory, '.claude-plugin'), { recursive: true });
+    await writeFile(
+      join(sourceDirectory, '.claude-plugin', 'plugin.json'),
+      '{"name":"other-name","description":"A review pack."}\n',
+      'utf8',
+    );
+
+    await expect(
+      validateResourceDirectory({
+        sourceDirectory,
+        resourceId: 'john-doe/plugins/review-pack',
+        version: '1.0.0',
+      }),
+    ).rejects.toThrow('Plugin manifest name does not match resource name');
+  });
+
+  it('reads a plugin manifest from a resource version', async () => {
+    const version = await readResourceVersion(
+      fileURLToPath(new URL('./fixtures/plugin-index.json', import.meta.url)),
+      'john-doe/plugins/review-pack',
+    );
+
+    expect(readPluginManifest(version)).toEqual({
+      file: { path: '.claude-plugin/plugin.json', content: expect.any(String) },
+      manifest: {
+        name: 'review-pack',
+        description: 'A review pack.',
+        version: '1.0.0',
+      },
+    });
+  });
 });
 
 describe('publishResource', () => {
@@ -558,7 +645,7 @@ describe('submitResource', () => {
       'git remote get-url origin',
       'gh auth status',
       'git switch -c submit/release-check-1.0.0',
-      'git add -- index.json resources/jane-doe/skills/release-check/1.0.0',
+      'git add --sparse -- index.json resources/jane-doe/skills/release-check/1.0.0',
       'git commit -m Submit jane-doe/skills/release-check@1.0.0',
       'git rev-parse HEAD',
       'git push --set-upstream origin submit/release-check-1.0.0',

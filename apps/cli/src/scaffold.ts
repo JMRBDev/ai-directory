@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   RESOURCE_ENTRY_FILES,
   resourceIdSchema,
@@ -103,6 +103,17 @@ function scaffoldContent(
     ].join('\n');
   }
 
+  if (type === 'plugins') {
+    return `${JSON.stringify(
+      {
+        name,
+        description,
+      },
+      null,
+      2,
+    )}\n`;
+  }
+
   const frontmatter = type === 'skills' || type === 'agents'
     ? ['---', `name: ${name}`, `description: ${quotedDescription}`, '---', '']
     : [];
@@ -140,6 +151,7 @@ export async function createResourceDirectory(options: {
   }
 
   await mkdir(output, { recursive: true });
+  await mkdir(join(output, dirname(RESOURCE_ENTRY_FILES[options.type])), { recursive: true });
   await writeFile(
     join(output, RESOURCE_ENTRY_FILES[options.type]),
     scaffoldContent(options.type, options.name, options.description, options.components),

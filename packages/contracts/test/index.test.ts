@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   mcpServerManifestSchema,
+  pluginManifestSchema,
   registryIndexSchema,
   resourceIdSchema,
   templateManifestSchema,
@@ -112,10 +113,42 @@ describe('MCP server manifest contract', () => {
   });
 });
 
+describe('plugin manifest contract', () => {
+  it('accepts a valid plugin manifest', () => {
+    expect(
+      pluginManifestSchema.parse({
+        name: 'review-pack',
+        description: 'A review pack.',
+        version: '1.0.0',
+      }),
+    ).toMatchObject({ name: 'review-pack' });
+  });
+
+  it('passes through harness-specific fields', () => {
+    expect(
+      pluginManifestSchema.parse({
+        name: 'review-pack',
+        skills: './skills/',
+        mcpServers: './.mcp.json',
+      }),
+    ).toMatchObject({ name: 'review-pack', skills: './skills/' });
+  });
+
+  it('rejects a manifest without a valid slug name', () => {
+    expect(pluginManifestSchema.safeParse({ name: 'Not a slug' }).success).toBe(false);
+  });
+});
+
 describe('resource ID contract', () => {
   it('accepts owner, type, and name identifiers', () => {
     expect(resourceIdSchema.parse('john-doe/skills/typescript-review')).toBe(
       'john-doe/skills/typescript-review',
+    );
+  });
+
+  it('accepts plugin resource identifiers', () => {
+    expect(resourceIdSchema.parse('john-doe/plugins/review-pack')).toBe(
+      'john-doe/plugins/review-pack',
     );
   });
 

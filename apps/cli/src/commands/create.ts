@@ -30,7 +30,7 @@ export const create = defineCommand({
     },
     type: {
       type: 'enum',
-      options: ['skills', 'agents', 'rules', 'mcp-servers', 'templates'],
+      options: ['skills', 'agents', 'rules', 'mcp-servers', 'templates', 'plugins'],
       alias: 't',
       description: 'Resource type',
     },
