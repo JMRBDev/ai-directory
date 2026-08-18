@@ -50,6 +50,7 @@ async function runInteractiveMain(): Promise<void> {
     return;
   }
 
+  // SAFETY: every value in interactiveCommands is a CommandDef keyed by answer.
   const command = interactiveCommands[answer] as CommandDef<any> | undefined;
   if (command) await runCommand(command, { rawArgs: [] });
 }
