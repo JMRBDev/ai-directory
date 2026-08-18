@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { cancel, intro, isCancel, select } from '@clack/prompts';
-import { defineCommand, runCommand, runMain, showUsage } from 'citty';
+import { defineCommand, runCommand, runMain, showUsage, type CommandDef } from 'citty';
 import { isInteractiveTerminal } from './helpers';
 import { check, list, show } from './commands/read';
 import { create, submit, validate } from './commands/create';
@@ -9,6 +9,20 @@ import { install, installed, uninstall, update } from './commands/install';
 import { doctor, setup } from './commands/setup';
 import { configClear, configGet, configList, configPath, configSet } from './commands/config';
 import { web } from './commands/web';
+
+const interactiveCommands = {
+  install,
+  list,
+  show,
+  create,
+  validate,
+  submit,
+  update,
+  uninstall,
+  installed,
+  setup,
+  doctor,
+} satisfies Record<string, CommandDef<any>>;
 
 async function runInteractiveMain(): Promise<void> {
   intro('AI Directory');
@@ -36,41 +50,8 @@ async function runInteractiveMain(): Promise<void> {
     return;
   }
 
-  switch (answer) {
-    case 'install':
-      await runCommand(install, { rawArgs: [] });
-      break;
-    case 'list':
-      await runCommand(list, { rawArgs: [] });
-      break;
-    case 'show':
-      await runCommand(show, { rawArgs: [] });
-      break;
-    case 'create':
-      await runCommand(create, { rawArgs: [] });
-      break;
-    case 'validate':
-      await runCommand(validate, { rawArgs: [] });
-      break;
-    case 'submit':
-      await runCommand(submit, { rawArgs: [] });
-      break;
-    case 'update':
-      await runCommand(update, { rawArgs: [] });
-      break;
-    case 'uninstall':
-      await runCommand(uninstall, { rawArgs: [] });
-      break;
-    case 'installed':
-      await runCommand(installed, { rawArgs: [] });
-      break;
-    case 'setup':
-      await runCommand(setup, { rawArgs: [] });
-      break;
-    case 'doctor':
-      await runCommand(doctor, { rawArgs: [] });
-      break;
-  }
+  const command = interactiveCommands[answer] as CommandDef<any> | undefined;
+  if (command) await runCommand(command, { rawArgs: [] });
 }
 
 const config = defineCommand({

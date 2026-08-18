@@ -370,29 +370,33 @@ function operationScope(
   return options.scope ?? operations[0]?.scope ?? 'user';
 }
 
+const projectConfigPaths = {
+  'claude-code': (cwd: string) => join(cwd, '.mcp.json'),
+  opencode: async (cwd: string) =>
+    pickOpenCodeConfig([join(cwd, 'opencode.jsonc'), join(cwd, 'opencode.json')]),
+  codex: (cwd: string) => join(cwd, '.codex', 'config.toml'),
+} satisfies Record<Harness, (root: string) => string | Promise<string>>;
+
+const userConfigPaths = {
+  'claude-code': (home: string) => join(home, '.claude.json'),
+  opencode: async (home: string, options: InstallOptions) => {
+    const root = resolveHarnessPaths('opencode', options).root;
+    return pickOpenCodeConfig([join(root, 'opencode.jsonc'), join(root, 'opencode.json')]);
+  },
+  codex: (home: string, options: InstallOptions) =>
+    join(resolveHarnessPaths('codex', options).config, 'config.toml'),
+} satisfies Record<Harness, (home: string, options: InstallOptions) => string | Promise<string>>;
+
 async function mcpConfigPath(
   harness: Harness,
   scope: ConfigScope,
   options: InstallOptions,
 ): Promise<string> {
   if (scope === 'project') {
-    const cwd = resolve(options.cwd ?? process.cwd());
-    switch (harness) {
-      case 'claude-code': return join(cwd, '.mcp.json');
-      case 'opencode': return pickOpenCodeConfig([join(cwd, 'opencode.jsonc'), join(cwd, 'opencode.json')]);
-      case 'codex': return join(cwd, '.codex', 'config.toml');
-    }
+    return projectConfigPaths[harness](resolve(options.cwd ?? process.cwd()));
   }
 
-  const home = resolve(options.homeDirectory ?? homedir());
-  switch (harness) {
-    case 'claude-code': return join(home, '.claude.json');
-    case 'opencode': {
-      const root = resolveHarnessPaths('opencode', options).root;
-      return pickOpenCodeConfig([join(root, 'opencode.jsonc'), join(root, 'opencode.json')]);
-    }
-    case 'codex': return join(resolveHarnessPaths('codex', options).config, 'config.toml');
-  }
+  return userConfigPaths[harness](resolve(options.homeDirectory ?? homedir()), options);
 }
 
 function containerKey(harness: Harness): 'mcp' | 'mcpServers' {
@@ -435,12 +439,20 @@ function mcpServerNames(harness: Harness, content: string, path: string): string
   }
 }
 
+const mcpEntries = {
+  'claude-code': (manifest: McpServerManifest): McpEntryResult => ({
+    entry: claudeMcpEntry(manifest),
+    notes: [],
+  }),
+  opencode: (manifest: McpServerManifest): McpEntryResult => ({
+    entry: openCodeMcpEntry(manifest),
+    notes: [],
+  }),
+  codex: codexMcpEntry,
+} satisfies Record<Harness, (manifest: McpServerManifest) => McpEntryResult>;
+
 function mcpEntryFor(harness: Harness, manifest: McpServerManifest): McpEntryResult {
-  switch (harness) {
-    case 'claude-code': return { entry: claudeMcpEntry(manifest), notes: [] };
-    case 'opencode': return { entry: openCodeMcpEntry(manifest), notes: [] };
-    case 'codex': return codexMcpEntry(manifest);
-  }
+  return mcpEntries[harness](manifest);
 }
 
 function claudeMcpEntry(manifest: McpServerManifest): McpServerEntry {

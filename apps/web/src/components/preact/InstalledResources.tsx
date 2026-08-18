@@ -4,6 +4,10 @@ import { closeDrawers } from './api';
 import { useChangeDeck, type StagedItem } from './ChangeDeckContext';
 import { DRAWER_TOGGLES, RESOURCE_TYPE_LABELS } from './lib';
 import { harnessOptions, shortenHomePath } from './types';
+import type {
+  LocalResourceRegistryState,
+  LocalResourceState,
+} from '@ai-directory/installers';
 import type { Action, Harness, LocalResource } from './types';
 
 type Props = {
@@ -25,35 +29,31 @@ const typeIcons = {
   'mcp-servers': 'ph-plugs-connected',
 } satisfies Record<LocalResource['type'], string>;
 
-function stateLabel(state: LocalResource['state']) {
-  return state === 'managed'
-    ? 'Managed'
-    : state === 'modified'
-      ? 'Modified'
-      : state === 'missing'
-        ? 'Missing'
-        : 'Unmanaged';
-}
+const stateLabels = {
+  managed: 'Managed',
+  modified: 'Modified',
+  missing: 'Missing',
+  unmanaged: 'Unmanaged',
+} satisfies Record<LocalResourceState, string>;
 
-function stateClass(state: LocalResource['state']) {
-  return state === 'managed'
-    ? 'badge-success'
-    : state === 'modified' || state === 'missing'
-      ? 'badge-warning'
-      : 'badge-ghost';
-}
+const stateClasses = {
+  managed: 'badge-success',
+  modified: 'badge-warning',
+  missing: 'badge-warning',
+  unmanaged: 'badge-ghost',
+} satisfies Record<LocalResourceState, string>;
 
-function registryStateLabel(state: LocalResource['registryState']) {
-  return state === 'current' ? 'Current' : state === 'outdated' ? 'Outdated' : 'Unknown';
-}
+const registryStateLabels = {
+  current: 'Current',
+  outdated: 'Outdated',
+  unknown: 'Unknown',
+} satisfies Record<LocalResourceRegistryState, string>;
 
-function registryStateClass(state: LocalResource['registryState']) {
-  return state === 'current'
-    ? 'badge-success'
-    : state === 'outdated'
-      ? 'badge-warning'
-      : 'badge-ghost';
-}
+const registryStateClasses = {
+  current: 'badge-success',
+  outdated: 'badge-warning',
+  unknown: 'badge-ghost',
+} satisfies Record<LocalResourceRegistryState, string>;
 
 function resourceLabel(resource: LocalResource) {
   return resource.resource ?? `local/${resource.type}/${resource.name}`;
@@ -175,8 +175,8 @@ export default function InstalledResources({ homeDir }: Props) {
                 <div className="list-col-grow min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <strong className="break-all text-sm text-base-content">{resourceLabel(resource)}</strong>
-                    <span className={'badge badge-sm ' + stateClass(resource.state)}>{stateLabel(resource.state)}</span>
-                    {resource.resource && <span className={'badge badge-sm ' + registryStateClass(resource.registryState)}>{registryStateLabel(resource.registryState)}</span>}
+                    <span className={'badge badge-sm ' + stateClasses[resource.state]}>{stateLabels[resource.state]}</span>
+                    {resource.resource && <span className={'badge badge-sm ' + registryStateClasses[resource.registryState]}>{registryStateLabels[resource.registryState]}</span>}
                     {resource.type === 'mcp-servers' && (
                       <span className="badge badge-ghost badge-sm gap-1">
                         <i className="ph ph-globe-hemisphere-west text-xs" aria-hidden="true"></i>
