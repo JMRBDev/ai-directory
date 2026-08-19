@@ -757,7 +757,7 @@ describe('local control API', () => {
     });
     expect(apply.status).toBe(200);
 
-    await expect(readFile(openCodePath, 'utf8')).resolves.not.toContain('github');
+    await expect(readFile(openCodePath, 'utf8')).rejects.toThrow();
     await expect(app.request('/api/installed').then((response) => response.json())).resolves.toEqual({
       installations: [],
     });

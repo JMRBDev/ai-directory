@@ -162,7 +162,133 @@ async function scanLocation(
     ...(await scanSkills(harness, location.skills)),
     ...(await scanFlatResources(harness, 'agents', location.agents, harness === 'codex' ? ['.toml', '.md'] : ['.md'])),
     ...(await scanFlatResources(harness, 'rules', location.rules, ['.md'])),
+    ...(await scanBundles(harness, location)),
   ];
+}
+
+async function scanBundles(
+  harness: Harness,
+  location: HarnessLocation,
+): Promise<LocalResource[]> {
+  if (harness !== 'opencode') {
+    const root = harness === 'claude-code'
+      ? location.skills
+      : join(location.config, 'plugins');
+    return scanBundleDirectories(harness, root);
+  }
+
+  const candidates = [
+    ...(await scanOpenCodePluginFiles(location.root)),
+    ...(await scanOpenCodeToolDirectories(location.root)),
+  ];
+  const merged = new Map<string, LocalResource>();
+  for (const candidate of candidates) {
+    const key = `${candidate.type}:${candidate.name}`;
+    const previous = merged.get(key);
+    if (!previous) {
+      merged.set(key, candidate);
+      continue;
+    }
+    previous.files = [...new Set([...previous.files, ...candidate.files])];
+  }
+
+  return [...merged.values()];
+}
+
+async function scanBundleDirectories(
+  harness: Harness,
+  root: string,
+): Promise<LocalResource[]> {
+  const entries = await readDirectory(root);
+  const resources: LocalResource[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+
+    const path = join(root, entry.name);
+    const files = await listFilesUnder(path);
+    const relativeFiles = files.map((file) => relative(path, file));
+    const type = relativeFiles.includes('TOOL.md')
+      ? 'tools'
+      : relativeFiles.includes('.claude-plugin/plugin.json') || relativeFiles.includes('.codex-plugin/plugin.json')
+        ? 'plugins'
+        : undefined;
+    if (!type) continue;
+
+    resources.push({
+      type,
+      name: entry.name,
+      harness,
+      path,
+      files,
+      state: 'unmanaged',
+      registryState: 'unknown',
+    });
+  }
+
+  return resources;
+}
+
+async function scanOpenCodePluginFiles(root: string): Promise<LocalResource[]> {
+  const pluginRoot = join(root, 'plugins');
+  const entries = await readDirectory(pluginRoot);
+  const resources: LocalResource[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !['.ts', '.js'].includes(extname(entry.name))) continue;
+
+    const path = join(pluginRoot, entry.name);
+    const name = basename(entry.name, extname(entry.name));
+    const companionPath = join(pluginRoot, `${name}.files`);
+    const companionFiles = (await pathExists(companionPath))
+      ? await listFilesUnder(companionPath)
+      : [];
+    const files = [path, ...companionFiles];
+    const type = companionFiles.some((file) => relative(companionPath, file) === 'TOOL.md')
+      ? 'tools'
+      : 'plugins';
+
+    resources.push({
+      type,
+      name,
+      harness: 'opencode',
+      path,
+      files,
+      state: 'unmanaged',
+      registryState: 'unknown',
+    });
+  }
+
+  return resources;
+}
+
+async function scanOpenCodeToolDirectories(root: string): Promise<LocalResource[]> {
+  const toolRoot = join(root, 'tools');
+  const entries = await readDirectory(toolRoot);
+  const resources: LocalResource[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+
+    const path = join(toolRoot, entry.name);
+    const companionPath = join(toolRoot, `${entry.name}.files`);
+    const companionFiles = (await pathExists(companionPath))
+      ? await listFilesUnder(companionPath)
+      : [];
+    if (!companionFiles.some((file) => relative(companionPath, file) === 'TOOL.md')) continue;
+
+    resources.push({
+      type: 'tools',
+      name: entry.name,
+      harness: 'opencode',
+      path,
+      files: [...(await listFilesUnder(path)), ...companionFiles],
+      state: 'unmanaged',
+      registryState: 'unknown',
+    });
+  }
+
+  return resources;
 }
 
 async function scanSkills(

@@ -355,6 +355,36 @@ describe('local resource discovery', () => {
     ]));
   });
 
+  it('discovers unmanaged plugins and tools in each harness location', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    await installClaudeCodeResources([pluginResource, toolResource], { homeDirectory });
+    await installOpenCodeResources([pluginResource, toolResource], { homeDirectory });
+    await installCodexResources([pluginResource, toolResource], { homeDirectory });
+
+    const resources = await discoverLocalResources({
+      homeDirectory,
+      environment: { PATH: '' },
+    });
+
+    for (const harness of ['claude-code', 'opencode', 'codex'] as const) {
+      expect(resources).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'plugins',
+          name: 'review-pack',
+          harness,
+          state: 'unmanaged',
+        }),
+        expect.objectContaining({
+          type: 'tools',
+          name: 'rtk',
+          harness,
+          state: 'unmanaged',
+        }),
+      ]));
+    }
+  });
+
   it('reports managed resources as current, modified, or missing', async () => {
     const homeDirectory = await createTemporaryDirectory();
     const [installation] = await installClaudeCodeResources([resource], {
