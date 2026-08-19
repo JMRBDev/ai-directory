@@ -1,5 +1,6 @@
 import { useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
 import { Check } from '@phosphor-icons/react/dist/csr/Check';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
@@ -12,11 +13,14 @@ import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Checkbox } from '../../components/ui/checkbox';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
+import { Field, FieldLabel } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Separator } from '../../components/ui/separator';
+import { ScrollArea } from '../../components/ui/scroll-area';
 import { Textarea } from '../../components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
@@ -61,8 +65,6 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
     plan,
     planLoading,
     planError,
-    applyStatus,
-    applyError,
     force,
     removeDependencies,
     setForce,
@@ -94,8 +96,8 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             ))}
             <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={clear}>Discard all</Button></div>
             {items.some((item) => item.type === 'mcp-servers') && (
-              <div className="border-t pt-5">
-                <Label className="text-sm font-medium">Default MCP scope</Label>
+              <Field className="border-t pt-5">
+                <FieldLabel>Default MCP scope</FieldLabel>
                 <RadioGroup className="mt-3 grid gap-2 sm:grid-cols-2" value={scope} onValueChange={(value) => setScope(installScope(value))}>
                   {scopeOptions.map((option) => (
                     <Label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm" htmlFor={`changes-scope-${option.value}`} key={option.value}>
@@ -104,12 +106,10 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                     </Label>
                   ))}
                 </RadioGroup>
-              </div>
+              </Field>
             )}
             {planLoading && <LoadingCard />}
             {planError && <ErrorMessage message={planError} />}
-            {applyError && <ErrorMessage message={applyError} />}
-            {applyStatus && <Alert className="border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"><AlertDescription>{applyStatus}</AlertDescription></Alert>}
             {plan && <PlanSummary plan={plan.plan} />}
             {plan?.plan.conflicts.length ? <Label className="flex items-center gap-2 text-sm" htmlFor="changes-force"><Checkbox id="changes-force" checked={force} onCheckedChange={(checked) => setForce(checked === true)} /> Apply despite conflicts</Label> : null}
             {plan?.plan.dependencyRemovals.length ? <Label className="flex items-center gap-2 text-sm" htmlFor="changes-remove-dependencies"><Checkbox id="changes-remove-dependencies" checked={removeDependencies} onCheckedChange={(checked) => setRemoveDependencies(checked === true)} /> Remove unused dependencies</Label> : null}
@@ -169,18 +169,20 @@ function PlanSummary({ plan }: { plan: ChangePlan }) {
       {plan.conflicts.length > 0 && <div className="text-sm text-destructive"><strong>Conflicts:</strong> {plan.conflicts.join(' ')}</div>}
       {plan.warnings.length > 0 && <div className="text-sm text-amber-700 dark:text-amber-300">{plan.warnings.join(' ')}</div>}
       {recordOnlyOperations.length > 0 && <div className="space-y-1 border-t pt-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">Installation records</p>{recordOnlyOperations.map((operation) => <p key={`${operation.resource}-${operation.action}`}><code className="font-mono">{operation.resource}</code> will be {operation.action === 'uninstall' ? 'removed' : 'updated'} without file changes.</p>)}</div>}
-      <Accordion type="multiple" className="max-h-80 overflow-y-auto border-t pt-3">
-        {plan.changes.map((change) => (
-          <AccordionItem className="rounded-lg border bg-background/60 px-2" key={`${change.path}-${change.harness}-${change.action}`} value={`${change.path}-${change.harness}-${change.action}`}>
-            <AccordionTrigger className="gap-2 py-2 text-xs hover:no-underline">
-              <span className={cn('size-1.5 shrink-0 rounded-full', change.action === 'removed' ? 'bg-destructive' : change.action === 'added' ? 'bg-emerald-500' : 'bg-amber-500')} />
-              <span className="min-w-0 flex-1 truncate"><code className="font-mono">{change.path}</code><span className="ml-2 text-muted-foreground">{change.resource} · {harnessLabel(change.harness)}</span></span>
-              <span className="shrink-0 text-muted-foreground">{change.action}</span>
-            </AccordionTrigger>
-            {(change.before || change.after) && <AccordionContent className="border-t pt-2"><pre className="max-h-64 overflow-auto text-[11px] leading-5"><code>{change.action === 'modified' ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}` : change.after ?? change.before}</code></pre></AccordionContent>}
-          </AccordionItem>
-        ))}
-      </Accordion>
+      <ScrollArea className="h-80 border-t pt-3">
+        <Accordion type="multiple">
+          {plan.changes.map((change) => (
+            <AccordionItem className="rounded-lg border bg-background/60 px-2" key={`${change.path}-${change.harness}-${change.action}`} value={`${change.path}-${change.harness}-${change.action}`}>
+              <AccordionTrigger className="gap-2 py-2 text-xs hover:no-underline">
+                <span className={cn('size-1.5 shrink-0 rounded-full', change.action === 'removed' ? 'bg-destructive' : change.action === 'added' ? 'bg-emerald-500' : 'bg-amber-500')} />
+                <span className="min-w-0 flex-1 truncate"><code className="font-mono">{change.path}</code><span className="ml-2 text-muted-foreground">{change.resource} · {harnessLabel(change.harness)}</span></span>
+                <span className="shrink-0 text-muted-foreground">{change.action}</span>
+              </AccordionTrigger>
+              {(change.before || change.after) && <AccordionContent className="border-t pt-2"><ScrollArea className="h-64"><pre className="text-[11px] leading-5"><code>{change.action === 'modified' ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}` : change.after ?? change.before}</code></pre></ScrollArea></AccordionContent>}
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </ScrollArea>
     </div>
   );
 }
@@ -224,25 +226,25 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Installed resources" description="Inspect resources found in your local harness directories.">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-5 pt-5">
-        <div>
-          <Label htmlFor="installed-harness">Harness</Label>
+        <Field>
+          <FieldLabel htmlFor="installed-harness">Harness</FieldLabel>
           <Select value={harnessFilter} onValueChange={(value) => setHarnessFilter(parseHarnessFilter(value))}>
             <SelectTrigger id="installed-harness" className="mt-2"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="all">All harnesses</SelectItem><SelectItem value="claude-code">Claude Code</SelectItem><SelectItem value="opencode">OpenCode</SelectItem><SelectItem value="codex">Codex</SelectItem></SelectContent>
           </Select>
-        </div>
-        <div>
-          <Label htmlFor="installed-source">Source</Label>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="installed-source">Source</FieldLabel>
           <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(parseSourceFilter(value))}>
             <SelectTrigger id="installed-source" className="mt-2"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="all">All sources</SelectItem><SelectItem value="registry">From this registry</SelectItem><SelectItem value="local">Not from this registry</SelectItem></SelectContent>
           </Select>
-        </div>
+        </Field>
         <Button variant="outline" size="sm" onClick={() => void queryClient.invalidateQueries({ queryKey: ['local-resources'] })} disabled={localLoading}><ArrowsClockwise size={16} className={cn(localLoading && 'animate-spin')} /> Refresh</Button>
       </div>
       <p className="pt-5 text-sm text-muted-foreground" role="status" aria-live="polite">{statusText}</p>
       {localRegistryError && <div className="pt-4"><ErrorMessage message={localRegistryError} /></div>}
-      {localLoading ? <div className="space-y-3 py-6"><LoadingCard /></div> : <div className="space-y-3 py-6">{visibleResources.length === 0 ? <Card><CardContent className="p-5 text-sm text-muted-foreground">{localResources.length === 0 ? 'No local resources found.' : 'No local resources match these filters.'}</CardContent></Card> : visibleResources.map((resource) => { const key = resource.resource ? `${resource.resource}\u0000${resource.harness}` : ''; return <LocalResourceRow key={`${resource.harness}-${resource.path}`} resource={resource} homeDirectory={homeDirectory} staged={key ? staged[key] : undefined} onInstall={() => stageLocal(resource, 'install')} onUninstall={() => stageLocal(resource, 'uninstall')} onDiscard={() => key && unstage(key)} />; })}</div>}
+      {localLoading ? <div className="space-y-3 py-6"><LoadingCard /></div> : <div className="space-y-3 py-6">{visibleResources.length === 0 ? <Empty><EmptyHeader><EmptyMedia><Info size={18} /></EmptyMedia><EmptyTitle>{localResources.length === 0 ? 'No local resources found' : 'No matching resources'}</EmptyTitle><EmptyDescription>{localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}</EmptyDescription></EmptyHeader></Empty> : visibleResources.map((resource) => { const key = resource.resource ? `${resource.resource}\u0000${resource.harness}` : ''; return <LocalResourceRow key={`${resource.harness}-${resource.path}`} resource={resource} homeDirectory={homeDirectory} staged={key ? staged[key] : undefined} onInstall={() => stageLocal(resource, 'install')} onUninstall={() => stageLocal(resource, 'uninstall')} onDiscard={() => key && unstage(key)} />; })}</div>}
     </SheetFrame>
   );
 }
@@ -260,25 +262,26 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
   const [configScope, setConfigScope] = useState<InstallScope>('user');
   const [theme, setTheme] = useState(() => readStorage<'light' | 'dark' | 'system'>('ai-directory-theme', 'system'));
   const systemDark = useSyncExternalStore(subscribeSystemTheme, getSystemTheme, getServerSystemTheme);
-  const [status, setStatus] = useState('');
   const currentRepository = config.data?.repository ?? '';
   const sourceLabel = config.data?.source === 'none' ? 'Not configured' : config.data?.source ?? 'Loading';
   const saveMutation = useMutation({
     mutationFn: () => api.configPut(repository ?? currentRepository, configScope),
     onSuccess: (result) => {
-      setStatus(result.source !== result.savedScope ? `Saved in the ${result.savedScope ?? configScope} config. The ${result.source} setting is still active.` : `Saved in the ${result.savedScope ?? configScope} config.`);
+      toast.success(result.source !== result.savedScope ? `Saved in the ${result.savedScope ?? configScope} config. The ${result.source} setting is still active.` : `Saved in the ${result.savedScope ?? configScope} config.`);
       void queryClient.invalidateQueries({ queryKey: ['config'] });
       void queryClient.invalidateQueries({ queryKey: ['registry'] });
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not save the registry source.'),
   });
   const clearMutation = useMutation({
     mutationFn: () => api.configDelete(configScope),
     onSuccess: (result) => {
       setRepository(undefined);
-      setStatus(result.source !== 'none' && result.source !== result.clearedScope ? `Cleared the ${result.clearedScope ?? configScope} config. The ${result.source} setting is still active.` : `Cleared the ${result.clearedScope ?? configScope} config.`);
+      toast.success(result.source !== 'none' && result.source !== result.clearedScope ? `Cleared the ${result.clearedScope ?? configScope} config. The ${result.source} setting is still active.` : `Cleared the ${result.clearedScope ?? configScope} config.`);
       void queryClient.invalidateQueries({ queryKey: ['config'] });
       void queryClient.invalidateQueries({ queryKey: ['registry'] });
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not clear the registry source.'),
   });
 
   function chooseTheme(next: 'light' | 'dark' | 'system') {
@@ -304,18 +307,18 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
         <section>
           <div className="flex items-center justify-between gap-3"><h3 className="font-medium">Registry source</h3><Badge variant={sourceLabel === 'Not configured' ? 'muted' : 'outline'}>{sourceLabel}</Badge></div>
           <p className="mt-1 text-sm text-muted-foreground">The repository setting is stored by the local API.</p>
-          <Label className="mt-4 block" htmlFor="registry-repository">Git repository URL</Label>
-          <Input id="registry-repository" className="mt-2" placeholder="https://github.com/org/resources" value={repository ?? currentRepository} onChange={(event) => setRepository(event.target.value)} />
-          <div className="mt-3">
-            <Label htmlFor="settings-scope">Save scope</Label>
+          <Field className="mt-4">
+            <FieldLabel htmlFor="registry-repository">Git repository URL</FieldLabel>
+            <Input id="registry-repository" placeholder="https://github.com/org/resources" value={repository ?? currentRepository} onChange={(event) => setRepository(event.target.value)} />
+          </Field>
+          <Field className="mt-3">
+            <FieldLabel htmlFor="settings-scope">Save scope</FieldLabel>
             <Select value={configScope} onValueChange={(value) => setConfigScope(installScope(value))}>
               <SelectTrigger id="settings-scope" className="mt-2"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="user">User config</SelectItem><SelectItem value="project">Project config</SelectItem></SelectContent>
             </Select>
-          </div>
+          </Field>
           <div className="mt-4 flex gap-2"><Button onClick={save} disabled={!(repository ?? currentRepository).trim() || saveMutation.isPending}>Save source</Button><Button variant="ghost" onClick={() => void clearMutation.mutateAsync()} disabled={clearMutation.isPending}>Clear</Button></div>
-          {status && <p className="mt-3 text-sm text-muted-foreground" role="status">{status}</p>}
-          {(saveMutation.error || clearMutation.error) && <p className="mt-3 text-sm text-destructive" role="alert">{(saveMutation.error ?? clearMutation.error) instanceof Error ? (saveMutation.error ?? clearMutation.error)?.message : 'Could not update the registry source.'}</p>}
         </section>
         <Separator />
         <section>
@@ -429,10 +432,10 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             <CardHeader className="p-0"><CardTitle className="text-base">Resource identity</CardTitle></CardHeader>
             <CardContent className="p-0 pt-4">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_10rem]">
-                <div><Label htmlFor="publish-owner">GitHub user</Label><Input id="publish-owner" className="mt-2" type="text" value={owner || userQuery.data?.username || ''} placeholder="Loading…" onChange={(event) => updateField(() => setOwner(event.target.value))} disabled={!userQuery.error || busy} /></div>
-                <div><Label htmlFor="publish-type">Type</Label><Select value={type} onValueChange={(value) => updateField(() => setType(resourceType(value)))} disabled={busy}><SelectTrigger id="publish-type" className="mt-2"><SelectValue /></SelectTrigger><SelectContent>{RESOURCE_TYPES.map((option) => <SelectItem value={option.value} key={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
-                <div className="sm:col-span-2 lg:col-span-1"><Label htmlFor="publish-name">Name</Label><Input id="publish-name" className="mt-2" value={name} placeholder="my-resource" onChange={(event) => updateField(() => setName(event.target.value))} autoComplete="off" required disabled={busy} /></div>
-                <div><Label htmlFor="publish-version">Version</Label><Input id="publish-version" className="mt-2" value={version} onChange={(event) => updateField(() => setVersion(event.target.value))} autoComplete="off" required disabled={busy} /></div>
+                <Field><FieldLabel htmlFor="publish-owner">GitHub user</FieldLabel><Input id="publish-owner" type="text" value={owner || userQuery.data?.username || ''} placeholder="Loading…" onChange={(event) => updateField(() => setOwner(event.target.value))} disabled={!userQuery.error || busy} /></Field>
+                <Field><FieldLabel htmlFor="publish-type">Type</FieldLabel><Select value={type} onValueChange={(value) => updateField(() => setType(resourceType(value)))} disabled={busy}><SelectTrigger id="publish-type"><SelectValue /></SelectTrigger><SelectContent>{RESOURCE_TYPES.map((option) => <SelectItem value={option.value} key={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></Field>
+                <Field className="sm:col-span-2 lg:col-span-1"><FieldLabel htmlFor="publish-name">Name</FieldLabel><Input id="publish-name" value={name} placeholder="my-resource" onChange={(event) => updateField(() => setName(event.target.value))} autoComplete="off" required disabled={busy} /></Field>
+                <Field><FieldLabel htmlFor="publish-version">Version</FieldLabel><Input id="publish-version" value={version} onChange={(event) => updateField(() => setVersion(event.target.value))} autoComplete="off" required disabled={busy} /></Field>
               </div>
               <output className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg bg-background px-3 py-2" aria-live="polite"><span className="text-xs font-medium text-muted-foreground">Resource ID</span><code className="break-all font-mono text-xs">{resolvedOwner ? [resolvedOwner, type, name].join('/') : 'Loading GitHub user…'}</code></output>
             </CardContent>
@@ -442,7 +445,7 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             <CardContent className="p-0 pt-4">
               <Input className="mt-3" type="file" multiple required aria-label="Resource files directory" ref={(element) => element?.setAttribute('webkitdirectory', '')} onChange={(event) => { setFiles(Array.from(event.currentTarget.files ?? [])); resetValidation(); }} disabled={busy} />
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><Badge variant="muted">{paths.length} file{paths.length === 1 ? '' : 's'}</Badge>{folder && <span>Folder: {folder}</span>}</div>
-              {paths.length > 0 ? <div className="mt-4 rounded-xl border bg-muted/20 p-4" aria-live="polite"><p className="text-sm font-semibold">Files to publish</p><ul className="mt-3 max-h-40 overflow-y-auto font-mono text-xs text-muted-foreground">{paths.slice(0, 12).map((path) => <li className="py-1" key={path}>{path}</li>)}{paths.length > 12 && <li className="py-1">…and {paths.length - 12} more</li>}</ul></div> : <Alert className="mt-4 border-blue-500/30 bg-blue-500/5 text-muted-foreground"><Info size={17} /><AlertDescription>No resource folder selected.</AlertDescription></Alert>}
+              {paths.length > 0 ? <div className="mt-4 rounded-xl border bg-muted/20 p-4" aria-live="polite"><p className="text-sm font-semibold">Files to publish</p><ScrollArea className="mt-3 h-40"><ul className="font-mono text-xs text-muted-foreground">{paths.slice(0, 12).map((path) => <li className="py-1" key={path}>{path}</li>)}{paths.length > 12 && <li className="py-1">…and {paths.length - 12} more</li>}</ul></ScrollArea></div> : <Alert className="mt-4 border-blue-500/30 bg-blue-500/5 text-muted-foreground"><Info size={17} /><AlertDescription>No resource folder selected.</AlertDescription></Alert>}
             </CardContent>
           </Card>
           {review && <Card className="bg-muted/20 p-4 sm:p-5"><CardHeader className="p-0"><CardTitle className="text-base">Description</CardTitle><CardDescription className="mt-2">Inferred from the resource files. Edit it before submitting if needed.</CardDescription></CardHeader><CardContent className="p-0 pt-4"><Textarea rows={3} value={description} placeholder="Resource description" onChange={(event) => setDescription(event.target.value)} disabled={busy} /></CardContent></Card>}

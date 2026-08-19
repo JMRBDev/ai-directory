@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
+import { DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
 import { Gear } from '@phosphor-icons/react/dist/csr/Gear';
 import { ListDashes } from '@phosphor-icons/react/dist/csr/ListDashes';
 import { Package } from '@phosphor-icons/react/dist/csr/Package';
@@ -10,6 +11,7 @@ import { useDirectory } from './context';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
@@ -46,52 +48,58 @@ export function SiteHeader() {
           </span>
         </Button>
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Refresh registry" onClick={refresh}>
-                <ArrowsClockwise className={cn(refreshing && 'animate-spin')} size={18} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Refresh registry</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Installed resources" onClick={() => setSheet('installed')}>
-                <ListDashes size={18} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Installed resources</TooltipContent>
-          </Tooltip>
-          <Button className="hidden sm:inline-flex" variant="outline" size="sm" onClick={() => setSheet('publish')}>
-            <UploadSimple size={16} />
-            Publish
-          </Button>
-          <span className="sm:hidden">
+          <div className="hidden items-center gap-1 sm:flex">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Publish resource" onClick={() => setSheet('publish')}>
-                  <UploadSimple size={18} />
+                <Button variant="ghost" size="icon" aria-label="Refresh registry" onClick={refresh}>
+                  <ArrowsClockwise className={cn(refreshing && 'animate-spin')} size={18} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Publish resource</TooltipContent>
+              <TooltipContent>Refresh registry</TooltipContent>
             </Tooltip>
-          </span>
-          <Button
-            variant={Object.keys(staged).length > 0 ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSheet('changes')}
-          >
-            <ListDashes size={16} />
-            Changes{Object.keys(staged).length > 0 ? ` (${Object.keys(staged).length})` : ''}
-          </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSheet('settings')}>
-                <Gear size={18} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Settings</TooltipContent>
-          </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Installed resources" onClick={() => setSheet('installed')}>
+                  <ListDashes size={18} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Installed resources</TooltipContent>
+            </Tooltip>
+            <Button variant="outline" size="sm" onClick={() => setSheet('publish')}>
+              <UploadSimple size={16} />
+              Publish
+            </Button>
+            <Button
+              variant={Object.keys(staged).length > 0 ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSheet('changes')}
+            >
+              <ListDashes size={16} />
+              Changes{Object.keys(staged).length > 0 ? ` (${Object.keys(staged).length})` : ''}
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSheet('settings')}>
+                  <Gear size={18} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Settings</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="sm:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Open workspace actions"><DotsThree size={22} /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={refresh}><ArrowsClockwise size={16} /> Refresh registry</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSheet('installed')}><ListDashes size={16} /> Installed resources</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSheet('publish')}><UploadSimple size={16} /> Publish resource</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSheet('changes')}><ListDashes size={16} /> Changes{Object.keys(staged).length > 0 ? ` (${Object.keys(staged).length})` : ''}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSheet('settings')}><Gear size={16} /> Settings</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </nav>
       </div>
     </header>

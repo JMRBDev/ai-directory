@@ -1,5 +1,6 @@
 import { Outlet } from '@tanstack/react-router';
 import { TooltipProvider } from '../../components/ui/tooltip';
+import { Toaster } from '../../components/ui/sonner';
 import { DirectoryProvider, useDirectory } from './context';
 import { ChangesSheet, InstalledSheet, PublishSheet, SettingsSheet } from './sheets';
 import { SiteHeader } from './common';
@@ -19,6 +20,7 @@ export function RootLayout() {
           </footer>
           <WorkspaceSheets />
         </div>
+        <Toaster />
       </TooltipProvider>
     </DirectoryProvider>
   );
