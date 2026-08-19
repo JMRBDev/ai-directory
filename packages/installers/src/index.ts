@@ -1755,26 +1755,7 @@ function createOpenCodePlan(
   }
 
   if (resource.resource.type === 'plugins') {
-    const moduleFile = openCodePluginModule(resource);
-
-    if (!moduleFile) {
-      throw new Error(
-        `Plugin is missing an OpenCode module (.opencode/plugin.ts or .opencode/plugin.js): ${resourceKey(resource.resource)}`,
-      );
-    }
-
-    const extension = moduleFile.path.endsWith('.ts') ? '.ts' : '.js';
-    const destination = safeDestination(
-      join(root, 'plugins'),
-      `${resource.resource.name}${extension}`,
-    );
-
-    return {
-      resource,
-      destination,
-      files: [{ ...moduleFile, destination }],
-      skippedFiles: [],
-    };
+    return createOpenCodePluginPlan(root, resource);
   }
 
   if (resource.resource.type === 'tools') {
@@ -1849,6 +1830,42 @@ function createPluginPlan(
 function openCodePluginModule(resource: ResourceVersion): ResourceFile | undefined {
   return resource.files.find((file) => file.path === '.opencode/plugin.ts')
     ?? resource.files.find((file) => file.path === '.opencode/plugin.js');
+}
+
+function createOpenCodePluginPlan(
+  root: string,
+  resource: ResourceVersion,
+): InstallPlan {
+  const moduleFile = openCodePluginModule(resource);
+
+  if (!moduleFile) {
+    throw new Error(
+      `Plugin is missing an OpenCode module (.opencode/plugin.ts or .opencode/plugin.js): ${resourceKey(resource.resource)}`,
+    );
+  }
+
+  const extension = moduleFile.path.endsWith('.ts') ? '.ts' : '.js';
+  const destination = safeDestination(
+    join(root, 'plugins'),
+    `${resource.resource.name}${extension}`,
+  );
+  const supportRoot = join(root, 'plugins', `${resource.resource.name}.files`);
+  const files: InstallFile[] = [{ ...moduleFile, destination }];
+
+  for (const file of resource.files) {
+    if (file.path === moduleFile.path) continue;
+    files.push({
+      ...file,
+      destination: safeDestination(supportRoot, file.path),
+    });
+  }
+
+  return {
+    resource,
+    destination,
+    files,
+    skippedFiles: [],
+  };
 }
 
 function createOpenCodeToolPlan(

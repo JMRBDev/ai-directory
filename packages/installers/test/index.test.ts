@@ -934,6 +934,56 @@ describe('portable harness installers', () => {
     await expect(readFile(result.destination, 'utf8')).resolves.toBe(
       'export const ReviewPack = async () => ({})\n',
     );
+    await expect(
+      readFile(
+        join(
+          homeDirectory,
+          '.config',
+          'opencode',
+          'plugins',
+          'review-pack.files',
+          '.claude-plugin',
+          'plugin.json',
+        ),
+        'utf8',
+      ),
+    ).resolves.toContain('review-pack');
+    await expect(
+      readFile(
+        join(
+          homeDirectory,
+          '.config',
+          'opencode',
+          'plugins',
+          'review-pack.files',
+          'skills',
+          'reviewer',
+          'SKILL.md',
+        ),
+        'utf8',
+      ),
+    ).resolves.toBe('# Reviewer\n');
+  });
+
+  it('uninstalls all OpenCode plugin support files', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const [result] = await installOpenCodeResources([pluginResource], { homeDirectory });
+    const record = {
+      resource: resourceKey(pluginResource.resource),
+      version: pluginResource.version,
+      harness: 'opencode',
+      destination: result.destination,
+      files: result.ownedPaths,
+      fileHashes: result.fileHashes,
+      installedAt: new Date().toISOString(),
+    } satisfies InstallationRecord;
+
+    await uninstallInstallation(record, { homeDirectory });
+
+    await expect(readFile(result.destination, 'utf8')).rejects.toThrow();
+    await expect(
+      access(join(homeDirectory, '.config', 'opencode', 'plugins', 'review-pack.files')),
+    ).rejects.toThrow();
   });
 
   it('refuses to install a plugin for OpenCode without a module', async () => {
