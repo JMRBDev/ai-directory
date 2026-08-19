@@ -677,6 +677,7 @@ describe('portable harness installers', () => {
       destination: result.destination,
       files: result.ownedPaths,
       fileHashes: result.fileHashes,
+      shared: result.shared,
       installedAt: new Date().toISOString(),
     } satisfies InstallationRecord;
 
@@ -687,6 +688,52 @@ describe('portable harness installers', () => {
       'rules/typescript-quality.md',
     );
     await expect(readFile(configPath, 'utf8')).resolves.toContain('README.md');
+  });
+
+  it('preserves an OpenCode instruction that existed before installation', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const configPath = join(homeDirectory, '.config', 'opencode', 'opencode.json');
+    const entry = 'rules/typescript-quality.md';
+    await mkdir(join(homeDirectory, '.config', 'opencode'), { recursive: true });
+    await writeFile(configPath, JSON.stringify({ instructions: [entry] }) + '\n', 'utf8');
+
+    const [result] = await installOpenCodeResources([ruleResource], { homeDirectory });
+    const record = {
+      resource: resourceKey(ruleResource.resource),
+      version: ruleResource.version,
+      harness: 'opencode',
+      destination: result.destination,
+      files: result.ownedPaths,
+      fileHashes: result.fileHashes,
+      shared: result.shared,
+      installedAt: new Date().toISOString(),
+    } satisfies InstallationRecord;
+
+    expect(result.shared).toEqual([]);
+    await uninstallInstallation(record, { homeDirectory });
+
+    await expect(readFile(configPath, 'utf8')).resolves.toContain(entry);
+  });
+
+  it('removes a platform-created OpenCode config after the final rule uninstall', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const [result] = await installOpenCodeResources([ruleResource], { homeDirectory });
+    const record = {
+      resource: resourceKey(ruleResource.resource),
+      version: ruleResource.version,
+      harness: 'opencode',
+      destination: result.destination,
+      files: result.ownedPaths,
+      fileHashes: result.fileHashes,
+      shared: result.shared,
+      installedAt: new Date().toISOString(),
+    } satisfies InstallationRecord;
+
+    await uninstallInstallation(record, { homeDirectory });
+
+    await expect(
+      readFile(join(homeDirectory, '.config', 'opencode', 'opencode.json'), 'utf8'),
+    ).rejects.toThrow();
   });
 
   it('uninstalls Codex rules without removing existing guidance', async () => {
@@ -705,6 +752,7 @@ describe('portable harness installers', () => {
       destination: result.destination,
       files: result.ownedPaths,
       fileHashes: result.fileHashes,
+      shared: result.shared,
       installedAt: new Date().toISOString(),
     } satisfies InstallationRecord;
 
@@ -714,6 +762,39 @@ describe('portable harness installers', () => {
     await expect(
       readFile(join(homeDirectory, '.ai-directory', 'rules', 'typescript-quality.md'), 'utf8'),
     ).rejects.toThrow();
+  });
+
+  it('protects a Codex rule block that was modified after installation', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const [result] = await installCodexResources([ruleResource], { homeDirectory });
+    const record = {
+      resource: resourceKey(ruleResource.resource),
+      version: ruleResource.version,
+      harness: 'codex',
+      destination: result.destination,
+      files: result.ownedPaths,
+      fileHashes: result.fileHashes,
+      shared: result.shared,
+      installedAt: new Date().toISOString(),
+    } satisfies InstallationRecord;
+    await writeFile(
+      result.destination,
+      (await readFile(result.destination, 'utf8')).replace(
+        '# TypeScript quality',
+        '# Locally changed TypeScript quality',
+      ),
+      'utf8',
+    );
+
+    await expect(uninstallInstallation(record, { homeDirectory })).rejects.toThrow(
+      'managed rule block was modified',
+    );
+    await expect(readFile(result.destination, 'utf8')).resolves.toContain(
+      '# Locally changed TypeScript quality',
+    );
+
+    await uninstallInstallation(record, { homeDirectory, force: true });
+    await expect(readFile(result.destination, 'utf8')).rejects.toThrow();
   });
 
   it('uses a Codex AGENTS override file when it exists', async () => {
@@ -944,6 +1025,7 @@ describe('portable harness installers', () => {
       destination: result.destination,
       files: result.ownedPaths,
       fileHashes: result.fileHashes,
+      shared: result.shared,
       installedAt: new Date().toISOString(),
     } satisfies InstallationRecord;
 
@@ -961,11 +1043,38 @@ describe('portable harness installers', () => {
     await expect(
       access(join(homeDirectory, '.codex', 'plugins')),
     ).resolves.toBeUndefined();
-    const marketplace = await readFile(
-      join(homeDirectory, '.agents', 'plugins', 'marketplace.json'),
+    await expect(
+      readFile(join(homeDirectory, '.agents', 'plugins', 'marketplace.json'), 'utf8'),
+    ).rejects.toThrow();
+  });
+
+  it('protects a Codex marketplace entry that was modified after installation', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const [result] = await installCodexResources([pluginResource], { homeDirectory });
+    const record = {
+      resource: resourceKey(pluginResource.resource),
+      version: pluginResource.version,
+      harness: 'codex',
+      destination: result.destination,
+      files: result.ownedPaths,
+      fileHashes: result.fileHashes,
+      shared: result.shared,
+      installedAt: new Date().toISOString(),
+    } satisfies InstallationRecord;
+    const marketplacePath = join(homeDirectory, '.agents', 'plugins', 'marketplace.json');
+    await writeFile(
+      marketplacePath,
+      (await readFile(marketplacePath, 'utf8')).replace('"AI Directory"', '"Locally changed"'),
       'utf8',
     );
-    expect(marketplace).not.toContain('"name": "review-pack"');
+
+    await expect(uninstallInstallation(record, { homeDirectory })).rejects.toThrow(
+      'marketplace entry was modified',
+    );
+    await expect(readFile(marketplacePath, 'utf8')).resolves.toContain('Locally changed');
+
+    await uninstallInstallation(record, { homeDirectory, force: true });
+    await expect(readFile(marketplacePath, 'utf8')).rejects.toThrow();
   });
 });
 

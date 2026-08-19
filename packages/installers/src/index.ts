@@ -65,12 +65,20 @@ export type InstallResult = {
   paths: string[];
   ownedPaths: string[];
   fileHashes: Record<string, string>;
+  shared?: SharedOwnership[] | undefined;
   changes?: InstallChange[];
 };
 
 export type InstallChange = {
   path: string;
   content: string | null;
+};
+
+export type SharedOwnership = {
+  path: string;
+  key: string;
+  hash: string;
+  created?: boolean | undefined;
 };
 
 export interface ResourceOperation {
@@ -135,6 +143,13 @@ export type ResourceApplyResult = {
   dependencyRemovals: ToolDependencyRemovalCandidate[];
 };
 
+const sharedOwnershipSchema = z.object({
+  path: z.string().min(1),
+  key: z.string().min(1),
+  hash: z.string().min(1),
+  created: z.boolean().optional(),
+});
+
 export const installationRecordSchema = z.object({
   resource: z.string().min(1),
   version: z.string().min(1),
@@ -142,6 +157,7 @@ export const installationRecordSchema = z.object({
   destination: z.string().min(1),
   files: z.array(z.string().min(1)),
   fileHashes: z.record(z.string(), z.string()).optional(),
+  shared: z.array(sharedOwnershipSchema).optional(),
   owners: z.array(z.string().min(1)).min(1).optional(),
   kind: z.enum(['files', 'mcp']).optional(),
   scope: z.enum(['user', 'project']).optional(),
@@ -292,6 +308,9 @@ export async function installOpenCodeResources(
       ],
       ownedPaths: plan.files.map((file) => file.destination),
       fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
+      shared: config?.ownership?.filter((ownership) =>
+        ownership.key === resourceKey(plan.resource.resource),
+      ),
     };
     if (options.dryRun) {
       result.changes = [
@@ -353,6 +372,14 @@ export async function installCodexResources(
       ],
       ownedPaths: plan.files.map((file) => file.destination),
       fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
+      shared: [
+        ...(guidance?.ownership?.filter((ownership) =>
+          ownership.key === resourceKey(plan.resource.resource),
+        ) ?? []),
+        ...(marketplace?.ownership?.filter((ownership) =>
+          ownership.key === resourceKey(plan.resource.resource),
+        ) ?? []),
+      ],
     };
     if (options.dryRun) {
       result.changes = [
@@ -626,7 +653,7 @@ export function createInstallationRecords(
       throw new Error(`Installation result missing for ${resourceKey(resource.resource)}.`);
     }
 
-    return {
+    const record: InstallationRecord = {
       resource: resourceKey(resource.resource),
       version: resource.version,
       harness,
@@ -636,7 +663,27 @@ export function createInstallationRecords(
       owners: [owner ?? resourceKey(resource.resource)],
       installedAt,
     };
+    if (installation.shared && installation.shared.length > 0) {
+      record.shared = installation.shared;
+    }
+    return record;
   });
+}
+
+function mergeSharedOwnership(
+  existing: SharedOwnership[] | undefined,
+  incoming: SharedOwnership[] | undefined,
+): SharedOwnership[] | undefined {
+  if (!existing && !incoming) return undefined;
+
+  const merged = new Map(
+    (existing ?? []).map((ownership) => [`${ownership.path}:${ownership.key}`, ownership]),
+  );
+  for (const ownership of incoming ?? []) {
+    merged.set(`${ownership.path}:${ownership.key}`, ownership);
+  }
+
+  return merged.size > 0 ? [...merged.values()] : undefined;
 }
 
 async function saveInstallationRecords(
@@ -653,6 +700,7 @@ async function saveInstallationRecords(
 
     return {
       ...record,
+      shared: mergeSharedOwnership(existing.shared, record.shared),
       owners: [...new Set([...installationOwners(existing), ...installationOwners(record)])],
     };
   });
@@ -780,7 +828,8 @@ export async function uninstallInstallation(
 
   if (!options.dryRun) {
     for (const change of sharedChanges) {
-      if (change.content !== null) await writeFileAtomic(change.path, change.content);
+      if (change.content === null) await rm(change.path, { force: true });
+      else await writeFileAtomic(change.path, change.content);
     }
     await Promise.all(files.map((path) => rm(path, { force: true })));
     await removeEmptyInstallationDirectories(record, files);
@@ -933,12 +982,16 @@ export async function planResourceOperations(
               record.harness === harness && staleResources.has(record.resource),
             );
             for (const record of staleRecords) {
-              const staleChanges = await uninstallInstallation(
-                record,
-                operationInstallOptions(options, force, true, operation.resource),
-              );
-              for (const change of staleChanges) {
-                await addChange(change, operation, record.resource, harness);
+              try {
+                const staleChanges = await uninstallInstallation(
+                  record,
+                  operationInstallOptions(options, force, true, operation.resource),
+                );
+                for (const change of staleChanges) {
+                  await addChange(change, operation, record.resource, harness);
+                }
+              } catch (error) {
+                conflicts.push(`${record.resource} (${harness}): ${errorMessage(error)}`);
               }
             }
           }
@@ -1018,17 +1071,21 @@ export async function planResourceOperations(
         }
       } else {
         for (const record of records) {
-          const result = await uninstallInstallation(
-            record,
-            operationInstallOptions(
-              options,
-              force,
-              true,
-              operation.pack ? operation.resource : undefined,
-            ),
-          );
-          for (const change of result) {
-            await addChange(change, operation, record.resource, harness);
+          try {
+            const result = await uninstallInstallation(
+              record,
+              operationInstallOptions(
+                options,
+                force,
+                true,
+                operation.pack ? operation.resource : undefined,
+              ),
+            );
+            for (const change of result) {
+              await addChange(change, operation, record.resource, harness);
+            }
+          } catch (error) {
+            conflicts.push(`${record.resource} (${harness}): ${errorMessage(error)}`);
           }
         }
       }
@@ -1447,7 +1504,7 @@ async function removeSharedConfiguration(
     const change = await removeOpenCodeInstruction(record, options);
     return change ? [change] : [];
   } else if (record.harness === 'codex') {
-    const change = await removeCodexGuidance(record);
+    const change = await removeCodexGuidance(record, options);
     return change ? [change] : [];
   }
 
@@ -1475,6 +1532,19 @@ function readOpenCodeInstructions(current: string, path: string): string[] | und
   return result.data.instructions;
 }
 
+function isEmptyOpenCodeConfig(current: string): boolean {
+  const errors: Array<{ error: number; offset: number; length: number }> = [];
+  const data = parse(current, errors);
+  if (errors.length > 0 || data === null || typeof data !== 'object' || Array.isArray(data)) {
+    return false;
+  }
+
+  const keys = Object.keys(data);
+  return keys.every((key) => key === 'instructions')
+    && Array.isArray((data as { instructions?: unknown }).instructions)
+    && (data as { instructions: unknown[] }).instructions.length === 0;
+}
+
 async function removeOpenCodeInstruction(
   record: InstallationRecord,
   options: InstallOptions,
@@ -1491,21 +1561,29 @@ async function removeOpenCodeInstruction(
   const entry = toPosixPath(relative(dirname(path), record.destination));
   if (!currentInstructions.includes(entry)) return null;
 
+  const ownership = record.shared?.find((item) => item.path === path && item.key === record.resource);
+  if (record.shared && !ownership) return null;
+
+  const content = applyEdits(
+    current,
+    modify(
+      current,
+      ['instructions'],
+      currentInstructions.filter((value) => value !== entry),
+      { formattingOptions: { insertSpaces: true, tabSize: 2 } },
+    ),
+  );
+
   return {
     path,
-    content: applyEdits(
-      current,
-      modify(
-        current,
-        ['instructions'],
-        currentInstructions.filter((value) => value !== entry),
-        { formattingOptions: { insertSpaces: true, tabSize: 2 } },
-      ),
-    ),
+    content: ownership?.created && isEmptyOpenCodeConfig(content) ? null : content,
   };
 }
 
-async function removeCodexGuidance(record: InstallationRecord): Promise<InstallChange | null> {
+async function removeCodexGuidance(
+  record: InstallationRecord,
+  options: InstallOptions,
+): Promise<InstallChange | null> {
   const current = await currentFile(record.destination);
 
   if (current === null) return null;
@@ -1522,13 +1600,22 @@ async function removeCodexGuidance(record: InstallationRecord): Promise<InstallC
     throw new Error(`Codex managed rule block is malformed: ${key}`);
   }
 
+  const ownership = record.shared?.find((item) => item.path === record.destination && item.key === key);
+  if (record.shared && !ownership) return null;
+
+  const block = current.slice(start, end + endMarker.length);
+  if (ownership && hashContent(block) !== ownership.hash && !options.force) {
+    throw new Error(`Codex managed rule block was modified: ${key}. Use --force to continue.`);
+  }
+
   const before = current.slice(0, start);
   const after = current.slice(end + endMarker.length);
   const cleanedBefore = before.endsWith('\n\n') ? before.slice(0, -1) : before;
   const cleanedAfter = after.startsWith('\n') ? after.slice(1) : after;
+  const content = `${cleanedBefore}${cleanedAfter}`;
   return {
     path: record.destination,
-    content: `${cleanedBefore}${cleanedAfter}`,
+    content: ownership?.created && content.trim() === '' ? null : content,
   };
 }
 
@@ -1618,6 +1705,7 @@ type InstallFile = {
 type PreparedText = {
   path: string;
   content: string;
+  ownership?: SharedOwnership[];
 };
 
 type CodexInstallPaths = {
@@ -1957,30 +2045,39 @@ async function prepareOpenCodeInstructions(
 ): Promise<PreparedText> {
   const path = await openCodeConfigPath(root, options);
   const entries = resources.map((resource) =>
-    toPosixPath(relative(
-      dirname(path),
-      resourceDestination(root, resource),
-    )),
+    ({
+      resource: resourceKey(resource.resource),
+      entry: toPosixPath(relative(
+        dirname(path),
+        resourceDestination(root, resource),
+      )),
+    }),
   );
   const current = await currentFile(path);
 
-  if (current === null) {
-    return {
-      path,
-      content: `${JSON.stringify({ instructions: entries }, null, 2)}\n`,
-    };
-  }
-
-  const currentInstructions = readOpenCodeInstructions(current, path);
+  const currentInstructions = current === null ? undefined : readOpenCodeInstructions(current, path);
 
   const instructions = currentInstructions === undefined
     ? []
     : [...currentInstructions];
 
-  for (const entry of entries) {
-    if (!instructions.includes(entry)) {
-      instructions.push(entry);
-    }
+  const ownership = entries.flatMap(({ resource, entry }) => {
+    if (instructions.includes(entry)) return [];
+    instructions.push(entry);
+    return [{
+      path,
+      key: resource,
+      hash: hashContent(entry),
+      created: current === null,
+    }];
+  });
+
+  if (current === null) {
+    return {
+      path,
+      content: `${JSON.stringify({ instructions }, null, 2)}\n`,
+      ownership,
+    };
   }
 
   return {
@@ -1991,6 +2088,7 @@ async function prepareOpenCodeInstructions(
         formattingOptions: { insertSpaces: true, tabSize: 2 },
       }),
     ),
+    ownership,
   };
 }
 
@@ -2023,13 +2121,22 @@ async function prepareCodexGuidance(
   force: boolean,
 ): Promise<PreparedText> {
   const path = await codexGuidancePath(codexHome);
-  let content = (await currentFile(path)) ?? '';
+  const current = await currentFile(path);
+  let content = current ?? '';
+  const ownership: SharedOwnership[] = [];
 
   for (const plan of plans) {
+    const block = codexRuleBlock(plan.resource);
     content = upsertCodexRule(content, plan.resource, force);
+    ownership.push({
+      path,
+      key: resourceKey(plan.resource.resource),
+      hash: hashContent(block),
+      created: current === null,
+    });
   }
 
-  return { path, content };
+  return { path, content, ownership };
 }
 
 async function codexGuidancePath(codexHome: string): Promise<string> {
@@ -2047,12 +2154,6 @@ function upsertCodexRule(
   resource: ResourceVersion,
   force: boolean,
 ): string {
-  const entry = resource.files.find((file) => file.path === 'RULE.md');
-
-  if (!entry) {
-    throw new Error(`Rule is missing RULE.md: ${resourceKey(resource.resource)}`);
-  }
-
   const key = resourceKey(resource.resource);
   const startMarker = `<!-- ai-directory:rule:${key} -->`;
   const endMarker = `<!-- /ai-directory:rule:${key} -->`;
@@ -2063,11 +2164,7 @@ function upsertCodexRule(
     throw new Error(`Codex managed rule block is malformed: ${key}`);
   }
 
-  const block = [
-    startMarker,
-    entry.content.endsWith('\n') ? entry.content : `${entry.content}\n`,
-    endMarker,
-  ].join('\n');
+  const block = codexRuleBlock(resource);
 
   if (start !== -1 && end !== -1) {
     if (!force) {
@@ -2084,6 +2181,21 @@ function upsertCodexRule(
       : '\n\n';
 
   return `${contents}${separator}${block}\n`;
+}
+
+function codexRuleBlock(resource: ResourceVersion): string {
+  const entry = resource.files.find((file) => file.path === 'RULE.md');
+
+  if (!entry) {
+    throw new Error(`Rule is missing RULE.md: ${resourceKey(resource.resource)}`);
+  }
+
+  const key = resourceKey(resource.resource);
+  return [
+    `<!-- ai-directory:rule:${key} -->`,
+    entry.content.endsWith('\n') ? entry.content : `${entry.content}\n`,
+    `<!-- /ai-directory:rule:${key} -->`,
+  ].join('\n');
 }
 
 const marketplacePluginSchema = z
@@ -2133,10 +2245,11 @@ async function prepareCodexMarketplace(
   plans: InstallPlan[],
   force: boolean,
 ): Promise<PreparedText> {
-  const current = (await currentFile(paths.marketplacePath)) ?? '';
-  const data = current.trim() ? parseMarketplace(current, paths.marketplacePath) : {};
+  const current = await currentFile(paths.marketplacePath);
+  const data = current?.trim() ? parseMarketplace(current, paths.marketplacePath) : {};
   const plugins = [...(data.plugins ?? [])];
   const requestedNames = new Set<string>();
+  const ownership: SharedOwnership[] = [];
 
   for (const plan of plans) {
     const name = plan.resource.resource.name;
@@ -2166,6 +2279,12 @@ async function prepareCodexMarketplace(
     }
 
     const entry = marketplacePluginEntry(name);
+    ownership.push({
+      path: paths.marketplacePath,
+      key: resourceKey(plan.resource.resource),
+      hash: hashContent(JSON.stringify(entry)),
+      created: current === null,
+    });
     if (existing !== -1) plugins[existing] = entry;
     else plugins.push(entry);
   }
@@ -2173,6 +2292,7 @@ async function prepareCodexMarketplace(
   return {
     path: paths.marketplacePath,
     content: `${JSON.stringify({ name: data.name ?? 'ai-directory', plugins }, null, 2)}\n`,
+    ownership,
   };
 }
 
@@ -2217,9 +2337,32 @@ async function removeCodexMarketplaceEntry(
   if (current === null) return null;
 
   const name = record.resource.split('/').at(-1) ?? record.resource;
+  const ownership = record.shared?.find((item) => item.path === paths.marketplacePath && item.key === record.resource);
+  if (record.shared && !ownership) return null;
+
+  if (ownership) {
+    const data = parseMarketplace(current, paths.marketplacePath);
+    const existing = data.plugins?.find((plugin) => plugin.name === name);
+    if (existing && hashContent(JSON.stringify(existing)) !== ownership.hash && !options.force) {
+      throw new Error(`Codex marketplace entry was modified: ${name}. Use --force to continue.`);
+    }
+  }
+
   const removal = removeCodexMarketplacePlugin(current, name, paths.marketplacePath);
 
   if (!removal.changed) return null;
+
+  if (ownership?.created) {
+    const remaining = parseMarketplace(removal.content, paths.marketplacePath);
+    const keys = Object.keys(remaining);
+    if (
+      keys.every((key) => key === 'name' || key === 'plugins')
+      && (remaining.plugins?.length ?? 0) === 0
+      && (remaining.name === undefined || remaining.name === 'ai-directory')
+    ) {
+      return { path: paths.marketplacePath, content: null };
+    }
+  }
 
   return { path: paths.marketplacePath, content: removal.content };
 }
