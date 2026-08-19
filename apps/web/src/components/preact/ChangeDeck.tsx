@@ -2,12 +2,24 @@ import type { ComponentChildren } from 'preact';
 import { useRef, useState } from 'preact/hooks';
 import type { ResourceSummary } from '@ai-directory/contracts';
 import { closeDrawers, errorMessage, request } from './api';
-import { API_PATHS, appliedChangesMessage, DRAWER_TOGGLES, JSON_HEADERS } from './lib';
+import {
+  API_PATHS,
+  appliedChangesMessage,
+  DRAWER_TOGGLES,
+  HARNESS_DEFAULTS_EVENT,
+  JSON_HEADERS,
+  persistStagedChanges,
+  readHarnessDefaults,
+  readStagedChanges,
+  STAGE_RESOURCE_EVENT,
+  UNSTAGE_RESOURCE_EVENT,
+} from './lib';
 import {
   ChangeDeckContext,
   type ActionMap,
   type ChangeDeckContextValue,
   type StagedItem,
+  type StagedItemUpdate,
   type StagedMap,
 } from './ChangeDeckContext';
 import DrawerShell from './DrawerShell';
@@ -16,7 +28,6 @@ import PlanView from './PlanView';
 import ResourceCatalog from './ResourceCatalog';
 import { useMountEffect } from './useMountEffect';
 import {
-  harnessOptions,
   scopeOptions,
   type ChangeOperation,
   type ChangePlan,
@@ -52,7 +63,7 @@ function operationsFor(
     const operation: ChangeOperation = {
       resource: item.resource,
       action: item.action,
-      harnesses: item.harnesses ?? nextHarnesses,
+      harnesses: item.harnesses.length > 0 ? item.harnesses : nextHarnesses,
     };
     if (item.type === 'mcp-servers') operation.scope = item.scope ?? nextScope;
     return operation;
@@ -99,7 +110,7 @@ export default function ChangeDeckProvider({
   const [localRegistryError, setLocalRegistryError] = useState<string | undefined>(undefined);
   const [localLoading, setLocalLoading] = useState(false);
   const [staged, setStaged] = useState<StagedMap>({});
-  const [harnesses, setHarnesses] = useState<Harness[]>(['claude-code']);
+  const [harnesses, setHarnesses] = useState<Harness[]>(() => readHarnessDefaults());
   const [scope, setScope] = useState<InstallScope>('user');
   const [plan, setPlan] = useState<ChangePlan | null>(null);
   const [planFingerprints, setPlanFingerprints] = useState<Record<string, string>>({});
@@ -109,8 +120,15 @@ export default function ChangeDeckProvider({
   const [force, setForce] = useState(false);
   const [applied, setApplied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const stagedRef = useRef<StagedMap>({});
+  const harnessesRef = useRef<Harness[]>(['claude-code']);
+  const scopeRef = useRef<InstallScope>('user');
   const requestId = useRef(0);
   const planTimer = useRef(0);
+
+  stagedRef.current = staged;
+  harnessesRef.current = harnesses;
+  scopeRef.current = scope;
 
   const stagedItems = Object.values(staged);
   const mcpStaged = stagedItems.some((item) => item.type === 'mcp-servers');
@@ -214,45 +232,102 @@ export default function ChangeDeckProvider({
   }
 
   function stage(item: StagedItem) {
-    const next = { ...staged, [item.key]: item };
+    if (item.harnesses.length === 0) return;
+    const normalized: StagedItem = { ...item, harnesses: [...item.harnesses] };
+    if (normalized.type === 'mcp-servers' && !normalized.scope) normalized.scope = scopeRef.current;
+    const next = { ...stagedRef.current, [normalized.key]: normalized };
     setStaged(next);
-    schedulePlan(next, harnesses, scope);
+    stagedRef.current = next;
+    persistStagedChanges(next);
+    schedulePlan(next, harnessesRef.current, scopeRef.current);
+  }
+
+  function updateStagedItem(key: string, update: StagedItemUpdate) {
+    const current = stagedRef.current[key];
+    if (!current) return;
+    const nextHarnesses = update.harnesses ?? current.harnesses;
+    if (nextHarnesses.length === 0) return;
+    const nextItem: StagedItem = {
+      ...current,
+      harnesses: [...new Set(nextHarnesses)],
+    };
+    if (current.type === 'mcp-servers' && update.scope) nextItem.scope = update.scope;
+    const next = { ...stagedRef.current, [key]: nextItem };
+    setStaged(next);
+    stagedRef.current = next;
+    persistStagedChanges(next);
+    schedulePlan(next, harnessesRef.current, scopeRef.current);
   }
 
   function unstage(key: string) {
-    const next = removeStagedKey(staged, key);
+    const next = removeStagedKey(stagedRef.current, key);
     setStaged(next);
-    schedulePlan(next, harnesses, scope);
+    stagedRef.current = next;
+    persistStagedChanges(next);
+    schedulePlan(next, harnessesRef.current, scopeRef.current);
   }
 
   function unstageResource(resource: string) {
     let next: StagedMap = {};
-    for (const item of Object.values(staged)) {
+    for (const item of Object.values(stagedRef.current)) {
       if (item.resource !== resource) next[item.key] = item;
     }
     setStaged(next);
-    schedulePlan(next, harnesses, scope);
+    stagedRef.current = next;
+    persistStagedChanges(next);
+    schedulePlan(next, harnessesRef.current, scopeRef.current);
   }
 
   function clear() {
     clearTimeout(planTimer.current);
     setStaged({});
+    stagedRef.current = {};
+    persistStagedChanges({});
     setPlan(null);
     setPlanFingerprints({});
     setPlanStatus('');
     setApplied(false);
   }
 
-  function updateHarness(value: Harness, checked: boolean) {
-    const next = checked ? [...harnesses, value] : harnesses.filter((harness) => harness !== value);
-    setHarnesses(next);
-    schedulePlan(staged, next, scope);
-  }
-
   function updateScope(nextScope: InstallScope) {
     setScope(nextScope);
-    schedulePlan(staged, harnesses, nextScope);
+    scopeRef.current = nextScope;
   }
+
+  useMountEffect(() => {
+    const restored = readStagedChanges();
+    if (Object.keys(restored).length > 0) {
+      setStaged(restored);
+      stagedRef.current = restored;
+      schedulePlan(restored, harnessesRef.current, scopeRef.current);
+    }
+
+    const handleStage = (event: Event) => {
+      // SAFETY: InstallResource dispatches this event with a StagedItem detail.
+      const item = (event as CustomEvent<StagedItem>).detail;
+      if (item && Array.isArray(item.harnesses)) stage(item);
+    };
+    const handleUnstage = (event: Event) => {
+      // SAFETY: InstallResource dispatches this event with a key detail object.
+      const detail = (event as CustomEvent<{ key: string }>).detail;
+      if (detail?.key) unstage(detail.key);
+    };
+    const handleHarnessDefaults = (event: Event) => {
+      // SAFETY: persistHarnessDefaults dispatches this event with a Harness[] detail.
+      const defaults = (event as CustomEvent<Harness[]>).detail;
+      if (!Array.isArray(defaults) || defaults.length === 0) return;
+      setHarnesses(defaults);
+      harnessesRef.current = defaults;
+    };
+    window.addEventListener(STAGE_RESOURCE_EVENT, handleStage);
+    window.addEventListener(UNSTAGE_RESOURCE_EVENT, handleUnstage);
+    window.addEventListener(HARNESS_DEFAULTS_EVENT, handleHarnessDefaults);
+    return () => {
+      window.removeEventListener(STAGE_RESOURCE_EVENT, handleStage);
+      window.removeEventListener(UNSTAGE_RESOURCE_EVENT, handleUnstage);
+      window.removeEventListener(HARNESS_DEFAULTS_EVENT, handleHarnessDefaults);
+    };
+  });
 
   async function applyChanges() {
     if (!plan || !canApply) return;
@@ -289,6 +364,8 @@ export default function ChangeDeckProvider({
       setApplied(true);
       setPlanError(false);
       setStaged({});
+      stagedRef.current = {};
+      persistStagedChanges({});
       setPlanFingerprints({});
       setPlanStatus(appliedChangesMessage(appliedChanges, warnings));
       void loadInstallations();
@@ -296,7 +373,7 @@ export default function ChangeDeckProvider({
     } catch (cause) {
       setPlanError(true);
       setPlanStatus(errorMessage(cause, 'Could not apply the change plan.'));
-      schedulePlan(staged, harnesses, scope);
+      schedulePlan(stagedRef.current, harnessesRef.current, scopeRef.current);
     } finally {
       setBusy(false);
     }
@@ -317,6 +394,7 @@ export default function ChangeDeckProvider({
     force,
     busy,
     stage,
+    updateStagedItem,
     unstage,
     unstageResource,
     clear,
@@ -332,7 +410,7 @@ export default function ChangeDeckProvider({
 
       <DrawerShell
         id={DRAWER_TOGGLES.changeDeck}
-        title="Change deck"
+        title="Changes"
         onOpen={() => closeDrawers(DRAWER_TOGGLES.installed, DRAWER_TOGGLES.settings, DRAWER_TOGGLES.publish)}
       >
         {stagedItems.length > 0 && (
@@ -342,21 +420,10 @@ export default function ChangeDeckProvider({
           </div>
         )}
 
-        <fieldset className="fieldset shrink-0 border-b border-base-300 pb-5">
-          <legend className="fieldset-legend">Harnesses</legend>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {harnessOptions.map((option) => (
-              <label className="label cursor-pointer justify-start gap-2" key={option.value}>
-                <input className="checkbox checkbox-primary" type="checkbox" value={option.value} checked={harnesses.includes(option.value)} onChange={(event) => updateHarness(option.value, event.currentTarget.checked)} disabled={busy} />
-                {option.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
         {mcpStaged && (
           <fieldset className="fieldset shrink-0 border-b border-base-300 pb-5">
-            <legend className="fieldset-legend">MCP scope</legend>
+            <legend className="fieldset-legend">Default MCP scope</legend>
+            <p className="text-xs text-base-content/60">Existing staged resources keep their own scope.</p>
             <div className="grid gap-3 sm:grid-cols-2">
               {scopeOptions.map((option) => (
                 <label className="label cursor-pointer justify-start gap-2" key={option.value}>
@@ -377,7 +444,9 @@ export default function ChangeDeckProvider({
             showResource
             homeDir={homeDir}
             actions={stagedActions(stagedItems)}
+            stagedItems={stagedItems}
             onRemove={(resource) => unstageResource(resource)}
+            onUpdate={updateStagedItem}
             force={force}
             onForce={setForce}
             status={planStatus}

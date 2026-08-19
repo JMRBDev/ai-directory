@@ -1,12 +1,15 @@
 import ChangeRows from './ChangeRows';
 import type { Action, ChangePlan } from './types';
+import type { StagedItem, StagedItemUpdate } from './ChangeDeckContext';
 
 type Props = {
   plan: ChangePlan;
   showResource?: boolean;
   homeDir?: string | undefined;
   actions?: Record<string, Action> | undefined;
+  stagedItems?: StagedItem[] | undefined;
   onRemove?: ((resource: string) => void) | undefined;
+  onUpdate?: ((key: string, update: StagedItemUpdate) => void) | undefined;
   force: boolean;
   onForce: (value: boolean) => void;
   status: string;
@@ -17,7 +20,7 @@ type Props = {
   onClose?: () => void;
 };
 
-export default function PlanView({ plan, showResource, homeDir, actions, onRemove, force, onForce, status, statusError, busy, onApply, title, onClose }: Props) {
+export default function PlanView({ plan, showResource, homeDir, actions, stagedItems, onRemove, onUpdate, force, onForce, status, statusError, busy, onApply, title, onClose }: Props) {
   const removesInstallation = plan.operations?.some((operation) => operation.action === 'uninstall') ?? false;
   const canApply = (plan.changes.length > 0 || removesInstallation) && (plan.conflicts.length === 0 || force);
 
@@ -26,8 +29,8 @@ export default function PlanView({ plan, showResource, homeDir, actions, onRemov
       <div className="card-body p-5">
         {(title || onClose) && <div className="flex items-center justify-between gap-4 border-b border-base-300 pb-4"><h3 className="text-lg font-semibold tracking-tight text-base-content">{title}</h3>{onClose && <button className="btn btn-ghost btn-sm" type="button" onClick={onClose}>Close</button>}</div>}
         <div className="mt-4">
-          {plan.changes.length
-            ? <ChangeRows changes={plan.changes} showResource={showResource ?? false} warnings={plan.warnings} homeDir={homeDir} actions={actions} onRemove={onRemove} />
+          {plan.changes.length || (showResource && stagedItems && stagedItems.length > 0)
+            ? <ChangeRows changes={plan.changes} showResource={showResource ?? false} warnings={plan.warnings} homeDir={homeDir} actions={actions} stagedItems={stagedItems} onRemove={onRemove} onUpdate={onUpdate} busy={busy} />
             : <div className="alert alert-info items-start text-sm"><i className="ph ph-info text-lg" aria-hidden="true" /><span>No file changes are needed. Applying this plan will update the installation record.</span></div>}
         </div>
         {plan.conflicts.length > 0 && (

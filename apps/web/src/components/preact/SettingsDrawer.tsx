@@ -1,10 +1,19 @@
 import { useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { closeDrawers, errorMessage, request } from './api';
-import { API_PATHS, DRAWER_TOGGLES, JSON_HEADERS, useStatus } from './lib';
+import {
+  API_PATHS,
+  DRAWER_TOGGLES,
+  HARNESS_DEFAULTS_EVENT,
+  JSON_HEADERS,
+  persistHarnessDefaults,
+  readHarnessDefaults,
+  useStatus,
+} from './lib';
 import DrawerShell from './DrawerShell';
 import ThemeSelector from './ThemeSelector';
-import type { InstallScope } from './types';
+import { harnessOptions, type Harness, type InstallScope } from './types';
+import { useMountEffect } from './useMountEffect';
 
 type Props = {
   apiUrl: string;
@@ -43,8 +52,20 @@ export default function SettingsDrawer({ apiUrl }: Props) {
   const [repository, setRepository] = useState('');
   const [scope, setScope] = useState<InstallScope>('user');
   const [source, setSource] = useState('Loading');
+  const [harnesses, setHarnesses] = useState<Harness[]>(() => readHarnessDefaults());
   const { status, error, showStatus } = useStatus();
   const [busy, setBusy] = useState(false);
+
+  useMountEffect(() => {
+    setHarnesses(readHarnessDefaults());
+    const handleHarnessDefaults = (event: Event) => {
+      // SAFETY: persistHarnessDefaults dispatches this event with a Harness[] detail.
+      const next = (event as CustomEvent<Harness[]>).detail;
+      if (Array.isArray(next) && next.length > 0) setHarnesses(next);
+    };
+    window.addEventListener(HARNESS_DEFAULTS_EVENT, handleHarnessDefaults);
+    return () => window.removeEventListener(HARNESS_DEFAULTS_EVENT, handleHarnessDefaults);
+  });
 
   async function loadSettings() {
     try {
@@ -96,6 +117,13 @@ export default function SettingsDrawer({ apiUrl }: Props) {
       : 'Cleared the ' + result.clearedScope + ' config.');
   }
 
+  function updateHarness(value: Harness, checked: boolean) {
+    const next = checked ? [...harnesses, value] : harnesses.filter((harness) => harness !== value);
+    if (next.length === 0) return;
+    setHarnesses(next);
+    persistHarnessDefaults(next);
+  }
+
   return (
     <DrawerShell
       id={DRAWER_TOGGLES.settings}
@@ -134,6 +162,18 @@ export default function SettingsDrawer({ apiUrl }: Props) {
             </div>
             <p className={'text-sm ' + (error ? 'text-error' : 'text-base-content/60')} role="status">{status}</p>
           </form>
+        </Section>
+
+        <Section id="settings-harnesses-title" title="Default harnesses">
+          <p className="text-sm text-base-content/60">Used as the initial selection for new install requests. Existing changes keep their own targets.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            {harnessOptions.map((option) => (
+              <label className="label cursor-pointer justify-start gap-2 rounded-box border border-base-300 px-3 py-3 has-checked:border-primary has-checked:bg-primary/10" key={option.value}>
+                <input className="checkbox checkbox-primary" type="checkbox" value={option.value} checked={harnesses.includes(option.value)} onChange={(event) => updateHarness(option.value, event.currentTarget.checked)} disabled={busy} />
+                {option.label}
+              </label>
+            ))}
+          </div>
         </Section>
 
         <Section id="settings-appearance-title" title="Appearance">

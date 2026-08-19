@@ -131,7 +131,7 @@ function CatalogCard({
 }
 
 export default function ResourceCatalog({ resources, registryError }: Props) {
-  const { installations, localResources, staged, stage, unstage } = useChangeDeck();
+  const { installations, localResources, staged, harnesses, stage, unstage } = useChangeDeck();
   const installedIds = new Set(installations.map((item) => item.resource));
   const locallyPresentKeys = new Set(
     localResources
@@ -203,6 +203,7 @@ export default function ResourceCatalog({ resources, registryError }: Props) {
         resource: id,
         type: resource.type,
         action: installedIds.has(id) ? 'uninstall' : 'install',
+        harnesses,
       });
     } else {
       unstage(id);
