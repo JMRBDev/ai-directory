@@ -12,6 +12,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 import { Skeleton } from '../../components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { cn } from '../../lib/utils';
 
 export function SiteHeader() {
@@ -45,20 +46,35 @@ export function SiteHeader() {
           </span>
         </Button>
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
-          <Button variant="ghost" size="icon" aria-label="Refresh registry" title="Refresh registry" onClick={refresh}>
-            <ArrowsClockwise className={cn(refreshing && 'animate-spin')} size={18} />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Installed resources" title="Installed resources" onClick={() => setSheet('installed')}>
-            <ListDashes size={18} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Refresh registry" onClick={refresh}>
+                <ArrowsClockwise className={cn(refreshing && 'animate-spin')} size={18} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh registry</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Installed resources" onClick={() => setSheet('installed')}>
+                <ListDashes size={18} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Installed resources</TooltipContent>
+          </Tooltip>
           <Button className="hidden sm:inline-flex" variant="outline" size="sm" onClick={() => setSheet('publish')}>
             <UploadSimple size={16} />
             Publish
           </Button>
           <span className="sm:hidden">
-            <Button variant="ghost" size="icon" aria-label="Publish resource" title="Publish resource" onClick={() => setSheet('publish')}>
-              <UploadSimple size={18} />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Publish resource" onClick={() => setSheet('publish')}>
+                  <UploadSimple size={18} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Publish resource</TooltipContent>
+            </Tooltip>
           </span>
           <Button
             variant={Object.keys(staged).length > 0 ? 'default' : 'outline'}
@@ -68,9 +84,14 @@ export function SiteHeader() {
             <ListDashes size={16} />
             Changes{Object.keys(staged).length > 0 ? ` (${Object.keys(staged).length})` : ''}
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Settings" title="Settings" onClick={() => setSheet('settings')}>
-            <Gear size={18} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSheet('settings')}>
+                <Gear size={18} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Settings</TooltipContent>
+          </Tooltip>
         </nav>
       </div>
     </header>
