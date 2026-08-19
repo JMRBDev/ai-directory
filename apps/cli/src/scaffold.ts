@@ -114,6 +114,30 @@ function scaffoldContent(
     )}\n`;
   }
 
+  if (type === 'tools') {
+    return [
+      '---',
+      `name: ${name}`,
+      `description: ${quotedDescription}`,
+      `command: ${name}`,
+      'executables: []',
+      '---',
+      '',
+      `# ${title}`,
+      '',
+      description,
+      '',
+      '## Harness adapters',
+      '',
+      'Add the harness-specific hooks, plugins, or instruction files for this tool here.',
+      '',
+      '## Usage',
+      '',
+      `Run \`${name}\` after installing the tool binary or script.`,
+      '',
+    ].join('\n');
+  }
+
   const frontmatter = type === 'skills' || type === 'agents'
     ? ['---', `name: ${name}`, `description: ${quotedDescription}`, '---', '']
     : [];

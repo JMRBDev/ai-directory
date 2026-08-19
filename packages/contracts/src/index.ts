@@ -7,6 +7,7 @@ export const resourceTypeSchema = z.enum([
   'mcp-servers',
   'templates',
   'plugins',
+  'tools',
 ]);
 export const resourceReviewStatusSchema = z.enum(['unreviewed', 'reviewed']);
 export const resourceLifecycleStatusSchema = z.enum(['active', 'retired']);
@@ -18,7 +19,7 @@ export const resourceVersionSchema = z
   .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 
 export const resourceIdSchema = z.string().regex(
-  /^[a-z0-9]+(?:-[a-z0-9]+)*\/(?:skills|agents|rules|mcp-servers|templates|plugins)\/[a-z0-9]+(?:-[a-z0-9]+)*$/,
+  /^[a-z0-9]+(?:-[a-z0-9]+)*\/(?:skills|agents|rules|mcp-servers|templates|plugins|tools)\/[a-z0-9]+(?:-[a-z0-9]+)*$/,
 );
 
 const templateResourceIdSchema = resourceIdSchema.refine(
@@ -48,6 +49,21 @@ export const pluginManifestSchema = z
   .passthrough();
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;
+
+const toolPathSchema = z.string().min(1).refine((value) => {
+  const normalized = value.replaceAll('\\', '/');
+  const segments = normalized.split('/');
+  return !normalized.startsWith('/') && !segments.includes('') && !segments.includes('..');
+}, 'Must be a relative resource file path.');
+
+export const toolManifestSchema = z.object({
+  name: slugSchema,
+  description: z.string().min(1),
+  command: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  executables: z.array(toolPathSchema).default([]),
+});
+
+export type ToolManifest = z.infer<typeof toolManifestSchema>;
 
 export const mcpTransportSchema = z.enum(['stdio', 'http', 'sse', 'ws']);
 
@@ -141,6 +157,7 @@ export const RESOURCE_ENTRY_FILES = {
   'mcp-servers': 'MCP.md',
   templates: 'TEMPLATE.md',
   plugins: '.claude-plugin/plugin.json',
+  tools: 'TOOL.md',
 } satisfies Record<ResourceType, string>;
 
 export const PLUGIN_ENTRY_FILES = [

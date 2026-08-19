@@ -28,6 +28,7 @@ const typeIcons = {
   rules: 'ph-scroll',
   'mcp-servers': 'ph-plugs-connected',
   plugins: 'ph-puzzle-piece',
+  tools: 'ph-wrench',
 } satisfies Record<LocalResource['type'], string>;
 
 const stateLabels = {

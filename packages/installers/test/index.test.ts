@@ -1,5 +1,6 @@
+import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -90,6 +91,32 @@ const pluginResource = {
     },
     { path: 'skills/reviewer/SKILL.md', content: '# Reviewer\n' },
     { path: '.opencode/plugin.ts', content: 'export const ReviewPack = async () => ({})\n' },
+  ],
+} satisfies ResourceVersion;
+
+const toolResource = {
+  ...resource,
+  resource: {
+    ...resource.resource,
+    type: 'tools',
+    name: 'rtk',
+  },
+  files: [
+    {
+      path: 'TOOL.md',
+      content: '---\nname: rtk\ndescription: Reduce shell output.\ncommand: rtk\nexecutables:\n  - bin/rtk\n---\n# RTK\n',
+    },
+    {
+      path: '.claude-plugin/plugin.json',
+      content: '{"name":"rtk","description":"Reduce shell output."}\n',
+    },
+    {
+      path: '.codex-plugin/plugin.json',
+      content: '{"name":"rtk","description":"Reduce shell output."}\n',
+    },
+    { path: '.opencode/plugin.ts', content: 'export const RTK = async () => ({})\n' },
+    { path: '.opencode/tools/rtk.ts', content: 'export const tool = {}\n' },
+    { path: 'bin/rtk', content: '#!/bin/sh\nprintf "rtk\\n"\n' },
   ],
 } satisfies ResourceVersion;
 
@@ -377,6 +404,7 @@ describe('portable harness installers', () => {
       rules: 'native',
       'mcp-servers': 'configured',
       plugins: 'native',
+      tools: 'native',
     });
     expect(getHarnessAdapter('opencode').capabilities).toEqual({
       skills: 'native',
@@ -384,6 +412,7 @@ describe('portable harness installers', () => {
       rules: 'configured',
       'mcp-servers': 'configured',
       plugins: 'native',
+      tools: 'native',
     });
     expect(getHarnessAdapter('codex').capabilities).toEqual({
       skills: 'native',
@@ -391,6 +420,7 @@ describe('portable harness installers', () => {
       rules: 'configured',
       'mcp-servers': 'configured',
       plugins: 'configured',
+      tools: 'configured',
     });
   });
 
@@ -736,6 +766,53 @@ describe('portable harness installers', () => {
     await expect(
       readFile(join(result.destination, 'skills', 'reviewer', 'SKILL.md'), 'utf8'),
     ).resolves.toBe('# Reviewer\n');
+  });
+
+  it('installs a tool bundle and preserves its Claude adapter files', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    const [result] = await installClaudeCodeResources([toolResource], { homeDirectory });
+
+    expect(result.destination).toBe(join(homeDirectory, '.claude', 'skills', 'rtk'));
+    await expect(readFile(join(result.destination, 'TOOL.md'), 'utf8')).resolves.toContain(
+      'command: rtk',
+    );
+    await expect(readFile(join(result.destination, 'bin', 'rtk'), 'utf8')).resolves.toContain(
+      'printf "rtk',
+    );
+    await expect(
+      access(join(result.destination, 'bin', 'rtk'), constants.X_OK),
+    ).resolves.toBeUndefined();
+  });
+
+  it('installs OpenCode tool adapters and support files', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    const [result] = await installOpenCodeResources([toolResource], { homeDirectory });
+
+    expect(result.destination).toBe(
+      join(homeDirectory, '.config', 'opencode', 'plugins', 'rtk.ts'),
+    );
+    await expect(
+      readFile(join(homeDirectory, '.config', 'opencode', 'tools', 'rtk', 'rtk.ts'), 'utf8'),
+    ).resolves.toBe('export const tool = {}\n');
+    await expect(
+      readFile(
+        join(homeDirectory, '.config', 'opencode', 'plugins', 'rtk.files', 'bin', 'rtk'),
+        'utf8',
+      ),
+    ).resolves.toContain('printf "rtk');
+  });
+
+  it('rejects an OpenCode tool without an adapter', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+
+    await expect(
+      installOpenCodeResources([{
+        ...toolResource,
+        files: toolResource.files.filter((file) => !file.path.startsWith('.opencode/')),
+      }], { homeDirectory }),
+    ).rejects.toThrow('missing an OpenCode adapter');
   });
 
   it('installs the OpenCode plugin module into the plugins directory', async () => {

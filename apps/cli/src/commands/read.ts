@@ -25,7 +25,7 @@ export const list = defineCommand({
     },
     type: {
       type: 'enum',
-      options: ['skills', 'agents', 'rules', 'mcp-servers', 'templates', 'plugins'],
+      options: ['skills', 'agents', 'rules', 'mcp-servers', 'templates', 'plugins', 'tools'],
       alias: 't',
       description: 'Filter by resource type',
     },
