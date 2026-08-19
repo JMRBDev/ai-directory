@@ -216,7 +216,7 @@ export async function installToolDependencies(
       await rollbackInstalledToolDependencies(installed, options);
     } catch (rollbackError) {
       throw new Error(
-        `${errorMessage(error)} Dependency rollback failed: ${errorMessage(rollbackError)}`,
+        `${errorMessage(error instanceof Error ? error : String(error))} Dependency rollback failed: ${errorMessage(rollbackError instanceof Error ? rollbackError : String(rollbackError))}`,
         { cause: error },
       );
     }
@@ -385,7 +385,7 @@ export async function uninstallToolDependencies(
       await restoreToolDependencies(completed, options);
     } catch (rollbackError) {
       throw new Error(
-        `${errorMessage(error)} Dependency restoration failed: ${errorMessage(rollbackError)}`,
+        `${errorMessage(error instanceof Error ? error : String(error))} Dependency restoration failed: ${errorMessage(rollbackError instanceof Error ? rollbackError : String(rollbackError))}`,
         { cause: error },
       );
     }
@@ -413,7 +413,7 @@ export async function restoreToolDependencies(
       result = await runner(removal.candidate.command, ['--version'], cwd, environment);
     } catch (error) {
       throw new Error(
-        `Restored ${removal.candidate.command}, but verification failed: ${errorMessage(error)}`,
+        `Restored ${removal.candidate.command}, but verification failed: ${errorMessage(error instanceof Error ? error : String(error))}`,
         { cause: error },
       );
     }
@@ -582,6 +582,6 @@ function extractVersion(output: string): string | undefined {
   return undefined;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(error: Error | string): string {
+  return error instanceof Error ? error.message : error;
 }

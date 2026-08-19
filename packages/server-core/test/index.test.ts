@@ -11,9 +11,6 @@ const temporaryDirectories: string[] = [];
 const fixtureIndexPath = fileURLToPath(
   new URL('../../registry/test/fixtures/index.json', import.meta.url),
 );
-const templateIndexPath = fileURLToPath(
-  new URL('../../registry/test/fixtures/template-index.json', import.meta.url),
-);
 const fixtureRoot = fileURLToPath(
   new URL('../../registry/test/fixtures/', import.meta.url),
 );
