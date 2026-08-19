@@ -19,7 +19,7 @@ export const resourceTypeOptions = [
   { value: 'agents' as const, label: 'Agent', hint: 'A reusable specialist agent' },
   { value: 'rules' as const, label: 'Rules', hint: 'Guidance applied to coding work' },
   { value: 'mcp-servers' as const, label: 'MCP Server', hint: 'A Model Context Protocol server' },
-  { value: 'templates' as const, label: 'Template', hint: 'A pack of existing resources' },
+  { value: 'templates' as const, label: 'Resource pack', hint: 'A pack of existing resources' },
   { value: 'plugins' as const, label: 'Plugin', hint: 'A self-contained bundle of components' },
 ];
 
