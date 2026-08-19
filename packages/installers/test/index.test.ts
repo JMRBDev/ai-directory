@@ -1180,6 +1180,7 @@ describe('installation manifest', () => {
       schemaVersion: 1,
       installations: [],
       dependencies: [],
+      packs: [],
     });
     await updateInstallationManifest(path, [record]);
     await updateInstallationManifest(path, [{ ...record, version: '1.1.0' }]);

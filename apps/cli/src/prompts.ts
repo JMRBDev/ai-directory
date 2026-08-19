@@ -10,6 +10,7 @@ import {
 } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/contracts';
 import type {
+  InstallationPackRecord,
   InstallationRecord,
   Harness,
   ToolDependencyStatus,
@@ -163,10 +164,12 @@ export type InstalledResourceChoice = {
 export async function promptInstalledResource(
   records: InstallationRecord[],
   source?: RegistrySource,
+  packs: InstallationPackRecord[] = [],
 ): Promise<InstalledResourceChoice | undefined> {
   const choices: InstalledResourceChoice[] = [...new Set(records.map((record) => record.resource))]
     .sort()
     .map((resource) => ({ resource, resources: [resource] }));
+  const recordedPackIds = new Set(packs.map((pack) => pack.resource));
 
   if (source) {
     const index = await readRegistrySourceIndex(source);
@@ -175,6 +178,7 @@ export async function promptInstalledResource(
         .filter((resource) => resource.type === 'templates' && resource.lifecycleStatus === 'active')
         .map(async (resource) => {
           const id = resourceKey(resource);
+          if (recordedPackIds.has(id)) return undefined;
           const resources = await installationResourceIds(id, source);
           const installed = records.some((record) =>
             resources.every((member) =>
@@ -192,6 +196,18 @@ export async function promptInstalledResource(
 
     choices.push(...templates.filter((choice): choice is InstalledResourceChoice => choice !== undefined));
   }
+
+  const packChoices = new Map<string, InstalledResourceChoice>();
+  for (const pack of packs) {
+    const choice = packChoices.get(pack.resource) ?? {
+      resource: pack.resource,
+      resources: [],
+    };
+    choice.resources.push(...pack.resources.map((entry) => entry.resource));
+    choice.resources = [...new Set(choice.resources)];
+    packChoices.set(pack.resource, choice);
+  }
+  choices.push(...packChoices.values());
 
   choices.sort((left, right) => left.resource.localeCompare(right.resource));
 
@@ -220,17 +236,21 @@ export async function promptInstalledResource(
 export async function promptInstalledHarnesses(
   records: InstallationRecord[],
   resources: string[],
+  packs: InstallationPackRecord[] = [],
+  resource?: string,
 ): Promise<Harness[] | undefined> {
   const available = harnessOptions
     .map((option) => option.value)
     .filter((harness) =>
-      resources.every((resource) =>
-        records.some(
-          (record) =>
-            record.resource === resource &&
-            record.harness === harness,
-        ),
-      ),
+      resource?.includes('/templates/') && packs.length > 0
+        ? packs.some((pack) => pack.resource === resource && pack.harness === harness)
+        : resources.every((resource) =>
+            records.some(
+              (record) =>
+                record.resource === resource &&
+                record.harness === harness,
+            ),
+          ),
     );
   const answer = await autocompleteMultiselect({
     message: 'Which installed harnesses should be changed?',

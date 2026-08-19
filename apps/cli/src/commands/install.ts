@@ -15,9 +15,11 @@ import {
 } from '@ai-directory/installers';
 import {
   installManifestPath,
+  installationPackOperation,
   installationResourceIds,
   isMcpResource,
   localResourceFromMcpRecord,
+  readInstallationPacks,
   readInstallationRecords,
 } from '@ai-directory/server-core';
 import {
@@ -164,6 +166,15 @@ export const install = defineCommand({
             warningResources: [result, ...resources],
           };
           if (args.version !== undefined) operation.version = args.version;
+          if (result.resource.type === 'templates') {
+            operation.pack = {
+              version: result.version,
+              resources: resources.map((entry) => ({
+                resource: resourceKey(entry.resource),
+                version: entry.version,
+              })),
+            };
+          }
 
           return applyResourceOperations(
             [operation],
@@ -316,14 +327,20 @@ export const update = defineCommand({
       const installedRecords = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
         ? await readInstallationRecords()
         : [];
+      const installedPacks = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
+        ? await readInstallationPacks()
+        : [];
+      const initialManifest = resourceArgument && !isMcpResource(resourceArgument)
+        ? await readInstallationManifest(installManifestPath('user'))
+        : undefined;
       const choice = resourceArgument
         ? {
             resource: resourceArgument,
-            resources: await installationResourceIds(resourceArgument, source),
+            resources: await installationResourceIds(resourceArgument, source, initialManifest),
           }
         : (
             interactiveTerminal
-              ? await promptInstalledResource(installedRecords, source)
+              ? await promptInstalledResource(installedRecords, source, installedPacks)
               : undefined
           );
       if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
@@ -333,7 +350,7 @@ export const update = defineCommand({
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
         : interactiveTerminal
-          ? await promptInstalledHarnesses(installedRecords, resourceIds)
+          ? await promptInstalledHarnesses(installedRecords, resourceIds, installedPacks, resource)
           : parseHarnesses(args.harness, rawArgs);
 
       if (!harnesses) throw new Error('Select at least one harness.');
@@ -394,15 +411,26 @@ export const update = defineCommand({
             return { applied, changed, version: loaded.resource.version, mcp: true };
           }
 
-          const applied = await applyResourceOperations(
-            [{
-              resource,
-              harnesses: changed,
-              action: 'install',
-              resources: loaded.resources,
-              warningResources: [loaded.resource, ...loaded.resources],
+          const operation: ResourceOperation = {
+            resource,
+            harnesses: changed,
+            action: 'install',
+            resources: loaded.resources,
+            warningResources: [loaded.resource, ...loaded.resources],
+            version: loaded.resource.version,
+          };
+          if (loaded.resource.resource.type === 'templates') {
+            operation.pack = {
               version: loaded.resource.version,
-            }],
+              resources: loaded.resources.map((entry) => ({
+                resource: resourceKey(entry.resource),
+                version: entry.version,
+              })),
+            };
+          }
+
+          const applied = await applyResourceOperations(
+            [operation],
             { cwd: process.cwd(), installDependencies },
             force,
           );
@@ -495,14 +523,20 @@ export const uninstall = defineCommand({
       const installedRecords = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
         ? await readInstallationRecords()
         : [];
+      const installedPacks = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
+        ? await readInstallationPacks()
+        : [];
+      const initialManifest = resourceArgument && !isMcpResource(resourceArgument)
+        ? await readInstallationManifest(installManifestPath('user'))
+        : undefined;
       const choice = resourceArgument
         ? {
             resource: resourceArgument,
-            resources: await installationResourceIds(resourceArgument, source),
+            resources: await installationResourceIds(resourceArgument, source, initialManifest),
           }
         : (
             interactiveTerminal
-              ? await promptInstalledResource(installedRecords, source)
+              ? await promptInstalledResource(installedRecords, source, installedPacks)
               : undefined
           );
       if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
@@ -512,7 +546,7 @@ export const uninstall = defineCommand({
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
         : interactiveTerminal
-          ? await promptInstalledHarnesses(installedRecords, resourceIds)
+          ? await promptInstalledHarnesses(installedRecords, resourceIds, installedPacks, resource)
           : parseHarnesses(args.harness, rawArgs);
 
       if (!harnesses) throw new Error('Select at least one harness.');
@@ -524,9 +558,9 @@ export const uninstall = defineCommand({
         async (force) => {
           const manifestPath = installManifestPath(isMcpResource(resource) ? scope : 'user');
           const manifest = await readInstallationManifest(manifestPath);
-          assertInstalledFor(manifest, resourceIds, harnesses, resource);
 
           if (isMcpResource(resource)) {
+            assertInstalledFor(manifest, resourceIds, harnesses, resource);
             return applyMcpOperations(
               [{
                 resource,
@@ -540,20 +574,34 @@ export const uninstall = defineCommand({
             );
           }
 
-          const operation: ResourceOperation = {
-            resource,
-            harnesses,
-            action: 'uninstall',
-            resourceIds,
-          };
-          const plan = await planResourceOperations([operation], { cwd: process.cwd() }, force);
+          const operations: ResourceOperation[] = [];
+          for (const harness of harnesses) {
+            const installedResourceIds = await installationResourceIds(
+              resource,
+              source,
+              manifest,
+              [harness],
+            );
+            assertInstalledFor(manifest, installedResourceIds, [harness], resource);
+            const operation: ResourceOperation = {
+              resource,
+              harnesses: [harness],
+              action: 'uninstall',
+              resourceIds: installedResourceIds,
+            };
+            const pack = installationPackOperation(manifest, resource, harness);
+            if (pack) operation.pack = pack;
+            operations.push(operation);
+          }
+
+          const plan = await planResourceOperations(operations, { cwd: process.cwd() }, force);
           let removeDependencies = args['remove-dependencies'] ?? false;
           if (plan.dependencyRemovals.length > 0 && interactiveTerminal && !removeDependencies) {
             removeDependencies = await promptToolDependencyRemoval(plan.dependencyRemovals) ?? false;
           }
 
           return applyResourceOperations(
-            [operation],
+            operations,
             { cwd: process.cwd(), removeDependencies },
             force,
             plan,

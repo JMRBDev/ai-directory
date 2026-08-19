@@ -55,6 +55,7 @@ export type InstallOptions = {
   installDependencies?: boolean;
   removeDependencies?: boolean;
   dependencyCommandRunner?: DependencyCommandRunner;
+  installationOwner?: string;
 };
 
 export type InstallResult = {
@@ -79,8 +80,19 @@ export interface ResourceOperation {
   version?: string;
   resources?: ResourceVersion[];
   resourceIds?: string[];
+  pack?: ResourcePackOperation;
   warningResources?: ResourceVersion[];
 }
+
+export type ResourcePackEntry = {
+  resource: string;
+  version: string;
+};
+
+export type ResourcePackOperation = {
+  version: string;
+  resources: ResourcePackEntry[];
+};
 
 export type PlannedResourceChange = {
   path: string;
@@ -110,6 +122,7 @@ export type ResourceChangeOptions = Pick<
   | 'installDependencies'
   | 'removeDependencies'
   | 'dependencyCommandRunner'
+  | 'installationOwner'
 >;
 
 export type ResourceApplyResult = {
@@ -129,10 +142,26 @@ export const installationRecordSchema = z.object({
   destination: z.string().min(1),
   files: z.array(z.string().min(1)),
   fileHashes: z.record(z.string(), z.string()).optional(),
+  owners: z.array(z.string().min(1)).min(1).optional(),
   kind: z.enum(['files', 'mcp']).optional(),
   scope: z.enum(['user', 'project']).optional(),
   installedAt: z.string().min(1),
 });
+
+const installationPackEntrySchema = z.object({
+  resource: z.string().min(1),
+  version: z.string().min(1),
+});
+
+export const installationPackRecordSchema = z.object({
+  resource: z.string().min(1),
+  version: z.string().min(1),
+  harness: z.enum(['claude-code', 'opencode', 'codex']),
+  resources: z.array(installationPackEntrySchema).min(1),
+  installedAt: z.string().min(1),
+});
+
+export type InstallationPackRecord = z.infer<typeof installationPackRecordSchema>;
 
 const toolDependencyRecordSchema = z.object({
   resource: z.string().min(1),
@@ -149,12 +178,14 @@ export const installationManifestSchema = z.object({
   schemaVersion: z.literal(1),
   installations: z.array(installationRecordSchema),
   dependencies: z.array(toolDependencyRecordSchema).default([]),
+  packs: z.array(installationPackRecordSchema).default([]),
 });
 
 export type InstallationManifest = {
   schemaVersion: 1;
   installations: InstallationRecord[];
   dependencies: ToolDependencyRecord[];
+  packs: InstallationPackRecord[];
 };
 export type { ToolDependencyRecord };
 
@@ -477,7 +508,9 @@ export async function readInstallationManifest(path: string): Promise<Installati
   try {
     data = JSON.parse(await readFile(path, 'utf8'));
   } catch (error) {
-    if (isMissingPathError(error)) return { schemaVersion: 1, installations: [], dependencies: [] };
+    if (isMissingPathError(error)) {
+      return { schemaVersion: 1, installations: [], dependencies: [], packs: [] };
+    }
     throw new Error(`Installation manifest is not valid JSON: ${path}`, { cause: error });
   }
 
@@ -503,6 +536,7 @@ export async function readInstallationManifest(path: string): Promise<Installati
     schemaVersion: result.data.schemaVersion,
     installations: result.data.installations,
     dependencies,
+    packs: result.data.packs,
   };
 }
 
@@ -538,10 +572,38 @@ export async function updateInstallationManifest(
   ]);
 }
 
+export async function updateInstallationPackRecords(
+  path: string,
+  records: InstallationPackRecord[],
+): Promise<InstallationManifest> {
+  const keys = new Set(records.map(installationKey));
+
+  return rewriteFullInstallationManifest(path, (current) => ({
+    ...current,
+    packs: [
+      ...current.packs.filter((record) => !keys.has(installationKey(record))),
+      ...records,
+    ],
+  }));
+}
+
+export async function removeInstallationPackRecords(
+  path: string,
+  records: Array<Pick<InstallationPackRecord, 'resource' | 'harness'>>,
+): Promise<InstallationManifest> {
+  const keys = new Set(records.map(installationKey));
+
+  return rewriteFullInstallationManifest(path, (current) => ({
+    ...current,
+    packs: current.packs.filter((record) => !keys.has(installationKey(record))),
+  }));
+}
+
 export function createInstallationRecords(
   resources: ResourceVersion[],
   installations: InstallResult[],
   harness: Harness,
+  owner?: string,
 ): InstallationRecord[] {
   const installedAt = new Date().toISOString();
 
@@ -559,6 +621,7 @@ export function createInstallationRecords(
       destination: installation.destination,
       files: installation.ownedPaths,
       fileHashes: installation.fileHashes,
+      owners: [owner ?? resourceKey(resource.resource)],
       installedAt,
     };
   });
@@ -572,14 +635,23 @@ async function saveInstallationRecords(
   const current = await readInstallationManifest(path);
   const keys = new Set(records.map(installationKey));
   const previous = current.installations.filter((record) => keys.has(installationKey(record)));
+  const merged = records.map((record) => {
+    const existing = previous.find((item) => installationKey(item) === installationKey(record));
+    if (!existing) return record;
+
+    return {
+      ...record,
+      owners: [...new Set([...installationOwners(existing), ...installationOwners(record)])],
+    };
+  });
 
   await removeStaleInstallationFiles(
     previous,
-    records.flatMap((record) => record.files),
+    merged.flatMap((record) => record.files),
     options,
   );
 
-  return updateInstallationManifest(path, records);
+  return updateInstallationManifest(path, merged);
 }
 
 export async function removeInstallationRecord(
@@ -678,6 +750,10 @@ export async function uninstallInstallation(
   record: InstallationRecord,
   options: InstallOptions,
 ): Promise<InstallChange[]> {
+  if (options.installationOwner && !willRemoveInstallation(record, options.installationOwner)) {
+    return [];
+  }
+
   const files = await ownedInstallationFiles(record, options);
   const normalized: InstallationRecord = {
     ...record,
@@ -702,6 +778,28 @@ export async function uninstallInstallation(
     ...sharedChanges,
     ...files.map((path) => ({ path, content: null })),
   ];
+}
+
+function installationOwners(record: InstallationRecord): string[] {
+  return record.owners && record.owners.length > 0
+    ? record.owners
+    : [record.resource];
+}
+
+function removeInstallationOwner(
+  record: InstallationRecord,
+  owner?: string,
+): InstallationRecord | null {
+  if (!owner) return null;
+
+  const remaining = installationOwners(record).filter((value) => value !== owner);
+  if (remaining.length === installationOwners(record).length) return record;
+  if (remaining.length === 0) return null;
+  return { ...record, owners: remaining };
+}
+
+function willRemoveInstallation(record: InstallationRecord, owner?: string): boolean {
+  return removeInstallationOwner(record, owner) === null;
 }
 
 export async function planResourceOperations(
@@ -777,6 +875,7 @@ export async function planResourceOperations(
   }
 
   const processedInstallGroups = new Set<string>();
+  const processedPackStale = new Set<string>();
 
   for (const operation of operations) {
     const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
@@ -792,6 +891,9 @@ export async function planResourceOperations(
       );
 
       for (const record of records) {
+        if (operation.action === 'uninstall' && operation.pack && !willRemoveInstallation(record, operation.resource)) {
+          continue;
+        }
         try {
           await assertInstallationFilesUnchanged(record, force);
         } catch (error) {
@@ -800,6 +902,35 @@ export async function planResourceOperations(
       }
 
       if (operation.action === 'install') {
+        if (operation.pack) {
+          const staleKey = `${harness}:${operation.resource}`;
+          const previousPack = manifest.packs.find((pack) =>
+            pack.resource === operation.resource && pack.harness === harness,
+          );
+          if (previousPack && !processedPackStale.has(staleKey)) {
+            processedPackStale.add(staleKey);
+            const currentResources = new Set(
+              operation.pack.resources.map((entry) => entry.resource),
+            );
+            const staleResources = new Set(
+              previousPack.resources
+                .map((entry) => entry.resource)
+                .filter((resource) => !currentResources.has(resource)),
+            );
+            const staleRecords = manifest.installations.filter((record) =>
+              record.harness === harness && staleResources.has(record.resource),
+            );
+            for (const record of staleRecords) {
+              const staleChanges = await uninstallInstallation(
+                record,
+                operationInstallOptions(options, force, true, operation.resource),
+              );
+              for (const change of staleChanges) {
+                await addChange(change, operation, record.resource, harness);
+              }
+            }
+          }
+        }
         if (processedInstallGroups.has(harness)) continue;
         processedInstallGroups.add(harness);
         const group = installGroups.get(harness);
@@ -852,7 +983,12 @@ export async function planResourceOperations(
         for (const record of records) {
           const result = await uninstallInstallation(
             record,
-            operationInstallOptions(options, force, true),
+            operationInstallOptions(
+              options,
+              force,
+              true,
+              operation.pack ? operation.resource : undefined,
+            ),
           );
           for (const change of result) {
             await addChange(change, operation, record.resource, harness);
@@ -930,18 +1066,59 @@ export async function applyResourceOperations(
             if (operation.action === 'install') {
               const resources = operation.resources ?? [];
               for (const harness of operation.harnesses) {
+                if (operation.pack) {
+                  const currentManifest = await readInstallationManifest(manifestPath);
+                  const previousPack = currentManifest.packs.find((pack) =>
+                    pack.resource === operation.resource && pack.harness === harness,
+                  );
+                  if (previousPack) {
+                    const currentResources = new Set(
+                      operation.pack.resources.map((entry) => entry.resource),
+                    );
+                    const staleResources = new Set(
+                      previousPack.resources
+                        .map((entry) => entry.resource)
+                        .filter((resource) => !currentResources.has(resource)),
+                    );
+                    const staleRecords = currentManifest.installations.filter((record) =>
+                      record.harness === harness && staleResources.has(record.resource),
+                    );
+                    for (const record of staleRecords) {
+                      const remaining = removeInstallationOwner(record, operation.resource);
+                      if (remaining) {
+                        await updateInstallationManifest(manifestPath, [remaining]);
+                      } else {
+                        await uninstallInstallation(
+                          record,
+                          operationInstallOptions(options, force, false, operation.resource),
+                        );
+                        await removeInstallationRecord(manifestPath, record);
+                        removed.push(record);
+                      }
+                    }
+                  }
+                }
                 const installer = getHarnessAdapter(harness);
                 const installations = await installer.install(
                   resources,
                   operationInstallOptions(options, true),
                 );
-                const records = createInstallationRecords(resources, installations, installer.harness);
-                await saveInstallationRecords(
+                const records = createInstallationRecords(
+                  resources,
+                  installations,
+                  installer.harness,
+                  operation.pack ? operation.resource : undefined,
+                );
+                const saved = await saveInstallationRecords(
                   manifestPath,
                   records,
                   operationInstallOptions(options, force),
                 );
-                installed.push(...records);
+                installed.push(
+                  ...records.map((record) =>
+                    saved.installations.find((item) => installationKey(item) === installationKey(record)) ?? record,
+                  ),
+                );
               }
             } else {
               const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
@@ -953,9 +1130,15 @@ export async function applyResourceOperations(
               );
 
               for (const record of records) {
+                const owner = operation.pack ? operation.resource : record.resource;
+                const remaining = removeInstallationOwner(record, owner);
+                if (remaining) {
+                  await updateInstallationManifest(manifestPath, [remaining]);
+                  continue;
+                }
                 await uninstallInstallation(
                   record,
-                  operationInstallOptions(options, force),
+                  operationInstallOptions(options, force, false, owner),
                 );
                 await removeInstallationRecord(manifestPath, record);
                 removed.push(record);
@@ -980,6 +1163,19 @@ export async function applyResourceOperations(
           await updateToolDependencyRecords(manifestPath, dependencyRecords);
         }
 
+        const installingPacks = operations
+          .filter((operation) => operation.action === 'install' && operation.pack)
+          .flatMap((operation) => operation.harnesses.map((harness) => ({
+            resource: operation.resource,
+            version: operation.pack?.version ?? operation.version ?? 'unknown',
+            harness,
+            resources: operation.pack?.resources ?? [],
+            installedAt: new Date().toISOString(),
+          })));
+        if (installingPacks.length > 0) {
+          await updateInstallationPackRecords(manifestPath, installingPacks);
+        }
+
         if (removingResourceIds.length > 0) {
           if (options.removeDependencies && plan.dependencyRemovals.length > 0) {
             removedDependencies = await uninstallToolDependencies(
@@ -988,6 +1184,16 @@ export async function applyResourceOperations(
             );
           }
           await removeToolDependencyRecords(manifestPath, removingResourceIds);
+        }
+
+        const removingPacks = operations
+          .filter((operation) => operation.action === 'uninstall' && operation.pack)
+          .flatMap((operation) => operation.harnesses.map((harness) => ({
+            resource: operation.resource,
+            harness,
+          })));
+        if (removingPacks.length > 0) {
+          await removeInstallationPackRecords(manifestPath, removingPacks);
         }
 
         return {
@@ -1300,7 +1506,7 @@ function isPluginBundleType(
   return type === 'plugins' || type === 'tools';
 }
 
-function installationKey(record: InstallationRecord): string {
+function installationKey(record: Pick<InstallationRecord, 'resource' | 'harness'>): string {
   return `${record.harness}:${record.resource}`;
 }
 
@@ -1308,21 +1514,27 @@ function fullyRemovedResourceIds(
   operations: ResourceOperation[],
   installations: InstallationRecord[],
 ): string[] {
-  const removalKeys = new Set(
-    operations
-      .filter((operation) => operation.action === 'uninstall')
-      .flatMap((operation) => {
-        const resourceIds = operation.resourceIds
-          ?? operation.resources?.map((resource) => resourceKey(resource.resource))
-          ?? [];
-        return operation.harnesses.flatMap((harness) =>
-          resourceIds.map((resource) => `${harness}:${resource}`),
-        );
-      }),
-  );
+  const removedOwners = new Map<string, Set<string>>();
+  for (const operation of operations.filter((item) => item.action === 'uninstall')) {
+    const resourceIds = operation.resourceIds
+      ?? operation.resources?.map((resource) => resourceKey(resource.resource))
+      ?? [];
+    for (const harness of operation.harnesses) {
+      for (const resource of resourceIds) {
+        const key = `${harness}:${resource}`;
+        const owners = removedOwners.get(key) ?? new Set<string>();
+        owners.add(operation.pack ? operation.resource : resource);
+        removedOwners.set(key, owners);
+      }
+    }
+  }
+
   const installedResourceIds = new Set(
     installations
-      .filter((record) => !removalKeys.has(installationKey(record)))
+      .filter((record) => {
+        const owners = removedOwners.get(installationKey(record));
+        return owners === undefined || installationOwners(record).some((owner) => !owners.has(owner));
+      })
       .map((record) => record.resource),
   );
   const installingResourceIds = new Set(
@@ -2016,12 +2228,14 @@ function operationInstallOptions(
   options: ResourceChangeOptions,
   force: boolean,
   dryRun = false,
+  installationOwner?: string,
 ): InstallOptions {
   const result: InstallOptions = { force, dryRun };
   if (options.cwd) result.cwd = options.cwd;
   if (options.homeDirectory) result.homeDirectory = options.homeDirectory;
   if (options.scope) result.scope = options.scope;
   if (options.environment) result.environment = options.environment;
+  if (installationOwner) result.installationOwner = installationOwner;
 
   return result;
 }
