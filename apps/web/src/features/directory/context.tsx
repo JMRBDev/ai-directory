@@ -6,6 +6,7 @@ import type { PlanData, SheetName } from './model';
 export type DirectoryContextValue = {
   installations: NonNullable<Awaited<ReturnType<typeof api.installed>>['installations']>;
   localResources: LocalResource[];
+  localError: string | undefined;
   localRegistryError: string | undefined;
   homeDirectory: string | undefined;
   localLoading: boolean;
@@ -29,7 +30,7 @@ export type DirectoryContextValue = {
   unstage: (key: string) => void;
   clear: () => void;
   applyChanges: () => void;
-  refreshRegistry: () => void;
+  refreshRegistry: () => Promise<void>;
 };
 
 export const DirectoryContext = createContext<DirectoryContextValue | null>(null);

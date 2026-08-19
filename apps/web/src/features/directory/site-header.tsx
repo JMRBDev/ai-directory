@@ -6,6 +6,7 @@ import { Gear } from '@phosphor-icons/react/dist/csr/Gear';
 import { ListDashes } from '@phosphor-icons/react/dist/csr/ListDashes';
 import { Package } from '@phosphor-icons/react/dist/csr/Package';
 import { UploadSimple } from '@phosphor-icons/react/dist/csr/UploadSimple';
+import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
@@ -17,10 +18,17 @@ export function SiteHeader() {
   const navigate = useNavigate();
   const [refreshing, setRefreshing] = useState(false);
 
-  function refresh() {
+  async function refresh() {
+    if (refreshing) return;
     setRefreshing(true);
-    refreshRegistry();
-    window.setTimeout(() => setRefreshing(false), 500);
+    try {
+      await refreshRegistry();
+      toast.success('Registry refreshed.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not refresh the registry.');
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   const changeCount = Object.keys(staged).length;
@@ -38,7 +46,7 @@ export function SiteHeader() {
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
           <div className="hidden items-center gap-1 sm:flex">
             <Tooltip>
-              <TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label="Refresh registry" onClick={refresh}><ArrowsClockwise className={cn(refreshing && 'animate-spin')} size={18} /></Button></TooltipTrigger>
+              <TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label="Refresh registry" onClick={() => void refresh()} disabled={refreshing}><ArrowsClockwise className={cn(refreshing && 'animate-spin')} size={18} /></Button></TooltipTrigger>
               <TooltipContent>Refresh registry</TooltipContent>
             </Tooltip>
             <Tooltip>
@@ -56,7 +64,7 @@ export function SiteHeader() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Open workspace actions"><DotsThree size={22} /></Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={refresh}><ArrowsClockwise size={16} /> Refresh registry</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void refresh()} disabled={refreshing}><ArrowsClockwise size={16} /> Refresh registry</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('installed')}><ListDashes size={16} /> Installed resources</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('publish')}><UploadSimple size={16} /> Publish resource</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('changes')}><ListDashes size={16} /> Changes{changeCount > 0 ? ` (${changeCount})` : ''}</DropdownMenuItem>

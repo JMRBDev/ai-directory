@@ -14,7 +14,7 @@ import { useDirectory } from './context';
 import { LOCAL_STATE_LABELS, parseHarnessFilter, parseSourceFilter, REGISTRY_STATE_LABELS, type HarnessFilter, type SourceFilter } from './model';
 
 export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { localResources, localLoading, localRegistryError, homeDirectory, staged, harnesses, stage, unstage } = useDirectory();
+  const { localResources, localError, localLoading, localRegistryError, homeDirectory, staged, harnesses, stage, unstage } = useDirectory();
   const queryClient = useQueryClient();
   const [harnessFilter, setHarnessFilter] = useState<HarnessFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
@@ -69,8 +69,9 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
         <Button variant="outline" size="sm" onClick={() => void queryClient.invalidateQueries({ queryKey: ['local-resources'] })} disabled={localLoading}><ArrowsClockwise size={16} className={cn(localLoading && 'animate-spin')} /> Refresh</Button>
       </div>
       <p className="pt-5 text-sm text-muted-foreground" role="status" aria-live="polite">{statusText}</p>
+      {localError && <div className="pt-4"><ErrorMessage message={localError} /></div>}
       {localRegistryError && <div className="pt-4"><ErrorMessage message={localRegistryError} /></div>}
-      {localLoading ? <div className="space-y-3 py-6"><LoadingCard /></div> : <div className="space-y-3 py-6">{visibleResources.length === 0 ? <Empty><EmptyHeader><EmptyMedia><Info size={18} /></EmptyMedia><EmptyTitle>{localResources.length === 0 ? 'No local resources found' : 'No matching resources'}</EmptyTitle><EmptyDescription>{localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}</EmptyDescription></EmptyHeader></Empty> : visibleResources.map((resource) => { const key = resource.resource ? `${resource.resource}\u0000${resource.harness}` : ''; return <LocalResourceRow key={`${resource.harness}-${resource.path}`} resource={resource} homeDirectory={homeDirectory} staged={key ? staged[key] : undefined} onInstall={() => stageLocal(resource, 'install')} onUninstall={() => stageLocal(resource, 'uninstall')} onDiscard={() => key && unstage(key)} />; })}</div>}
+      {localLoading ? <div className="space-y-3 py-6"><LoadingCard /></div> : localError ? null : <div className="space-y-3 py-6">{visibleResources.length === 0 ? <Empty><EmptyHeader><EmptyMedia><Info size={18} /></EmptyMedia><EmptyTitle>{localResources.length === 0 ? 'No local resources found' : 'No matching resources'}</EmptyTitle><EmptyDescription>{localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}</EmptyDescription></EmptyHeader></Empty> : visibleResources.map((resource) => { const key = resource.resource ? `${resource.resource}\u0000${resource.harness}` : ''; return <LocalResourceRow key={`${resource.harness}-${resource.path}`} resource={resource} homeDirectory={homeDirectory} staged={key ? staged[key] : undefined} onInstall={() => stageLocal(resource, 'install')} onUninstall={() => stageLocal(resource, 'uninstall')} onDiscard={() => key && unstage(key)} />; })}</div>}
     </SheetFrame>
   );
 }

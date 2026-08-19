@@ -12,7 +12,7 @@ import { Separator } from '../../components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { api } from '../../lib/api';
 import { harnessOptions, type InstallScope } from '../../lib/types';
-import { SheetFrame } from './common';
+import { ErrorMessage, SheetFrame } from './common';
 import { useDirectory } from './context';
 import { getServerSystemTheme, getSystemTheme, installScope, readStorage, subscribeSystemTheme, writeStorage } from './model';
 
@@ -25,7 +25,8 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
   const [theme, setTheme] = useState(() => readStorage<'light' | 'dark' | 'system'>('ai-directory-theme', 'system'));
   const systemDark = useSyncExternalStore(subscribeSystemTheme, getSystemTheme, getServerSystemTheme);
   const currentRepository = config.data?.repository ?? '';
-  const sourceLabel = config.data?.source === 'none' ? 'Not configured' : config.data?.source ?? 'Loading';
+  const configError = config.error instanceof Error ? config.error.message : config.error ? 'Could not load the registry configuration.' : undefined;
+  const sourceLabel = config.isPending ? 'Loading' : configError ? 'Unavailable' : config.data?.source === 'none' ? 'Not configured' : config.data?.source ?? 'Not configured';
   const saveMutation = useMutation({
     mutationFn: () => api.configPut(repository ?? currentRepository, configScope),
     onSuccess: (result) => {
@@ -69,6 +70,7 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
         <section>
           <div className="flex items-center justify-between gap-3"><h3 className="font-medium">Registry source</h3><Badge variant={sourceLabel === 'Not configured' ? 'muted' : 'outline'}>{sourceLabel}</Badge></div>
           <p className="mt-1 text-sm text-muted-foreground">The repository setting is stored by the local API.</p>
+          {configError && <div className="mt-3"><ErrorMessage message={configError} /></div>}
           <Field className="mt-4"><FieldLabel htmlFor="registry-repository">Git repository URL</FieldLabel><Input id="registry-repository" placeholder="https://github.com/org/resources" value={repository ?? currentRepository} onChange={(event) => setRepository(event.target.value)} /></Field>
           <Field className="mt-3"><FieldLabel htmlFor="settings-scope">Save scope</FieldLabel><Select value={configScope} onValueChange={(value) => setConfigScope(installScope(value))}><SelectTrigger id="settings-scope" className="mt-2"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="user">User config</SelectItem><SelectItem value="project">Project config</SelectItem></SelectContent></Select></Field>
           <div className="mt-4 flex gap-2"><Button onClick={save} disabled={!(repository ?? currentRepository).trim() || saveMutation.isPending}>Save source</Button><Button variant="ghost" onClick={() => void clearMutation.mutateAsync()} disabled={clearMutation.isPending}>Clear</Button></div>
