@@ -1087,6 +1087,80 @@ describe('shared resource operations', () => {
       failedInstaller.mockRestore();
     }
   });
+
+  it('rolls back dependencies when a later harness install fails', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const dependencyResource = {
+      ...toolResource,
+      files: toolResource.files.map((file) =>
+        file.path === 'TOOL.md'
+          ? {
+              ...file,
+              content: file.content.replace(
+                '---\n# RTK',
+                'runtime:\n  command: rtk\n  installers:\n    - manager: homebrew\n      package: rtk\n---\n# RTK',
+              ),
+            }
+          : file,
+      ),
+    } satisfies ResourceVersion;
+    const operation = {
+      resource: resourceKey(dependencyResource.resource),
+      harnesses: ['claude-code', 'opencode'] as const,
+      action: 'install' as const,
+      resources: [dependencyResource],
+    };
+
+    const plan = await planResourceOperations([operation], { homeDirectory });
+    const installed = new Set<string>();
+    const calls: string[] = [];
+    const failedInstaller = vi
+      .spyOn(openCodeInstaller, 'install')
+      .mockRejectedValueOnce(new Error('simulated OpenCode failure'));
+
+    try {
+      const failure = applyResourceOperations(
+        [operation],
+        {
+          homeDirectory,
+          installDependencies: true,
+          dependencyCommandRunner: async (command, args) => {
+            calls.push([command, ...args].join(' '));
+            if (command === 'rtk' && args[0] === '--version') {
+              if (!installed.has('rtk')) throw new Error('rtk is not installed');
+              return { stdout: 'rtk 1.0.0', stderr: '' };
+            }
+            if (command === 'brew' && args[0] === '--version') {
+              return { stdout: 'Homebrew 4.0.0', stderr: '' };
+            }
+            if (command === 'brew' && args.join(' ') === 'install rtk') {
+              installed.add('rtk');
+              return { stdout: 'Installed rtk', stderr: '' };
+            }
+            if (command === 'brew' && args.join(' ') === 'uninstall rtk') {
+              installed.delete('rtk');
+              return { stdout: 'Uninstalled rtk', stderr: '' };
+            }
+            throw new Error('Unexpected command: ' + command + ' ' + args.join(' '));
+          },
+        },
+        false,
+        plan,
+      );
+
+      await expect(failure).rejects.toThrow('All changes were rolled back');
+      expect(installed).toEqual(new Set());
+      expect(calls).toContain('brew uninstall rtk');
+      await expect(
+        readFile(join(homeDirectory, '.claude', 'skills', 'rtk', 'TOOL.md'), 'utf8'),
+      ).rejects.toThrow();
+      await expect(
+        readFile(join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json'), 'utf8'),
+      ).rejects.toThrow();
+    } finally {
+      failedInstaller.mockRestore();
+    }
+  });
 });
 
 describe('installation manifest', () => {

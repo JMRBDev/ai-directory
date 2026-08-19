@@ -23,7 +23,9 @@ import {
 import {
   toolDependencyRecordsForResources,
   toolDependencyRemovalCandidates,
+  toolDependencyRemovalCandidatesForInstallResults,
   installToolDependencies,
+  restoreToolDependencies,
   uninstallToolDependencies,
   type DependencyCommandRunner,
   type ToolDependencyInstallResult,
@@ -914,86 +916,117 @@ export async function applyResourceOperations(
         .flatMap((operation) => operation.resources ?? []);
       const manifest = await readInstallationManifest(installationManifestPath(options));
       const removingResourceIds = fullyRemovedResourceIds(operations, manifest.installations);
-      const dependencies = options.installDependencies && installingResources.length > 0
-        ? await installToolDependencies(installingResources, dependencyOptions)
-        : [];
+      let dependencies: ToolDependencyInstallResult[] = [];
       let removedDependencies: ToolDependencyUninstallResult[] = [];
 
-      for (const operation of operations) {
-        try {
-          const manifestPath = installationManifestPath(options);
-          if (operation.action === 'install') {
-            const resources = operation.resources ?? [];
-            for (const harness of operation.harnesses) {
-              const installer = getHarnessAdapter(harness);
-              const installations = await installer.install(
-                resources,
-                operationInstallOptions(options, true),
-              );
-              const records = createInstallationRecords(resources, installations, installer.harness);
-              await saveInstallationRecords(
-                manifestPath,
-                records,
-                operationInstallOptions(options, force),
-              );
-              installed.push(...records);
-            }
-          } else {
-            const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
-            const manifest = await readInstallationManifest(manifestPath);
-            const records = manifest.installations.filter(
-              (record) =>
-                operation.harnesses.includes(record.harness) &&
-                resourceIds.includes(record.resource),
-            );
+      try {
+        dependencies = options.installDependencies && installingResources.length > 0
+          ? await installToolDependencies(installingResources, dependencyOptions)
+          : [];
 
-            for (const record of records) {
-              await uninstallInstallation(
-                record,
-                operationInstallOptions(options, force),
+        for (const operation of operations) {
+          try {
+            const manifestPath = installationManifestPath(options);
+            if (operation.action === 'install') {
+              const resources = operation.resources ?? [];
+              for (const harness of operation.harnesses) {
+                const installer = getHarnessAdapter(harness);
+                const installations = await installer.install(
+                  resources,
+                  operationInstallOptions(options, true),
+                );
+                const records = createInstallationRecords(resources, installations, installer.harness);
+                await saveInstallationRecords(
+                  manifestPath,
+                  records,
+                  operationInstallOptions(options, force),
+                );
+                installed.push(...records);
+              }
+            } else {
+              const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
+              const manifest = await readInstallationManifest(manifestPath);
+              const records = manifest.installations.filter(
+                (record) =>
+                  operation.harnesses.includes(record.harness) &&
+                  resourceIds.includes(record.resource),
               );
-              await removeInstallationRecord(manifestPath, record);
-              removed.push(record);
+
+              for (const record of records) {
+                await uninstallInstallation(
+                  record,
+                  operationInstallOptions(options, force),
+                );
+                await removeInstallationRecord(manifestPath, record);
+                removed.push(record);
+              }
             }
+          } catch (error) {
+            throw new Error(
+              `Failed to ${operation.action} ${operation.resource} for ${operation.harnesses.join(', ')}: ${errorMessage(error)}`,
+              { cause: error },
+            );
           }
-        } catch (error) {
+        }
+
+        const manifestPath = installationManifestPath(options);
+        if (installingResources.length > 0) {
+          const manifest = await readInstallationManifest(manifestPath);
+          const dependencyRecords = toolDependencyRecordsForResources(
+            installingResources,
+            dependencies,
+            manifest.dependencies,
+          );
+          await updateToolDependencyRecords(manifestPath, dependencyRecords);
+        }
+
+        if (removingResourceIds.length > 0) {
+          if (options.removeDependencies && plan.dependencyRemovals.length > 0) {
+            removedDependencies = await uninstallToolDependencies(
+              plan.dependencyRemovals,
+              dependencyOptions,
+            );
+          }
+          await removeToolDependencyRecords(manifestPath, removingResourceIds);
+        }
+
+        return {
+          plan,
+          installed,
+          removed,
+          warnings: [...new Set(warnings)],
+          dependencies,
+          removedDependencies,
+          dependencyRemovals: plan.dependencyRemovals,
+        };
+      } catch (error) {
+        const rollbackErrors: string[] = [];
+
+        try {
+          const candidates = toolDependencyRemovalCandidatesForInstallResults(dependencies);
+          if (candidates.length > 0) {
+            await uninstallToolDependencies(candidates, dependencyOptions);
+          }
+        } catch (rollbackError) {
+          rollbackErrors.push(`Dependency rollback failed: ${errorMessage(rollbackError)}`);
+        }
+
+        if (removedDependencies.length > 0) {
+          try {
+            await restoreToolDependencies(removedDependencies, dependencyOptions);
+          } catch (rollbackError) {
+            rollbackErrors.push(`Dependency restoration failed: ${errorMessage(rollbackError)}`);
+          }
+        }
+
+        if (rollbackErrors.length > 0) {
           throw new Error(
-            `Failed to ${operation.action} ${operation.resource} for ${operation.harnesses.join(', ')}: ${errorMessage(error)}`,
+            `${errorMessage(error)} ${rollbackErrors.join(' ')}`,
             { cause: error },
           );
         }
+        throw error;
       }
-
-      const manifestPath = installationManifestPath(options);
-      if (installingResources.length > 0) {
-        const manifest = await readInstallationManifest(manifestPath);
-        const dependencyRecords = toolDependencyRecordsForResources(
-          installingResources,
-          dependencies,
-          manifest.dependencies,
-        );
-        await updateToolDependencyRecords(manifestPath, dependencyRecords);
-      }
-
-      if (removingResourceIds.length > 0) {
-        if (options.removeDependencies && plan.dependencyRemovals.length > 0) {
-          removedDependencies = await uninstallToolDependencies(
-            plan.dependencyRemovals,
-            dependencyOptions,
-          );
-        }
-        await removeToolDependencyRecords(manifestPath, removingResourceIds);
-      }
-
-      return {
-        plan,
-        installed,
-        removed,
-        warnings: [...new Set(warnings)],
-        dependencies,
-        removedDependencies,
-        dependencyRemovals: plan.dependencyRemovals,
-      };
     },
     'Installation failed',
   );
