@@ -7,7 +7,7 @@ import { resourceKey, type ResourceSummary } from '@ai-directory/contracts';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Checkbox } from '../../components/ui/checkbox';
-import { Field, FieldLabel } from '../../components/ui/field';
+import { FieldGroup, FieldLegend } from '../../components/ui/field';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '../../components/ui/input-group';
 import { Label } from '../../components/ui/label';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
@@ -55,8 +55,8 @@ export function InstallPanel({ resource, staged }: { resource: ResourceSummary; 
       <p className="mt-2 text-sm text-muted-foreground">Choose the target harnesses, then review the change plan before applying it.</p>
       <Card className="mt-5">
         <CardContent className="space-y-6 p-5 sm:p-6">
-          <Field>
-            <FieldLabel>Install in</FieldLabel>
+          <FieldGroup>
+            <FieldLegend>Install in</FieldLegend>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {harnessOptions.map((option) => (
                 <Label className={cn('flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 text-sm transition-colors', selectedHarnesses.includes(option.value) ? 'border-primary/50 bg-primary/5' : 'border-border')} htmlFor={`install-harness-${option.value}`} key={option.value}>
@@ -65,10 +65,10 @@ export function InstallPanel({ resource, staged }: { resource: ResourceSummary; 
                 </Label>
               ))}
             </div>
-          </Field>
+          </FieldGroup>
           {resource.type === 'mcp-servers' && (
-            <Field className="border-t pt-5">
-              <FieldLabel>Scope</FieldLabel>
+            <FieldGroup className="border-t pt-5">
+              <FieldLegend>Scope</FieldLegend>
               <RadioGroup className="mt-3 grid gap-2 sm:grid-cols-2" value={selectedScope} onValueChange={(value) => { const next = installScope(value); setSelectedScope(next); setScope(next); }}>
                 {scopeOptions.map((option) => (
                   <Label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm" htmlFor={`resource-scope-${option.value}`} key={option.value}>
@@ -77,7 +77,7 @@ export function InstallPanel({ resource, staged }: { resource: ResourceSummary; 
                   </Label>
                 ))}
               </RadioGroup>
-            </Field>
+            </FieldGroup>
           )}
           <div className="border-t pt-5">
             <InputGroup className="bg-muted">

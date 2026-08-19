@@ -1,4 +1,5 @@
 import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
+import { Slot } from '@radix-ui/react-slot';
 import type { ComponentProps } from 'react';
 import { cn } from '../../lib/utils';
 
@@ -14,8 +15,9 @@ export function BreadcrumbItem({ className, ...props }: ComponentProps<'li'>) {
   return <li className={cn('inline-flex items-center gap-1.5', className)} {...props} />;
 }
 
-export function BreadcrumbLink({ className, ...props }: ComponentProps<'a'>) {
-  return <a className={cn('transition-colors hover:text-foreground', className)} {...props} />;
+export function BreadcrumbLink({ asChild, className, ...props }: ComponentProps<'a'> & { asChild?: boolean }) {
+  const Comp = asChild ? Slot : 'a';
+  return <Comp className={cn('transition-colors hover:text-foreground', className)} {...props} />;
 }
 
 export function BreadcrumbPage({ className, ...props }: ComponentProps<'span'>) {

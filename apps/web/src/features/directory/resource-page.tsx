@@ -4,7 +4,7 @@ import { ArrowUpRight } from '@phosphor-icons/react/dist/csr/ArrowUpRight';
 import { FileText } from '@phosphor-icons/react/dist/csr/FileText';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
 import { Badge } from '../../components/ui/badge';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../../components/ui/breadcrumb';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../../components/ui/breadcrumb';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
@@ -31,7 +31,7 @@ export function ResourcePage() {
   return (
     <div className="space-y-8">
       <div>
-        <Breadcrumb><BreadcrumbList><BreadcrumbItem><Link className="transition-colors hover:text-foreground" to="/">Catalog</Link></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage>{resource.name}</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
+        <Breadcrumb><BreadcrumbList><BreadcrumbItem><BreadcrumbLink asChild><Link to="/">Catalog</Link></BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage>{resource.name}</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
         <div className="mt-6 flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
           <div>
             <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{RESOURCE_TYPE_LABELS[resource.type]}</Badge><Badge variant={resource.reviewStatus === 'reviewed' ? 'success' : 'warning'}>{resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed'}</Badge></div>
