@@ -70,7 +70,7 @@ apps/cli/dist/aid create my-skill \
 
 The command creates the required entry file (`SKILL.md`, `AGENT.md`, `RULE.md`, `MCP.md`, `TEMPLATE.md`, `.claude-plugin/plugin.json`, or `TOOL.md`). Add supporting files as needed, then use the printed `aid submit` command. Templates can contain existing resources with `--resources owner/type/name@version,...`.
 
-Tools are first-class command resources. Their `TOOL.md` file declares `name`, `description`, a safe command name, and an optional `executables` list for script files. Add harness adapters and scripts as supporting files. Hooks are adapter files inside the tool bundle, not a separate top-level resource type. The registry stores text files; install a compiled binary such as `rtk` separately, then use the tool resource to install its harness adapters and scripts.
+Tools are first-class command resources. Their `TOOL.md` file declares `name`, `description`, a safe command name, an optional `executables` list for script files, and an optional structured `runtime` block. The runtime block names the command, an optional minimum version, and allowlisted package-manager recipes for Homebrew, pipx, npm, or Cargo. The CLI checks the command before installation, asks for permission in an interactive terminal, runs only generated package-manager commands, and verifies the installed version. Pass `--install-dependencies` for non-interactive installs. Hooks are adapter files inside the tool bundle, not a separate top-level resource type.
 
 Validate a resource before submitting it:
 
@@ -211,6 +211,14 @@ apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
 
 apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
   --harness codex --scope project
+```
+
+Install a tool and its declared runtime dependency in a script or CI job:
+
+```sh
+apps/cli/dist/aid install jose-rosendo/tools/semgrep \
+  --harness codex \
+  --install-dependencies
 ```
 
 The installers use explicit harness adapters. The current prototype uses documented native filesystem mechanisms: project OpenCode rules are stored in `.opencode/rules/` and registered in `opencode.json` or `opencode.jsonc` through its `instructions` field; project Codex rules are stored in `.ai-directory/rules/` and added as managed blocks to `AGENTS.override.md` or `AGENTS.md`; Codex agents are converted from the registry's `AGENT.md` to `.codex/agents/<name>.toml`; Claude Code and Codex tool bundles preserve their adapter files; OpenCode tool bundles install `.opencode/plugin.ts` or `.opencode/plugin.js` in `plugins/` and `.opencode/tools/*` in `tools/`. Existing user content remains unchanged. The adapters honor `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG`, and `OPENCODE_CONFIG_DIR` when those harnesses provide them.

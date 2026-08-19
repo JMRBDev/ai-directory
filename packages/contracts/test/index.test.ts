@@ -173,6 +173,61 @@ describe('tool manifest contract', () => {
       executables: ['../rtk'],
     }).success).toBe(false);
   });
+
+  it('accepts structured runtime installers', () => {
+    expect(toolManifestSchema.parse({
+      name: 'semgrep',
+      description: 'Find security patterns.',
+      command: 'semgrep',
+      runtime: {
+        command: 'semgrep',
+        minimumVersion: '1.0.0',
+        installers: [
+          { manager: 'homebrew', package: 'semgrep' },
+          { manager: 'pipx', package: 'semgrep' },
+        ],
+        dependencies: [{
+          command: 'jq',
+          installers: [{ manager: 'homebrew', package: 'jq' }],
+        }],
+      },
+    }).runtime).toEqual({
+      command: 'semgrep',
+      minimumVersion: '1.0.0',
+      installers: [
+        { manager: 'homebrew', package: 'semgrep' },
+        { manager: 'pipx', package: 'semgrep' },
+      ],
+      dependencies: [{
+        command: 'jq',
+        installers: [{ manager: 'homebrew', package: 'jq' }],
+      }],
+    });
+  });
+
+  it('rejects runtime commands that differ from the tool command', () => {
+    expect(toolManifestSchema.safeParse({
+      name: 'semgrep',
+      description: 'Find security patterns.',
+      command: 'semgrep',
+      runtime: {
+        command: 'other-command',
+        installers: [{ manager: 'homebrew', package: 'semgrep' }],
+      },
+    }).success).toBe(false);
+  });
+
+  it('rejects unsafe package names', () => {
+    expect(toolManifestSchema.safeParse({
+      name: 'semgrep',
+      description: 'Find security patterns.',
+      command: 'semgrep',
+      runtime: {
+        command: 'semgrep',
+        installers: [{ manager: 'homebrew', package: 'semgrep && touch hacked' }],
+      },
+    }).success).toBe(false);
+  });
 });
 
 describe('resource ID contract', () => {

@@ -349,6 +349,72 @@ describe('CLI', () => {
     }
   });
 
+  it('requires explicit dependency installation in non-interactive mode', () => {
+    const registry = mkdtempSync(join(tmpdir(), 'ai-directory-cli-tool-registry-'));
+    const resourceDirectory = join(
+      registry,
+      'resources',
+      'jane-doe',
+      'tools',
+      'missing-tool',
+      '1.0.0',
+    );
+    mkdirSync(resourceDirectory, { recursive: true });
+    writeFileSync(
+      join(resourceDirectory, 'TOOL.md'),
+      [
+        '---',
+        'name: missing-tool',
+        'description: A test tool with a missing runtime.',
+        'command: aid-test-missing-tool',
+        'runtime:',
+        '  command: aid-test-missing-tool',
+        '  installers:',
+        '    - manager: homebrew',
+        '      package: semgrep',
+        '---',
+        '# Missing tool',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const index = join(registry, 'index.json');
+    writeFileSync(
+      index,
+      JSON.stringify({
+        schemaVersion: 1,
+        resources: [{
+          owner: 'jane-doe',
+          type: 'tools',
+          name: 'missing-tool',
+          description: 'A test tool with a missing runtime.',
+          latestVersion: '1.0.0',
+          reviewStatus: 'reviewed',
+          lifecycleStatus: 'active',
+          visibility: 'public',
+          updatedAt: '2026-08-19',
+        }],
+      }),
+      'utf8',
+    );
+    const home = mkdtempSync(join(tmpdir(), 'ai-directory-cli-tool-home-'));
+
+    try {
+      const result = runAid(
+        ['install', 'jane-doe/tools/missing-tool', '--harness', 'codex'],
+        undefined,
+        index,
+        home,
+      );
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain('--install-dependencies');
+    } finally {
+      rmSync(registry, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('updates and uninstalls a template pack by its template ID', () => {
     const home = mkdtempSync(join(tmpdir(), 'ai-directory-cli-template-home-'));
     const resource = 'john-doe/templates/review-pack';

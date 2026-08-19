@@ -12,6 +12,8 @@ type Props = {
   onUpdate?: ((key: string, update: StagedItemUpdate) => void) | undefined;
   force: boolean;
   onForce: (value: boolean) => void;
+  removeDependencies: boolean;
+  onRemoveDependencies: (value: boolean) => void;
   status: string;
   statusError: boolean;
   busy: boolean;
@@ -20,7 +22,7 @@ type Props = {
   onClose?: () => void;
 };
 
-export default function PlanView({ plan, showResource, homeDir, actions, stagedItems, onRemove, onUpdate, force, onForce, status, statusError, busy, onApply, title, onClose }: Props) {
+export default function PlanView({ plan, showResource, homeDir, actions, stagedItems, onRemove, onUpdate, force, onForce, removeDependencies, onRemoveDependencies, status, statusError, busy, onApply, title, onClose }: Props) {
   const removesInstallation = plan.operations?.some((operation) => operation.action === 'uninstall') ?? false;
   const canApply = (plan.changes.length > 0 || removesInstallation) && (plan.conflicts.length === 0 || force);
 
@@ -43,6 +45,24 @@ export default function PlanView({ plan, showResource, homeDir, actions, stagedI
           <label className="alert alert-warning mt-4 items-start gap-3 text-sm">
             <input className="checkbox checkbox-warning mt-0.5" type="checkbox" checked={force} onChange={(event) => onForce(event.currentTarget.checked)} />
             <span><strong className="font-semibold">Allow overwrite or removal of locally changed files</strong><span className="mt-1 block text-xs">Use this only after checking the affected files.</span></span>
+          </label>
+        )}
+        {plan.dependencyRemovals?.length > 0 && (
+          <label className="alert alert-warning mt-4 items-start gap-3 text-sm">
+            <input
+              className="checkbox checkbox-warning mt-0.5"
+              type="checkbox"
+              checked={removeDependencies}
+              onChange={(event) => onRemoveDependencies(event.currentTarget.checked)}
+              disabled={busy}
+            />
+            <span>
+              <strong className="font-semibold">Also remove unused tool dependencies</strong>
+              <span className="mt-1 block text-xs">
+                {plan.dependencyRemovals.map((dependency) => dependency.command).join(', ')}
+                {' '}will be removed only from the package manager that installed them.
+              </span>
+            </span>
           </label>
         )}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">

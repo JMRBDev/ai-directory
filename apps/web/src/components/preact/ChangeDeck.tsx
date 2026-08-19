@@ -86,6 +86,7 @@ function mergePlans(plans: ChangePlan[]): ChangePlan {
     conflicts: [...new Set(plans.flatMap((plan) => plan.conflicts))],
     warnings: [...new Set(plans.flatMap((plan) => plan.warnings))],
     projectionNotes: [...new Set(plans.flatMap((plan) => plan.projectionNotes))],
+    dependencyRemovals: plans.flatMap((plan) => plan.dependencyRemovals ?? []),
     fingerprint: '',
     operations: plans.flatMap((plan) => plan.operations ?? []),
   };
@@ -118,6 +119,7 @@ export default function ChangeDeckProvider({
   const [planStatus, setPlanStatus] = useState('');
   const [planError, setPlanError] = useState(false);
   const [force, setForce] = useState(false);
+  const [removeDependencies, setRemoveDependencies] = useState(false);
   const [applied, setApplied] = useState(false);
   const [busy, setBusy] = useState(false);
   const stagedRef = useRef<StagedMap>({});
@@ -177,6 +179,7 @@ export default function ChangeDeckProvider({
       setPlan(null);
       setPlanFingerprints({});
       setPlanStatus('');
+      setRemoveDependencies(false);
       return;
     }
 
@@ -191,6 +194,7 @@ export default function ChangeDeckProvider({
     setPlanError(false);
     setPlanLoading(true);
     setPlanStatus('Updating preview…');
+    setRemoveDependencies(false);
 
     try {
       const plans: ChangePlan[] = [];
@@ -342,6 +346,9 @@ export default function ChangeDeckProvider({
     try {
       let appliedChanges = 0;
       const warnings: string[] = [];
+      const dependencies: Array<{ status?: { runtime?: { command?: string }; version?: string } }> = [];
+      const removedDependencies: Array<{ candidate?: { command?: string } }> = [];
+      const dependencyRemovals: Array<{ command: string }> = [];
       for (const [index, group] of groupRequests.entries()) {
         const operations = operationsFor(group.items, harnesses, scope);
         let fingerprint = planFingerprints[group.name];
@@ -353,13 +360,33 @@ export default function ChangeDeckProvider({
           });
           fingerprint = fresh.fingerprint;
         }
-        const result = await request<{ plan: ChangePlan; warnings?: string[] }>(apiUrl, API_PATHS.apply, {
+        const result = await request<{
+          plan: ChangePlan;
+          warnings?: string[];
+          dependencies?: Array<{
+            status?: {
+              runtime?: { command?: string };
+              version?: string;
+            };
+          }>;
+          removedDependencies?: Array<{ candidate?: { command?: string } }>;
+          dependencyRemovals?: Array<{ command: string }>;
+        }>(apiUrl, API_PATHS.apply, {
           method: 'POST',
           headers: JSON_HEADERS,
-          body: JSON.stringify({ operations, force, planFingerprint: fingerprint }),
+          body: JSON.stringify({
+            operations,
+            force,
+            installDependencies: true,
+            removeDependencies,
+            planFingerprint: fingerprint,
+          }),
         });
         appliedChanges += result.plan.changes.length;
         warnings.push(...(result.warnings ?? []));
+        dependencies.push(...(result.dependencies ?? []));
+        removedDependencies.push(...(result.removedDependencies ?? []));
+        dependencyRemovals.push(...(result.dependencyRemovals ?? []));
       }
       setApplied(true);
       setPlanError(false);
@@ -367,7 +394,14 @@ export default function ChangeDeckProvider({
       stagedRef.current = {};
       persistStagedChanges({});
       setPlanFingerprints({});
-      setPlanStatus(appliedChangesMessage(appliedChanges, warnings));
+      setRemoveDependencies(false);
+      setPlanStatus(appliedChangesMessage(
+        appliedChanges,
+        warnings,
+        dependencies,
+        removedDependencies,
+        dependencyRemovals,
+      ));
       void loadInstallations();
       void loadLocalResources();
     } catch (cause) {
@@ -449,6 +483,8 @@ export default function ChangeDeckProvider({
             onUpdate={updateStagedItem}
             force={force}
             onForce={setForce}
+            removeDependencies={removeDependencies}
+            onRemoveDependencies={setRemoveDependencies}
             status={planStatus}
             statusError={planError}
             busy={busy || planLoading}

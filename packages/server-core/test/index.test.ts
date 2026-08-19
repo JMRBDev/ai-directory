@@ -342,6 +342,214 @@ describe('local control API', () => {
     await expect(readFile(skillPath, 'utf8')).resolves.toContain('TypeScript');
   });
 
+  it('installs tool dependencies before applying a requested change batch', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const registryDirectory = await createTemporaryDirectory();
+    const indexPath = join(registryDirectory, 'index.json');
+    const resourceDirectory = join(
+      registryDirectory,
+      'resources/jose-rosendo/tools/semgrep/1.0.0',
+    );
+    await mkdir(resourceDirectory, { recursive: true });
+    await writeFile(
+      indexPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        resources: [{
+          owner: 'jose-rosendo',
+          type: 'tools',
+          name: 'semgrep',
+          description: 'Find security patterns.',
+          latestVersion: '1.0.0',
+          reviewStatus: 'reviewed',
+          lifecycleStatus: 'active',
+          visibility: 'public',
+          updatedAt: '2026-08-19T10:00:00Z',
+        }],
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(resourceDirectory, 'TOOL.md'),
+      [
+        '---',
+        'name: semgrep',
+        'description: Find security patterns.',
+        'command: semgrep',
+        'runtime:',
+        '  command: semgrep',
+        '  minimumVersion: 1.0.0',
+        '  installers:',
+        '    - manager: homebrew',
+        '      package: semgrep',
+        '---',
+        '# Semgrep',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    await mkdir(join(resourceDirectory, '.opencode/tools'), { recursive: true });
+    await writeFile(join(resourceDirectory, '.opencode/tools/semgrep.ts'), 'export default {}\n', 'utf8');
+
+    let installed = false;
+    const calls: string[] = [];
+    const app = createApp({
+      cwd,
+      homeDirectory,
+      registryIndexPath: indexPath,
+      dependencyCommandRunner: async (command, args) => {
+        calls.push([command, ...args].join(' '));
+        if (command === 'semgrep' && args[0] === '--version') {
+          if (!installed) throw new Error('semgrep is not installed');
+          return { stdout: 'semgrep 1.8.0', stderr: '' };
+        }
+        if (command === 'brew' && args[0] === '--version') {
+          return { stdout: 'Homebrew 4.0.0', stderr: '' };
+        }
+        if (command === 'brew' && args.join(' ') === 'install semgrep') {
+          installed = true;
+          return { stdout: 'Installed semgrep', stderr: '' };
+        }
+        if (command === 'brew' && args.join(' ') === 'uninstall semgrep') {
+          installed = false;
+          return { stdout: 'Uninstalled semgrep', stderr: '' };
+        }
+        throw new Error('Unexpected command: ' + command + ' ' + args.join(' '));
+      },
+    });
+    const operations = [{
+      resource: 'jose-rosendo/tools/semgrep',
+      action: 'install' as const,
+      harnesses: ['opencode' as const],
+    }];
+
+    const plan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operations }),
+    });
+    expect(plan.status).toBe(200);
+    // SAFETY: The plan endpoint is contract-tested and returns a fingerprint on success.
+    const planned = await plan.json() as { fingerprint: string };
+
+    const applied = await app.request('/api/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operations,
+        installDependencies: true,
+        planFingerprint: planned.fingerprint,
+      }),
+    });
+
+    expect(applied.status).toBe(200);
+    await expect(applied.json()).resolves.toMatchObject({
+      dependencies: [{ status: { ready: true, version: '1.8.0' } }],
+    });
+    expect(calls).toContain('brew install semgrep');
+    await expect(
+      readFile(join(homeDirectory, '.config/opencode/tools/semgrep/semgrep.ts'), 'utf8'),
+    ).resolves.toContain('export default');
+    await expect(readFile(getInstallManifestPath(homeDirectory), 'utf8')).resolves.toContain('"command": "semgrep"');
+
+    const secondInstallOperations = [{
+      resource: 'jose-rosendo/tools/semgrep',
+      action: 'install' as const,
+      harnesses: ['codex' as const],
+    }];
+    const secondInstallPlan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operations: secondInstallOperations }),
+    });
+    expect(secondInstallPlan.status).toBe(200);
+    // SAFETY: The plan endpoint is contract-tested and returns a fingerprint on success.
+    const plannedSecondInstall = await secondInstallPlan.json() as { fingerprint: string };
+    const secondInstall = await app.request('/api/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operations: secondInstallOperations,
+        installDependencies: true,
+        planFingerprint: plannedSecondInstall.fingerprint,
+      }),
+    });
+    expect(secondInstall.status).toBe(200);
+
+    const uninstallOperations = [{
+      resource: 'jose-rosendo/tools/semgrep',
+      action: 'uninstall' as const,
+      harnesses: ['opencode' as const],
+      resourceIds: ['jose-rosendo/tools/semgrep'],
+    }];
+    const uninstallPlan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operations: uninstallOperations }),
+    });
+    expect(uninstallPlan.status).toBe(200);
+    // SAFETY: The plan endpoint is contract-tested and returns a fingerprint and dependency candidates on success.
+    const plannedUninstall = await uninstallPlan.json() as {
+      fingerprint: string;
+      dependencyRemovals: Array<{ command: string }>;
+    };
+    expect(plannedUninstall.dependencyRemovals).toEqual([]);
+
+    const uninstalled = await app.request('/api/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operations: uninstallOperations,
+        removeDependencies: true,
+        planFingerprint: plannedUninstall.fingerprint,
+      }),
+    });
+    expect(uninstalled.status).toBe(200);
+    await expect(uninstalled.json()).resolves.toMatchObject({
+      removedDependencies: [],
+    });
+    expect(calls).not.toContain('brew uninstall semgrep');
+    await expect(
+      readFile(join(homeDirectory, '.config/opencode/tools/semgrep/semgrep.ts'), 'utf8'),
+    ).rejects.toThrow();
+    await expect(readFile(getInstallManifestPath(homeDirectory), 'utf8')).resolves.toContain('"command": "semgrep"');
+
+    const finalUninstallOperations = [{
+      ...uninstallOperations[0],
+      harnesses: ['codex' as const],
+    }];
+    const finalUninstallPlan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operations: finalUninstallOperations }),
+    });
+    expect(finalUninstallPlan.status).toBe(200);
+    // SAFETY: The plan endpoint is contract-tested and returns a fingerprint and dependency candidates on success.
+    const plannedFinalUninstall = await finalUninstallPlan.json() as {
+      fingerprint: string;
+      dependencyRemovals: Array<{ command: string }>;
+    };
+    expect(plannedFinalUninstall.dependencyRemovals).toEqual([
+      expect.objectContaining({ command: 'semgrep', uninstallCommand: 'brew uninstall semgrep' }),
+    ]);
+    const finalUninstalled = await app.request('/api/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operations: finalUninstallOperations,
+        removeDependencies: true,
+        planFingerprint: plannedFinalUninstall.fingerprint,
+      }),
+    });
+    expect(finalUninstalled.status).toBe(200);
+    await expect(finalUninstalled.json()).resolves.toMatchObject({
+      removedDependencies: [{ candidate: { command: 'semgrep' } }],
+    });
+    expect(calls).toContain('brew uninstall semgrep');
+    await expect(readFile(getInstallManifestPath(homeDirectory), 'utf8')).resolves.not.toContain('"command": "semgrep"');
+  });
+
   it('rejects applying a plan after its files change', async () => {
     const cwd = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();

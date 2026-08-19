@@ -33,6 +33,7 @@ import {
   type ResourceChangeOptions,
   type ResourceDiscoveryOptions,
   type ResourceOperation,
+  type DependencyCommandRunner,
 } from '@ai-directory/installers';
 import { harnessSchema, resourceKey } from '@ai-directory/contracts';
 import {
@@ -58,6 +59,7 @@ export type ServerOptions = {
   registryIndexPath?: string;
   environment?: NodeJS.ProcessEnv;
   commandRunner?: CommandRunner;
+  dependencyCommandRunner?: DependencyCommandRunner;
   prewarm?: boolean;
 };
 
@@ -87,12 +89,19 @@ const resourceRequestObjectSchema = z.object({
   force: z.boolean().default(false),
 });
 
+const resourceRequestWithDependenciesSchema = resourceRequestObjectSchema.extend({
+  installDependencies: z.boolean().default(false),
+  removeDependencies: z.boolean().default(false),
+});
+
 type ResourceRequestData = {
   resource: string;
   harnesses: Harness[];
   version?: string;
   scope?: ConfigScope;
   force: boolean;
+  installDependencies: boolean;
+  removeDependencies: boolean;
 };
 
 function resourceRequestFrom(data: {
@@ -101,11 +110,15 @@ function resourceRequestFrom(data: {
   version?: string | undefined;
   scope?: ConfigScope | undefined;
   force: boolean;
+  installDependencies?: boolean | undefined;
+  removeDependencies?: boolean | undefined;
 }): ResourceRequestData {
   const result: ResourceRequestData = {
     resource: data.resource,
     harnesses: data.harnesses ?? [],
     force: data.force,
+    installDependencies: data.installDependencies ?? false,
+    removeDependencies: data.removeDependencies ?? false,
   };
   if (data.version !== undefined) result.version = data.version;
   if (data.scope !== undefined) result.scope = data.scope;
@@ -117,7 +130,7 @@ function requireHarnesses(data: { harnesses?: unknown }) {
   return data.harnesses !== undefined;
 }
 
-const resourceRequestSchema = resourceRequestObjectSchema
+const resourceRequestSchema = resourceRequestWithDependenciesSchema
   .refine(requireHarnesses, {
     message: 'harnesses must include one or more of claude-code, opencode, or codex.',
   })
@@ -137,6 +150,8 @@ const changeOperationSchema = resourceRequestObjectSchema
 const changePlanRequestSchema = z.object({
   operations: z.array(changeOperationSchema).min(1),
   force: z.boolean().default(false),
+  installDependencies: z.boolean().default(false),
+  removeDependencies: z.boolean().default(false),
   planFingerprint: z.string().trim().min(1).optional(),
 });
 
@@ -174,7 +189,9 @@ function requestErrorMessage(issues: z.ZodIssue[]): string {
         ? 'version must be a string.'
         : 'version must be a non-empty string.';
     }
-    if (field === 'force') return 'force must be a boolean.';
+    if (field === 'force' || field === 'installDependencies' || field === 'removeDependencies') {
+      return field + ' must be a boolean.';
+    }
   }
 
   return 'Request body must be a JSON object.';
@@ -197,7 +214,9 @@ function changePlanErrorMessage(issues: z.ZodIssue[]): string {
     if (issue.path[0] === 'operations') {
       return requestErrorMessage([issue]);
     }
-    if (field === 'force') return 'force must be a boolean.';
+    if (field === 'force' || field === 'installDependencies' || field === 'removeDependencies') {
+      return field + ' must be a boolean.';
+    }
     if (field === 'planFingerprint') return 'planFingerprint must be a non-empty string.';
   }
 
@@ -421,11 +440,19 @@ function changeOptions(
   options: ServerOptions,
   cwd: string,
   scope?: ConfigScope,
+  dependencyOptions?: Pick<ResourceChangeOptions, 'installDependencies' | 'removeDependencies'>,
 ): ResourceChangeOptions {
   const result: ResourceChangeOptions = { cwd };
   if (options.homeDirectory) result.homeDirectory = options.homeDirectory;
   if (options.environment) result.environment = options.environment;
   if (scope) result.scope = scope;
+  if (dependencyOptions?.installDependencies !== undefined) {
+    result.installDependencies = dependencyOptions.installDependencies;
+  }
+  if (dependencyOptions?.removeDependencies !== undefined) {
+    result.removeDependencies = dependencyOptions.removeDependencies;
+  }
+  if (options.dependencyCommandRunner) result.dependencyCommandRunner = options.dependencyCommandRunner;
 
   return result;
 }
@@ -768,12 +795,16 @@ export function createApp(options: ServerOptions = {}) {
         }
 
         const operations = await resolveOperations(request.operations, snapshot, false);
-        const plan = await planResourceOperations(operations, changeScopeOptions, request.force);
+        const applyOptions = changeOptions(options, cwd, undefined, {
+          installDependencies: request.installDependencies,
+          removeDependencies: request.removeDependencies,
+        });
+        const plan = await planResourceOperations(operations, applyOptions, request.force);
         return applyPlannedChange(
           request.planFingerprint,
           request.force,
           plan,
-          () => applyResourceOperations(operations, changeScopeOptions, request.force, plan),
+          () => applyResourceOperations(operations, applyOptions, request.force, plan),
         );
       });
       if (result.stale) {
@@ -812,6 +843,15 @@ export function createApp(options: ServerOptions = {}) {
       );
       const isMcp = isMcpResource(request.resource);
       const scope = isMcp ? (request.scope ?? 'user') : 'user';
+      const resourceOperation = {
+        ...request,
+        action: 'install' as const,
+        resources: loaded.resources,
+        warningResources: [loaded.resource, ...loaded.resources],
+      };
+      const resourceOptions = changeOptions(options, cwd, undefined, {
+        installDependencies: request.installDependencies,
+      });
       const result = isMcp
         ? await applyMcpOperations(
             [{
@@ -824,15 +864,10 @@ export function createApp(options: ServerOptions = {}) {
             }],
             changeOptions(options, cwd, scope),
             request.force,
-          )
+        )
         : await applyResourceOperations(
-            [{
-              ...request,
-              action: 'install',
-              resources: loaded.resources,
-              warningResources: [loaded.resource, ...loaded.resources],
-            }],
-            changeOptions(options, cwd),
+            [resourceOperation],
+            resourceOptions,
             request.force,
           );
 
@@ -841,6 +876,7 @@ export function createApp(options: ServerOptions = {}) {
         harnesses: request.harnesses,
         records: result.installed,
         warnings: result.warnings,
+        dependencies: isMcp || !('dependencies' in result) ? [] : result.dependencies,
       });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
@@ -909,6 +945,16 @@ export function createApp(options: ServerOptions = {}) {
         });
       }
 
+      const resourceOperation = {
+        ...request,
+        harnesses: updatedHarnesses,
+        action: 'install' as const,
+        resources: loaded.resources,
+        warningResources: [loaded.resource, ...loaded.resources],
+      };
+      const resourceOptions = changeOptions(options, cwd, undefined, {
+        installDependencies: request.installDependencies,
+      });
       const result = isMcp
         ? await applyMcpOperations(
             [{
@@ -921,16 +967,10 @@ export function createApp(options: ServerOptions = {}) {
             }],
             changeOptions(options, cwd, scope),
             request.force,
-          )
+        )
         : await applyResourceOperations(
-            [{
-              ...request,
-              harnesses: updatedHarnesses,
-              action: 'install',
-              resources: loaded.resources,
-              warningResources: [loaded.resource, ...loaded.resources],
-            }],
-            changeOptions(options, cwd),
+            [resourceOperation],
+            resourceOptions,
             request.force,
           );
 
@@ -939,6 +979,7 @@ export function createApp(options: ServerOptions = {}) {
         harnesses: updatedHarnesses,
         records: result.installed,
         warnings: result.warnings,
+        dependencies: isMcp || !('dependencies' in result) ? [] : result.dependencies,
       });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
@@ -950,6 +991,7 @@ export function createApp(options: ServerOptions = {}) {
       resource: context.req.query('resource'),
       harnesses: context.req.query('harnesses'),
       force: queryBoolean(context.req.query('force')),
+      removeDependencies: queryBoolean(context.req.query('removeDependencies')),
     };
     const error = requestError(rawRequest);
 
@@ -986,11 +1028,18 @@ export function createApp(options: ServerOptions = {}) {
               action: 'uninstall',
               resourceIds,
             }],
-            changeOptions(options, cwd),
+            changeOptions(options, cwd, undefined, {
+              removeDependencies: request.removeDependencies,
+            }),
             request.force,
           );
 
-      return context.json({ removed: result.removed, harnesses: request.harnesses });
+      return context.json({
+        removed: result.removed,
+        removedDependencies: isMcp || !('removedDependencies' in result) ? [] : result.removedDependencies,
+        dependencyRemovals: isMcp || !('dependencyRemovals' in result) ? [] : result.dependencyRemovals,
+        harnesses: request.harnesses,
+      });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 400);
     }
