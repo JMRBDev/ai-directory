@@ -1,4 +1,5 @@
 import { Outlet } from '@tanstack/react-router';
+import { TooltipProvider } from '../../components/ui/tooltip';
 import { DirectoryProvider, useDirectory } from './context';
 import { ChangesSheet, InstalledSheet, PublishSheet, SettingsSheet } from './sheets';
 import { SiteHeader } from './common';
@@ -6,17 +7,19 @@ import { SiteHeader } from './common';
 export function RootLayout() {
   return (
     <DirectoryProvider>
-      <div className="flex min-h-screen flex-col bg-background text-foreground">
-        <SiteHeader />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-10">
-          <Outlet />
-        </main>
-        <footer className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 border-t px-5 py-6 text-xs text-muted-foreground sm:px-8">
-          <span>Backed by the production resource registry.</span>
-          <span>Local-first workspace</span>
-        </footer>
-        <WorkspaceSheets />
-      </div>
+      <TooltipProvider delayDuration={300}>
+        <div className="flex min-h-screen flex-col bg-background text-foreground">
+          <SiteHeader />
+          <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-10">
+            <Outlet />
+          </main>
+          <footer className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 border-t px-5 py-6 text-xs text-muted-foreground sm:px-8">
+            <span>Backed by the production resource registry.</span>
+            <span>Local-first workspace</span>
+          </footer>
+          <WorkspaceSheets />
+        </div>
+      </TooltipProvider>
     </DirectoryProvider>
   );
 }

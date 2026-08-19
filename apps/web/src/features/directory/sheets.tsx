@@ -7,6 +7,7 @@ import { Info } from '@phosphor-icons/react/dist/csr/Info';
 import { Trash } from '@phosphor-icons/react/dist/csr/Trash';
 import { api } from '../../lib/api';
 import { Alert, AlertDescription } from '../../components/ui/alert';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../../components/ui/alert-dialog';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -17,6 +18,8 @@ import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Separator } from '../../components/ui/separator';
 import { Textarea } from '../../components/ui/textarea';
+import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import {
   harnessLabel,
   harnessOptions,
@@ -131,7 +134,12 @@ function ChangeItem({ item, onRemove, onUpdate, disabled }: { item: StagedItem; 
           <p className="font-medium">{item.resource}</p>
           <Badge className="mt-2" variant={item.action === 'install' ? 'success' : 'destructive'}>{item.action === 'install' ? 'Install' : 'Uninstall'}</Badge>
         </div>
-        <Button variant="ghost" size="icon" aria-label={`Remove ${item.resource}`} title={`Remove ${item.resource}`} onClick={onRemove}><Trash size={17} /></Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label={`Remove ${item.resource}`} onClick={onRemove}><Trash size={17} /></Button>
+          </TooltipTrigger>
+          <TooltipContent>Remove {item.resource}</TooltipContent>
+        </Tooltip>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         {harnessOptions.map((option) => (
@@ -312,7 +320,17 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
         <Separator />
         <section>
           <h3 className="font-medium">Appearance</h3>
-          <div className="mt-3 grid grid-cols-3 gap-2">{(['system', 'light', 'dark'] as const).map((value) => <Button key={value} variant={theme === value ? 'secondary' : 'outline'} size="sm" onClick={() => chooseTheme(value)}>{value.slice(0, 1).toUpperCase() + value.slice(1)}</Button>)}</div>
+          <ToggleGroup
+            className="mt-3 grid grid-cols-3 rounded-md border bg-muted p-1"
+            type="single"
+            value={theme}
+            onValueChange={(value) => { if (value === 'system' || value === 'light' || value === 'dark') chooseTheme(value); }}
+            aria-label="Color theme"
+          >
+            {(['system', 'light', 'dark'] as const).map((value) => (
+              <ToggleGroupItem key={value} value={value}>{value.slice(0, 1).toUpperCase() + value.slice(1)}</ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </section>
       </div>
     </SheetFrame>
@@ -330,6 +348,7 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [message, setMessage] = useState('Loading GitHub username…');
   const [pullRequestUrl, setPullRequestUrl] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const userQuery = useQuery({ queryKey: ['github-user'], queryFn: api.githubUser, enabled: open && owner.length === 0 });
   const validateMutation = useMutation({ mutationFn: (body: FormData) => api.validate(body) });
   const submitMutation = useMutation({ mutationFn: (body: FormData) => api.submit(body) });
@@ -379,7 +398,7 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   }
 
   async function submit() {
-    if (!review || submitted || !window.confirm('Create this pull request?')) return;
+    if (!review || submitted) return;
     setMessage('Creating pull request…');
     try {
       const result = await submitMutation.mutateAsync(formData());
@@ -428,7 +447,26 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           </Card>
           {review && <Card className="bg-muted/20 p-4 sm:p-5"><CardHeader className="p-0"><CardTitle className="text-base">Description</CardTitle><CardDescription className="mt-2">Inferred from the resource files. Edit it before submitting if needed.</CardDescription></CardHeader><CardContent className="p-0 pt-4"><Textarea rows={3} value={description} placeholder="Resource description" onChange={(event) => setDescription(event.target.value)} disabled={busy} /></CardContent></Card>}
           <div className="border-t pt-5">
-            <div className="flex flex-wrap gap-3"><Button variant={review ? 'outline' : 'default'} type="submit" disabled={busy}>{validateMutation.isPending ? 'Validating…' : 'Validate resource'}</Button>{review && <Button type="button" onClick={() => void submit()} disabled={busy || submitted}>{submitMutation.isPending ? 'Creating pull request…' : submitted ? 'Pull request created' : 'Submit pull request'}</Button>}</div>
+            <div className="flex flex-wrap gap-3">
+              <Button variant={review ? 'outline' : 'default'} type="submit" disabled={busy}>{validateMutation.isPending ? 'Validating…' : 'Validate resource'}</Button>
+              {review && (
+                <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" disabled={busy || submitted}>{submitMutation.isPending ? 'Creating pull request…' : submitted ? 'Pull request created' : 'Submit pull request'}</Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Create pull request?</AlertDialogTitle>
+                      <AlertDialogDescription>This will submit the validated resource to the registry for review.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => void submit()}>Create pull request</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
             <Alert className={cn('mt-4 border p-3', userQuery.error || validateMutation.error || submitMutation.error ? 'border-destructive/30 bg-destructive/5 text-destructive' : 'border-blue-500/30 bg-blue-500/5 text-muted-foreground')} role="status" aria-live="polite"><Info size={17} /><AlertDescription>{userStatus}</AlertDescription></Alert>
           </div>
         </form>

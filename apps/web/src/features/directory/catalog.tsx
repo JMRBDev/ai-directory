@@ -15,9 +15,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Checkbox } from '../../components/ui/checkbox';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
+import { Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious } from '../../components/ui/pagination';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { api } from '../../lib/api';
 import {
   detailPath,
@@ -281,13 +283,13 @@ export function CatalogPage() {
                 })}
               </div>
               {pageCount > 1 && (
-                <div className="mt-6 flex items-center justify-between gap-4">
-                  <span className="text-xs text-muted-foreground">Page {currentPage} of {pageCount}</span>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setPage(Math.max(1, currentPage - 1))}>Previous</Button>
-                    <Button variant="outline" size="sm" disabled={currentPage === pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))}>Next</Button>
-                  </div>
-                </div>
+                <Pagination className="mt-6 justify-between">
+                  <PaginationContent className="w-full justify-between">
+                    <PaginationItem><PaginationPrevious disabled={currentPage === 1} onClick={() => setPage(Math.max(1, currentPage - 1))} /></PaginationItem>
+                    <PaginationItem><span className="self-center px-2 text-xs text-muted-foreground">Page {currentPage} of {pageCount}</span></PaginationItem>
+                    <PaginationItem><PaginationNext disabled={currentPage === pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))} /></PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               )}
             </>
           ) : (
@@ -439,7 +441,12 @@ function InstallPanel({ resource, staged }: { resource: ResourceSummary; staged:
           <div className="border-t pt-5">
             <div className="flex items-center gap-3 rounded-lg bg-muted px-3 py-2">
               <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs">{command || 'Select at least one harness.'}</code>
-              <Button variant="ghost" size="icon" aria-label="Copy install command" title="Copy install command" onClick={() => void copy()}>{copied ? <Check size={17} /> : <Copy size={17} />}</Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="Copy install command" onClick={() => void copy()}>{copied ? <Check size={17} /> : <Copy size={17} />}</Button>
+                </TooltipTrigger>
+                <TooltipContent>{copied ? 'Copied' : 'Copy install command'}</TooltipContent>
+              </Tooltip>
             </div>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground">{selectedHarnesses.length === 0 ? 'Select at least one harness.' : staged ? 'Saved in Changes.' : `${selectedHarnesses.length} harness${selectedHarnesses.length === 1 ? '' : 'es'} selected.`}</span>
