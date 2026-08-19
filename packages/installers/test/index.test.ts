@@ -246,6 +246,31 @@ describe('installClaudeCodeResources', () => {
     ).rejects.toThrow('Install resources overlap');
   });
 
+  it('rejects plugin and tool bundles that share a destination', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const collidingTool = {
+      ...toolResource,
+      resource: {
+        ...toolResource.resource,
+        name: pluginResource.resource.name,
+      },
+      files: [
+        {
+          ...toolResource.files[0],
+          content: toolResource.files[0].content
+            .replace('name: rtk', 'name: review-pack')
+            .replace('executables:\n  - bin/rtk\n', ''),
+        },
+      ],
+    } satisfies ResourceVersion;
+
+    await installClaudeCodeResources([pluginResource], { homeDirectory });
+
+    await expect(
+      installClaudeCodeResources([collidingTool], { homeDirectory }),
+    ).rejects.toThrow('Install destinations are not available');
+  });
+
   it('does not install templates as standalone Claude Code resources', async () => {
     const homeDirectory = await createTemporaryDirectory();
     const templateResource = {
@@ -863,6 +888,47 @@ describe('portable harness installers', () => {
     );
     expect(marketplace).toContain('"name": "review-pack"');
     expect(marketplace).toContain('../.codex/plugins/review-pack');
+  });
+
+  it('rejects a marketplace entry owned by another source', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const marketplaceDirectory = join(homeDirectory, '.agents', 'plugins');
+    await mkdir(marketplaceDirectory, { recursive: true });
+    await writeFile(
+      join(marketplaceDirectory, 'marketplace.json'),
+      JSON.stringify({
+        name: 'external',
+        plugins: [{
+          name: 'review-pack',
+          source: { source: 'github', path: 'owner/review-pack' },
+          policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+          category: 'External',
+        }],
+      }),
+      'utf8',
+    );
+
+    await expect(
+      installCodexResources([pluginResource], { homeDirectory, force: true }),
+    ).rejects.toThrow('already used by another source');
+  });
+
+  it('rejects plugin and tool marketplace names that overlap', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const collidingTool = {
+      ...toolResource,
+      resource: {
+        ...toolResource.resource,
+        name: pluginResource.resource.name,
+      },
+      files: toolResource.files.map((file) => file.path === 'TOOL.md'
+        ? { ...file, content: file.content.replace('name: rtk', 'name: review-pack') }
+        : file),
+    } satisfies ResourceVersion;
+
+    await expect(
+      installCodexResources([pluginResource, collidingTool], { homeDirectory, force: true }),
+    ).rejects.toThrow('plugin names overlap');
   });
 
   it('uninstalls a Codex plugin and removes its marketplace entry', async () => {

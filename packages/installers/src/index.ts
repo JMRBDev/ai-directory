@@ -373,19 +373,31 @@ async function assertInstallPlansAvailable(
   plans: InstallPlan[],
   options: InstallOptions,
 ): Promise<void> {
-  const destinations = new Set<string>();
+  const destinations: Array<{ path: string; label: string }> = [];
+  const files = new Set<string>();
   const overlaps: string[] = [];
   const existing: string[] = [];
 
   for (const plan of plans) {
+    const destinationLabel = `${resourceKey(plan.resource.resource)} (${plan.destination})`;
+    const previousDestination = destinations.find((item) => pathsOverlap(item.path, plan.destination));
+    if (previousDestination) {
+      overlaps.push(`${destinationLabel} overlaps ${previousDestination.label}`);
+    }
+    destinations.push({ path: plan.destination, label: destinationLabel });
+
+    if (!options.dryRun && !options.force && (await pathExists(plan.destination))) {
+      existing.push(destinationLabel);
+    }
+
     for (const file of plan.files) {
       const label = `${resourceKey(plan.resource.resource)} (${file.destination})`;
 
-      if (destinations.has(file.destination)) {
+      if (files.has(file.destination)) {
         overlaps.push(label);
       }
 
-      destinations.add(file.destination);
+      files.add(file.destination);
 
       if (!options.dryRun && !options.force && (await pathExists(file.destination))) {
         existing.push(label);
@@ -945,14 +957,39 @@ export async function planResourceOperations(
           const plannedResource = resources[index];
           const resourceId = plannedResource ? resourceKey(plannedResource.resource) : operation.resource;
           const owner = group?.owners.get(resourceId) ?? operation;
+          const otherInstallations = manifest.installations.filter(
+            (record) => record.harness === harness && record.resource !== resourceId,
+          );
+          const occupiedPaths = otherInstallations.flatMap((record) => [
+            record.destination,
+            ...record.files,
+          ]);
           if (!force) {
-            const ownedByInstallation = new Set(
-              manifest.installations
-                .filter((record) => record.harness === harness)
-                .flatMap((record) => record.files),
-            );
+            const resourceDestination = plannedResource?.resource.type === 'rules' && harness === 'codex'
+              ? undefined
+              : result.destination;
+            const managedByCurrentResource = resourceDestination
+              ? manifest.installations.some((record) =>
+                  record.harness === harness
+                  && record.resource === resourceId
+                  && pathsOverlap(record.destination, resourceDestination),
+                )
+              : false;
+            if (
+              resourceDestination
+              && (await pathExists(resourceDestination))
+              && !managedByCurrentResource
+            ) {
+              conflicts.push(
+                `Install destination is already occupied: ${resourceDestination}. Use --force to overwrite.`,
+              );
+            }
             for (const path of result.ownedPaths) {
-              if (ownedByInstallation.has(path) || (await currentFile(path)) === null) continue;
+              if (occupiedPaths.some((occupiedPath) => pathsOverlap(occupiedPath, path))) {
+                conflicts.push(`Install destination is already occupied: ${path}. Use --force to overwrite.`);
+                continue;
+              }
+              if ((await currentFile(path)) === null) continue;
               conflicts.push(`Install destination is already occupied: ${path}. Use --force to overwrite.`);
             }
           }
@@ -1362,6 +1399,12 @@ function isPathWithin(path: string, root: string): boolean {
     || (!isAbsolute(pathRelativeToRoot)
       && pathRelativeToRoot !== '..'
       && !pathRelativeToRoot.startsWith('..' + sep));
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  const first = resolve(left);
+  const second = resolve(right);
+  return isPathWithin(first, second) || isPathWithin(second, first);
 }
 
 async function ownedInstallationFiles(
@@ -2093,15 +2136,33 @@ async function prepareCodexMarketplace(
   const current = (await currentFile(paths.marketplacePath)) ?? '';
   const data = current.trim() ? parseMarketplace(current, paths.marketplacePath) : {};
   const plugins = [...(data.plugins ?? [])];
+  const requestedNames = new Set<string>();
 
   for (const plan of plans) {
     const name = plan.resource.resource.name;
+    if (requestedNames.has(name)) {
+      throw new Error(`Codex plugin names overlap in this installation: ${name}.`);
+    }
+    requestedNames.add(name);
+
     const existing = plugins.findIndex((plugin) => plugin.name === name);
 
-    if (existing !== -1 && !force) {
-      throw new Error(
-        `Codex plugin is already registered in the marketplace: ${name}. Use --force to overwrite.`,
-      );
+    if (existing !== -1) {
+      const existingSource = plugins[existing]?.source;
+      const expectedSource = marketplacePluginEntry(name).source;
+      if (
+        existingSource?.source !== expectedSource.source
+        || existingSource.path !== expectedSource.path
+      ) {
+        throw new Error(
+          `Codex marketplace name is already used by another source: ${name}.`,
+        );
+      }
+      if (!force) {
+        throw new Error(
+          `Codex plugin is already registered in the marketplace: ${name}. Use --force to overwrite.`,
+        );
+      }
     }
 
     const entry = marketplacePluginEntry(name);
