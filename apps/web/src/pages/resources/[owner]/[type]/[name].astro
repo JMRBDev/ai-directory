@@ -32,16 +32,12 @@ const resource = registry.index?.resources.find(
 if (!resource) return Astro.redirect('/');
 
 const result = await loadResource(registry.indexPath, resource, registry.repository);
-const { version, componentResources } = {
-  version: result.version,
-  componentResources: result.resources.map((item) => resourceKey(item.resource)),
-};
+const { version } = result;
 const fileError = result.error;
 const activeResources = (registry.index?.resources ?? []).filter(
   (candidate) => candidate.lifecycleStatus === 'active',
 );
 const title = `${resource.name} | AI Directory`;
-const installBase = `aid install ${resourceKey(resource)} --harness claude-code${resource.type === 'mcp-servers' ? ' --scope user' : ''}`;
 const apiUrl = import.meta.env.PUBLIC_AI_DIRECTORY_API_URL ?? resolveApiUrl(Astro.url.hostname);
 const homeDir = homedir();
 
@@ -74,7 +70,7 @@ const updatedLabel = (() => {
         registryError={registry.error}
         hideCatalog
       >
-        <section class="mt-8 max-w-3xl" aria-labelledby="resource-title">
+        <section class="mt-8" aria-labelledby="resource-title">
           <div class="flex flex-wrap items-center gap-2">
             <span class="badge badge-primary badge-soft gap-1.5">
               <i class={'ph ' + TYPE_ICONS[resource.type]} aria-hidden="true"></i>
@@ -113,12 +109,8 @@ const updatedLabel = (() => {
 
         <InstallResource
           client:load
-          apiUrl={apiUrl}
-          homeDir={homeDir}
           resourceKey={resourceKey(resource)}
           resourceType={resource.type}
-          componentResources={componentResources}
-          installBase={installBase}
         />
 
         <section class="mt-14" aria-labelledby="files-title">

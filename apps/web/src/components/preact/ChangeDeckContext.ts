@@ -15,6 +15,11 @@ export type StagedItem = {
   resource: string;
   type: ResourceType;
   action: Action;
+  harnesses: Harness[];
+  scope?: InstallScope;
+};
+
+export type StagedItemUpdate = {
   harnesses?: Harness[];
   scope?: InstallScope;
 };
@@ -37,6 +42,7 @@ export type ChangeDeckContextValue = {
   force: boolean;
   busy: boolean;
   stage: (item: StagedItem) => void;
+  updateStagedItem: (key: string, update: StagedItemUpdate) => void;
   unstage: (key: string) => void;
   unstageResource: (resource: string) => void;
   clear: () => void;

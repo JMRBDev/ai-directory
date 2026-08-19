@@ -1,5 +1,7 @@
-import { shortenHomePath } from './types';
+import { harnessLabel } from './lib';
+import { harnessOptions, scopeOptions, shortenHomePath } from './types';
 import type { Action, PlanChange } from './types';
+import type { StagedItem, StagedItemUpdate } from './ChangeDeckContext';
 
 type Props = {
   changes: PlanChange[];
@@ -7,7 +9,10 @@ type Props = {
   warnings?: string[];
   homeDir?: string | undefined;
   actions?: Record<string, Action> | undefined;
+  stagedItems?: StagedItem[] | undefined;
   onRemove?: ((resource: string) => void) | undefined;
+  onUpdate?: ((key: string, update: StagedItemUpdate) => void) | undefined;
+  busy?: boolean;
 };
 
 const actionMeta = {
@@ -68,7 +73,7 @@ function ChangeRow({ change, homeDir }: { change: PlanChange; homeDir?: string |
   );
 }
 
-export default function ChangeRows({ changes, showResource = false, warnings = [], homeDir, actions, onRemove }: Props) {
+export default function ChangeRows({ changes, showResource = false, warnings = [], homeDir, actions, stagedItems = [], onRemove, onUpdate, busy = false }: Props) {
   const sorted = [...changes].sort((left, right) => left.path.localeCompare(right.path));
 
   if (!showResource) {
@@ -88,17 +93,29 @@ export default function ChangeRows({ changes, showResource = false, warnings = [
     group.push(change);
     groups.set(change.resource, group);
   }
+  for (const item of stagedItems) {
+    if (!groups.has(item.resource)) groups.set(item.resource, []);
+  }
   const groupList = [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
+  const stagedByResource = new Map(stagedItems.map((item) => [item.resource, item]));
 
   return (
     <div className="space-y-4">
       {groupList.map(([resource, groupChanges]) => {
         const groupId = 'group-' + resource.replace(/\//g, '-');
         const action = actions?.[resource];
+        const stagedItem = stagedByResource.get(resource);
+        const scopeLabel = stagedItem?.scope === 'project' ? 'Project scope' : stagedItem?.scope === 'user' ? 'User scope' : '';
         return (
           <section key={resource} aria-labelledby={groupId}>
             <div className="flex flex-wrap items-center gap-2">
               <h3 id={groupId} className="text-sm font-semibold text-base-content">{resource}</h3>
+              {stagedItem && (
+                <span className="text-xs text-base-content/60">
+                  {stagedItem.harnesses.map(harnessLabel).join(', ')}
+                  {scopeLabel ? ' · ' + scopeLabel : ''}
+                </span>
+              )}
               {action && (
                 <span className={'badge badge-sm gap-1 ' + (action === 'uninstall' ? 'badge-error badge-soft' : 'badge-primary badge-soft')}>
                   <i className={'ph ' + (action === 'uninstall' ? 'ph-trash' : 'ph-download-simple')} aria-hidden="true"></i>
@@ -115,11 +132,67 @@ export default function ChangeRows({ changes, showResource = false, warnings = [
                 <button className="btn btn-ghost btn-xs ml-auto" type="button" aria-label={'Remove ' + resource} onClick={() => onRemove(resource)}>Remove</button>
               )}
             </div>
-            <ul className="mt-2 space-y-2" aria-label={'File changes for ' + resource}>
-              {groupChanges.map((change) => (
-                <ChangeRow key={change.action + change.path + change.harness} change={change} homeDir={homeDir} />
-              ))}
-            </ul>
+            {stagedItem && onUpdate && (
+              <fieldset className="mt-3 rounded-field border border-base-300 bg-base-200/40 p-3">
+                <legend className="px-1 text-xs font-semibold text-base-content/70">Targets</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {harnessOptions.map((option) => {
+                    const selected = stagedItem.harnesses.includes(option.value);
+                    const lastSelected = selected && stagedItem.harnesses.length === 1;
+                    return (
+                      <label className="label cursor-pointer justify-start gap-2 py-1" key={option.value}>
+                        <input
+                          className="checkbox checkbox-primary checkbox-sm"
+                          type="checkbox"
+                          checked={selected}
+                          disabled={busy || lastSelected}
+                          aria-label={'Use ' + option.label + ' for ' + resource}
+                          onChange={(event) => {
+                            const next = event.currentTarget.checked
+                              ? [...stagedItem.harnesses, option.value]
+                              : stagedItem.harnesses.filter((harness) => harness !== option.value);
+                            if (next.length > 0) onUpdate(stagedItem.key, { harnesses: next });
+                          }}
+                        />
+                        <span className="text-xs font-medium text-base-content">{option.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {stagedItem.harnesses.length === 1 && (
+                  <p className="mt-2 text-xs text-base-content/60">Keep at least one target selected.</p>
+                )}
+                {stagedItem.type === 'mcp-servers' && (
+                  <div className="mt-3 border-t border-base-300 pt-3">
+                    <span className="text-xs font-semibold text-base-content/70">Scope</span>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2">
+                      {scopeOptions.map((option) => (
+                        <label className="label cursor-pointer justify-start gap-2 py-1" key={option.value}>
+                          <input
+                            className="radio radio-primary radio-sm"
+                            type="radio"
+                            name={'scope-' + stagedItem.key}
+                            checked={stagedItem.scope === option.value}
+                            disabled={busy}
+                            onChange={() => onUpdate(stagedItem.key, { scope: option.value })}
+                          />
+                          <span className="text-xs font-medium text-base-content">{option.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </fieldset>
+            )}
+            {groupChanges.length > 0 ? (
+              <ul className="mt-2 space-y-2" aria-label={'File changes for ' + resource}>
+                {groupChanges.map((change) => (
+                  <ChangeRow key={change.action + change.path + change.harness} change={change} homeDir={homeDir} />
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-base-content/60">No file changes. Applying this request updates the installation record.</p>
+            )}
           </section>
         );
       })}
