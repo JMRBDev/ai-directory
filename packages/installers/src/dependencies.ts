@@ -151,66 +151,101 @@ export async function installToolDependencies(
   const statuses = await inspectToolDependencies(resources, options);
   const installed: ToolDependencyInstallResult[] = [];
 
-  for (const status of statuses) {
-    if (status.ready) continue;
+  try {
+    for (const status of statuses) {
+      if (status.ready) continue;
 
-    const installer = status.availableInstallers[0];
-    if (!installer) {
-      throw new Error(
-        status.resource +
-        ' requires ' +
-        status.runtime.command +
-        ', but no supported package manager is available. Install one of: ' +
-        status.installCommands.join(', ') +
-        '.',
-      );
+      const installer = status.availableInstallers[0];
+      if (!installer) {
+        throw new Error(
+          status.resource +
+          ' requires ' +
+          status.runtime.command +
+          ', but no supported package manager is available. Install one of: ' +
+          status.installCommands.join(', ') +
+          '.',
+        );
+      }
+
+      const definition = packageManagers[installer.manager];
+      const args = status.installed
+        ? definition.upgradeArgs(installer.package)
+        : definition.installArgs(installer.package);
+      const cwd = options.cwd ?? process.cwd();
+      const environment = { ...process.env, ...options.environment };
+      const runner = options.commandRunner ?? defaultCommandRunner;
+
+      try {
+        await runner(definition.command, args, cwd, environment);
+      } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error));
+        throw new Error(
+          'Could not install ' +
+          status.runtime.command +
+          ' with ' +
+          formatCommand(definition.command, args) +
+          ': ' +
+          errorMessage(cause),
+          { cause },
+        );
+      }
+
+      const verified = await inspectToolDependency(status.resource, status.runtime, options);
+      const result: ToolDependencyInstallResult = {
+        resource: status.resource,
+        manager: installer.manager,
+        package: installer.package,
+        command: definition.command,
+        args,
+        installedByPlatform: !status.installed,
+        status: verified,
+      };
+      installed.push(result);
+
+      if (!verified.ready) {
+        throw new Error(
+          'Installed ' +
+          status.runtime.command +
+          ', but verification failed: ' +
+          dependencyStatusMessage(verified),
+        );
+      }
     }
-
-    const definition = packageManagers[installer.manager];
-    const args = status.installed
-      ? definition.upgradeArgs(installer.package)
-      : definition.installArgs(installer.package);
-    const cwd = options.cwd ?? process.cwd();
-    const environment = { ...process.env, ...options.environment };
-    const runner = options.commandRunner ?? defaultCommandRunner;
-
+  } catch (error) {
     try {
-      await runner(definition.command, args, cwd, environment);
-    } catch (error) {
-      const cause = error instanceof Error ? error : new Error(String(error));
+      await rollbackInstalledToolDependencies(installed, options);
+    } catch (rollbackError) {
       throw new Error(
-        'Could not install ' +
-        status.runtime.command +
-        ' with ' +
-        formatCommand(definition.command, args) +
-        ': ' +
-        errorMessage(cause),
-        { cause },
+        `${errorMessage(error)} Dependency rollback failed: ${errorMessage(rollbackError)}`,
+        { cause: error },
       );
     }
-
-    const verified = await inspectToolDependency(status.resource, status.runtime, options);
-    if (!verified.ready) {
-      throw new Error(
-        'Installed ' +
-        status.runtime.command +
-        ', but verification failed: ' +
-        dependencyStatusMessage(verified),
-      );
-    }
-
-    installed.push({
-      resource: status.resource,
-      manager: installer.manager,
-      package: installer.package,
-      command: definition.command,
-      args,
-      installedByPlatform: !status.installed,
-      status: verified,
-    });
+    throw error;
   }
 
   return installed;
+}
+
+export function toolDependencyRemovalCandidatesForInstallResults(
+  results: ToolDependencyInstallResult[],
+): ToolDependencyRemovalCandidate[] {
+  return results
+    .filter((result) => result.installedByPlatform)
+    .map((result) => {
+      const definition = packageManagers[result.manager];
+      const candidate: ToolDependencyRemovalCandidate = {
+        command: result.status.runtime.command,
+        manager: result.manager,
+        package: result.package,
+        resources: [result.resource],
+        uninstallCommand: formatCommand(
+          definition.command,
+          definition.uninstallArgs(result.package),
+        ),
+      };
+      if (result.status.version) candidate.version = result.status.version;
+      return candidate;
+    });
 }
 
 export function toolDependencyRecordsForResources(
@@ -309,39 +344,95 @@ export async function uninstallToolDependencies(
   const runner = options.commandRunner ?? defaultCommandRunner;
   const removed: ToolDependencyUninstallResult[] = [];
 
-  for (const candidate of candidates) {
-    const definition = packageManagers[candidate.manager];
-    const args = definition.uninstallArgs(candidate.package);
+  let current: ToolDependencyUninstallResult | undefined;
+  try {
+    for (const candidate of candidates) {
+      const definition = packageManagers[candidate.manager];
+      const args = definition.uninstallArgs(candidate.package);
+      current = { candidate, command: definition.command, args };
+      try {
+        await runner(definition.command, args, cwd, environment);
+      } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error));
+        throw new Error(
+          'Could not uninstall ' +
+          candidate.command +
+          ' with ' +
+          formatCommand(definition.command, args) +
+          ': ' +
+          errorMessage(cause),
+          { cause },
+        );
+      }
+
+      try {
+        const result = await runner(candidate.command, ['--version'], cwd, environment);
+        if ((result.stdout + '\n' + result.stderr).trim()) {
+          throw new Error(candidate.command + ' is still available after uninstall.');
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.endsWith('is still available after uninstall.')) {
+          throw error;
+        }
+      }
+
+      removed.push(current);
+      current = undefined;
+    }
+  } catch (error) {
+    const completed = current ? [...removed, current] : removed;
     try {
-      await runner(definition.command, args, cwd, environment);
-    } catch (error) {
-      const cause = error instanceof Error ? error : new Error(String(error));
+      await restoreToolDependencies(completed, options);
+    } catch (rollbackError) {
       throw new Error(
-        'Could not uninstall ' +
-        candidate.command +
-        ' with ' +
-        formatCommand(definition.command, args) +
-        ': ' +
-        errorMessage(cause),
-        { cause },
+        `${errorMessage(error)} Dependency restoration failed: ${errorMessage(rollbackError)}`,
+        { cause: error },
       );
     }
-
-    try {
-      const result = await runner(candidate.command, ['--version'], cwd, environment);
-      if ((result.stdout + '\n' + result.stderr).trim()) {
-        throw new Error(candidate.command + ' is still available after uninstall.');
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.endsWith('is still available after uninstall.')) {
-        throw error;
-      }
-    }
-
-    removed.push({ candidate, command: definition.command, args });
+    throw error;
   }
 
   return removed;
+}
+
+export async function restoreToolDependencies(
+  removed: ToolDependencyUninstallResult[],
+  options: ToolDependencyOptions = {},
+): Promise<void> {
+  const cwd = options.cwd ?? process.cwd();
+  const environment = { ...process.env, ...options.environment };
+  const runner = options.commandRunner ?? defaultCommandRunner;
+
+  for (const removal of [...removed].reverse()) {
+    const definition = packageManagers[removal.candidate.manager];
+    const args = definition.installArgs(removal.candidate.package);
+    await runner(definition.command, args, cwd, environment);
+
+    let result: DependencyCommandResult;
+    try {
+      result = await runner(removal.candidate.command, ['--version'], cwd, environment);
+    } catch (error) {
+      throw new Error(
+        `Restored ${removal.candidate.command}, but verification failed: ${errorMessage(error)}`,
+        { cause: error },
+      );
+    }
+
+    if (!(result.stdout + '\n' + result.stderr).trim()) {
+      throw new Error(
+        `Restored ${removal.candidate.command}, but verification returned no output.`,
+      );
+    }
+  }
+}
+
+async function rollbackInstalledToolDependencies(
+  installed: ToolDependencyInstallResult[],
+  options: ToolDependencyOptions,
+): Promise<void> {
+  const candidates = toolDependencyRemovalCandidatesForInstallResults(installed);
+  if (candidates.length === 0) return;
+  await uninstallToolDependencies(candidates, options);
 }
 
 export function formatCommand(command: string, args: string[]): string {
@@ -491,6 +582,6 @@ function extractVersion(output: string): string | undefined {
   return undefined;
 }
 
-function errorMessage(error: Error | string): string {
-  return error instanceof Error ? error.message : error;
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

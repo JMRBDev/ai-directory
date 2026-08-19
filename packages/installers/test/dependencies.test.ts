@@ -124,6 +124,49 @@ describe('tool dependency installation', () => {
     expect(calls).toContain('brew install semgrep');
   });
 
+  it('rolls back dependencies installed before a later dependency fails', async () => {
+    const secondResource = toolResource();
+    secondResource.resource = { ...secondResource.resource, name: 'other-tool' };
+    const manifestFile = secondResource.files.find((file) => file.path === 'TOOL.md');
+    if (!manifestFile) throw new Error('Expected the tool manifest.');
+    manifestFile.content = manifestFile.content
+      .replaceAll('semgrep', 'other-tool')
+      .replaceAll('homebrew', 'homebrew');
+
+    const installed = new Set<string>();
+    const calls: string[] = [];
+    const runner: DependencyCommandRunner = async (command, args) => {
+      calls.push([command, ...args].join(' '));
+
+      if (command === 'brew' && args[0] === '--version') {
+        return { stdout: 'Homebrew 4.0.0', stderr: '' };
+      }
+      if (command === 'semgrep' || command === 'other-tool') {
+        if (!installed.has(command)) throw new Error(command + ' is not installed');
+        return { stdout: command + ' 1.8.0', stderr: '' };
+      }
+      if (command === 'brew' && args[0] === 'install' && args[1] === 'semgrep') {
+        installed.add('semgrep');
+        return { stdout: 'Installed semgrep', stderr: '' };
+      }
+      if (command === 'brew' && args[0] === 'install' && args[1] === 'other-tool') {
+        throw new Error('simulated package failure');
+      }
+      if (command === 'brew' && args[0] === 'uninstall' && args[1] === 'semgrep') {
+        installed.delete('semgrep');
+        return { stdout: 'Uninstalled semgrep', stderr: '' };
+      }
+
+      throw new Error('Unexpected command: ' + command + ' ' + args.join(' '));
+    };
+
+    await expect(
+      installToolDependencies([toolResource(), secondResource], { commandRunner: runner }),
+    ).rejects.toThrow('simulated package failure');
+    expect(installed).toEqual(new Set());
+    expect(calls).toContain('brew uninstall semgrep');
+  });
+
   it('only offers a platform-installed dependency after its last resource reference', () => {
     const records = [
       {
