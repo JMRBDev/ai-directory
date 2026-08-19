@@ -1535,14 +1535,18 @@ function readOpenCodeInstructions(current: string, path: string): string[] | und
 function isEmptyOpenCodeConfig(current: string): boolean {
   const errors: Array<{ error: number; offset: number; length: number }> = [];
   const data = parse(current, errors);
-  if (errors.length > 0 || data === null || typeof data !== 'object' || Array.isArray(data)) {
+  if (errors.length > 0) {
     return false;
   }
 
-  const keys = Object.keys(data);
-  return keys.every((key) => key === 'instructions')
-    && Array.isArray((data as { instructions?: unknown }).instructions)
-    && (data as { instructions: unknown[] }).instructions.length === 0;
+  const parsed = openCodeConfigDataSchema.safeParse(data);
+  if (!parsed.success) return false;
+
+  const config = openCodeConfigSchema.safeParse(parsed.data);
+  if (!config.success) return false;
+
+  return Object.keys(parsed.data).every((key) => key === 'instructions')
+    && (config.data.instructions?.length ?? 0) === 0;
 }
 
 async function removeOpenCodeInstruction(
@@ -1687,6 +1691,8 @@ function fullyRemovedResourceIds(
 const openCodeConfigSchema = z.object({
   instructions: z.array(z.string()).optional(),
 });
+
+const openCodeConfigDataSchema = z.record(z.string(), z.unknown());
 
 type InstallPlan = {
   resource: ResourceVersion;
