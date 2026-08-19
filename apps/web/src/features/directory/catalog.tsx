@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { ArrowUpRight } from '@phosphor-icons/react/dist/csr/ArrowUpRight';
 import { Check } from '@phosphor-icons/react/dist/csr/Check';
 import { Copy } from '@phosphor-icons/react/dist/csr/Copy';
@@ -10,13 +11,17 @@ import { Wrench } from '@phosphor-icons/react/dist/csr/Wrench';
 import { resourceKey, type ResourceSummary } from '@ai-directory/contracts';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
 import { Badge } from '../../components/ui/badge';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../../components/ui/breadcrumb';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Checkbox } from '../../components/ui/checkbox';
-import { Input } from '../../components/ui/input';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
+import { Field, FieldLabel } from '../../components/ui/field';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '../../components/ui/input-group';
 import { Label } from '../../components/ui/label';
 import { Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious } from '../../components/ui/pagination';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
+import { ScrollArea } from '../../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
@@ -195,12 +200,13 @@ export function CatalogPage() {
       <PageIntro />
       {registryError && <ErrorMessage message={`${registryError} Run aid setup or pass --index <path>.`} />}
       {resources.length === 0 ? (
-        <Card>
-          <CardContent className="p-6">
-            <p className="font-medium">No active resources yet.</p>
-            <p className="mt-2 text-sm text-muted-foreground">Publish the first resource, then refresh the registry.</p>
-          </CardContent>
-        </Card>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia><FileText size={20} /></EmptyMedia>
+            <EmptyTitle>No active resources yet</EmptyTitle>
+            <EmptyDescription>Publish the first resource, then refresh the registry.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <section aria-labelledby="catalog-title">
           <Tabs value={activeType} onValueChange={(value) => changeType(resourceType(value))}>
@@ -220,13 +226,12 @@ export function CatalogPage() {
             </TabsList>
             <TabsContent value={activeType} className="mt-5 rounded-xl border bg-card p-4">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_11rem_11rem_13rem]">
-                <div>
-                  <Label htmlFor="resource-search">Search {RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s</Label>
-                  <div className="relative mt-2">
-                    <MagnifyingGlass className="pointer-events-none absolute left-3 top-2.5 text-muted-foreground" size={17} />
-                    <Input
+                <Field>
+                  <FieldLabel htmlFor="resource-search">Search {RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s</FieldLabel>
+                  <InputGroup className="mt-2">
+                    <InputGroupAddon><MagnifyingGlass /></InputGroupAddon>
+                    <InputGroupInput
                       id="resource-search"
-                      className="pl-9"
                       type="search"
                       placeholder="Name, owner, or description"
                       value={query}
@@ -235,29 +240,29 @@ export function CatalogPage() {
                         setPage(1);
                       }}
                     />
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="resource-review">Review status</Label>
+                  </InputGroup>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="resource-review">Review status</FieldLabel>
                   <Select value={review} onValueChange={(value) => { setReview(reviewFilter(value)); setPage(1); }}>
                     <SelectTrigger id="resource-review" className="mt-2"><SelectValue /></SelectTrigger>
                     <SelectContent><SelectItem value="all">All resources</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="unreviewed">Unreviewed</SelectItem></SelectContent>
                   </Select>
-                </div>
-                <div>
-                  <Label htmlFor="resource-installed">Installed</Label>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="resource-installed">Installed</FieldLabel>
                   <Select value={installed} onValueChange={(value) => { setInstalled(installedFilter(value)); setPage(1); }}>
                     <SelectTrigger id="resource-installed" className="mt-2"><SelectValue /></SelectTrigger>
                     <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="installed">Installed</SelectItem><SelectItem value="not-installed">Not installed</SelectItem></SelectContent>
                   </Select>
-                </div>
-                <div>
-                  <Label htmlFor="resource-sort">Sort by</Label>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="resource-sort">Sort by</FieldLabel>
                   <Select value={sort} onValueChange={(value) => { setSort(sortOption(value)); setPage(1); }}>
                     <SelectTrigger id="resource-sort" className="mt-2"><SelectValue /></SelectTrigger>
                     <SelectContent><SelectItem value="updated">Recently updated</SelectItem><SelectItem value="name">Name A-Z</SelectItem><SelectItem value="version">Newest version</SelectItem></SelectContent>
                   </Select>
-                </div>
+                </Field>
               </div>
               <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
                 <span>{filtered.length === 0 ? 'No resources found' : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}-${Math.min(currentPage * PAGE_SIZE, filtered.length)} of ${filtered.length}`}</span>
@@ -293,13 +298,13 @@ export function CatalogPage() {
               )}
             </>
           ) : (
-            <Card className="mt-5">
-              <CardContent className="p-8">
-                <MagnifyingGlass size={24} className="text-muted-foreground" />
-                <h3 className="mt-3 font-semibold">{typeResources.length === 0 ? `No ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s yet` : 'No matching resources'}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{typeResources.length === 0 ? 'Publish a resource to add it to this registry.' : 'Try a different search or filter.'}</p>
-              </CardContent>
-            </Card>
+            <Empty className="mt-5">
+              <EmptyHeader>
+                <EmptyMedia><MagnifyingGlass size={20} /></EmptyMedia>
+                <EmptyTitle>{typeResources.length === 0 ? `No ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s yet` : 'No matching resources'}</EmptyTitle>
+                <EmptyDescription>{typeResources.length === 0 ? 'Publish a resource to add it to this registry.' : 'Try a different search or filter.'}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
         </section>
       )}
@@ -339,7 +344,13 @@ export function ResourcePage() {
   return (
     <div className="space-y-8">
       <div>
-        <Link className="text-sm text-muted-foreground hover:text-foreground" to="/">← Back to catalog</Link>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem><Link className="transition-colors hover:text-foreground" to="/">Catalog</Link></BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem><BreadcrumbPage>{resource.name}</BreadcrumbPage></BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         <div className="mt-6 flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -364,14 +375,14 @@ export function ResourcePage() {
               {version.files.map((file) => (
                 <AccordionItem className="overflow-hidden rounded-lg border" key={file.path} value={file.path}>
                   <AccordionTrigger className="px-3 py-2 hover:no-underline"><code className="font-mono text-xs">{file.path}</code></AccordionTrigger>
-                  <AccordionContent className="border-t bg-muted/40 px-4 pb-4 pt-3"><pre className="max-h-80 overflow-auto text-xs leading-5"><code>{file.content}</code></pre></AccordionContent>
+                  <AccordionContent className="border-t bg-muted/40 px-4 pb-4 pt-3"><ScrollArea className="h-80"><pre className="text-xs leading-5"><code>{file.content}</code></pre></ScrollArea></AccordionContent>
                 </AccordionItem>
               ))}
             </Accordion>
           </CardContent>
         </Card>
       ) : !resourceQuery.data.error ? (
-        <Card><CardContent className="p-6"><p className="font-medium">No files found.</p><p className="mt-2 text-sm text-muted-foreground">The registry index points to a package with no readable files.</p></CardContent></Card>
+        <Empty><EmptyHeader><EmptyMedia><FileText size={20} /></EmptyMedia><EmptyTitle>No files found</EmptyTitle><EmptyDescription>The registry index points to a package with no readable files.</EmptyDescription></EmptyHeader></Empty>
       ) : null}
       <InstallPanel resource={resource} staged={item} />
     </div>
@@ -402,9 +413,11 @@ function InstallPanel({ resource, staged }: { resource: ResourceSummary; staged:
     try {
       await navigator.clipboard.writeText(command);
       setCopied(true);
+      toast.success('Install command copied.');
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       setCopied(false);
+      toast.error('Could not copy the install command.');
     }
   }
 
@@ -414,8 +427,8 @@ function InstallPanel({ resource, staged }: { resource: ResourceSummary; staged:
       <p className="mt-2 text-sm text-muted-foreground">Choose the target harnesses, then review the change plan before applying it.</p>
       <Card className="mt-5">
         <CardContent className="space-y-6 p-5 sm:p-6">
-          <div>
-            <Label className="text-sm font-medium">Install in</Label>
+          <Field>
+            <FieldLabel>Install in</FieldLabel>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {harnessOptions.map((option) => (
                 <Label className={cn('flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 text-sm transition-colors', selectedHarnesses.includes(option.value) ? 'border-primary/50 bg-primary/5' : 'border-border')} htmlFor={`install-harness-${option.value}`} key={option.value}>
@@ -424,10 +437,10 @@ function InstallPanel({ resource, staged }: { resource: ResourceSummary; staged:
                 </Label>
               ))}
             </div>
-          </div>
+          </Field>
           {resource.type === 'mcp-servers' && (
-            <div className="border-t pt-5">
-              <Label className="text-sm font-medium">Scope</Label>
+            <Field className="border-t pt-5">
+              <FieldLabel>Scope</FieldLabel>
               <RadioGroup className="mt-3 grid gap-2 sm:grid-cols-2" value={selectedScope} onValueChange={(value) => { const next = installScope(value); setSelectedScope(next); setScope(next); }}>
                 {scopeOptions.map((option) => (
                   <Label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm" htmlFor={`resource-scope-${option.value}`} key={option.value}>
@@ -436,18 +449,20 @@ function InstallPanel({ resource, staged }: { resource: ResourceSummary; staged:
                   </Label>
                 ))}
               </RadioGroup>
-            </div>
+            </Field>
           )}
           <div className="border-t pt-5">
-            <div className="flex items-center gap-3 rounded-lg bg-muted px-3 py-2">
-              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs">{command || 'Select at least one harness.'}</code>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="Copy install command" onClick={() => void copy()}>{copied ? <Check size={17} /> : <Copy size={17} />}</Button>
-                </TooltipTrigger>
-                <TooltipContent>{copied ? 'Copied' : 'Copy install command'}</TooltipContent>
-              </Tooltip>
-            </div>
+            <InputGroup className="bg-muted">
+              <InputGroupInput value={command || 'Select at least one harness.'} readOnly aria-label="Install command" />
+              <InputGroupAddon align="inline-end">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label="Copy install command" onClick={() => void copy()}>{copied ? <Check size={17} /> : <Copy size={17} />}</Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{copied ? 'Copied' : 'Copy install command'}</TooltipContent>
+                </Tooltip>
+              </InputGroupAddon>
+            </InputGroup>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground">{selectedHarnesses.length === 0 ? 'Select at least one harness.' : staged ? 'Saved in Changes.' : `${selectedHarnesses.length} harness${selectedHarnesses.length === 1 ? '' : 'es'} selected.`}</span>
               <div className="flex gap-2">

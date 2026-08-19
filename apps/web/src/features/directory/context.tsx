@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import {
   groupStaged,
@@ -34,8 +35,6 @@ export type DirectoryContextValue = {
   plan: PlanData | undefined;
   planLoading: boolean;
   planError: string | undefined;
-  applyStatus: string | undefined;
-  applyError: string | undefined;
   force: boolean;
   removeDependencies: boolean;
   busy: boolean;
@@ -71,8 +70,6 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const [scope, setScope] = useState<InstallScope>('user');
   const [force, setForce] = useState(false);
   const [removeDependencies, setRemoveDependencies] = useState(false);
-  const [applyStatus, setApplyStatus] = useState<string | undefined>(undefined);
-  const [applyError, setApplyError] = useState<string | undefined>(undefined);
 
   const installationsQuery = useQuery({ queryKey: ['installed'], queryFn: api.installed });
   const localResourcesQuery = useQuery({ queryKey: ['local-resources'], queryFn: api.localResources });
@@ -103,14 +100,10 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       }
       return results;
     },
-    onMutate: () => {
-      setApplyStatus(undefined);
-      setApplyError(undefined);
-    },
     onSuccess: (results) => {
       const changes = results.reduce((total, result) => total + result.plan.changes.length, 0);
       const warnings = results.flatMap((result) => result.warnings ?? []);
-      setApplyStatus(
+      toast.success(
         warnings.length > 0
           ? `Applied ${changes} file changes with warnings: ${warnings.join(' ')}`
           : `Applied ${changes} file changes.`,
@@ -123,7 +116,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       void queryClient.invalidateQueries({ queryKey: ['local-resources'] });
     },
     onError: (error) => {
-      setApplyError(error instanceof Error ? error.message : 'Could not apply the change plan.');
+      toast.error(error instanceof Error ? error.message : 'Could not apply the change plan.');
     },
   });
 
@@ -162,8 +155,6 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     saveStaged({});
     setForce(false);
     setRemoveDependencies(false);
-    setApplyStatus(undefined);
-    setApplyError(undefined);
   }
 
   function applyChanges() {
@@ -188,8 +179,6 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     plan: planQuery.data,
     planLoading: planQuery.isPending && stagedItems.length > 0,
     planError: planQuery.error instanceof Error ? planQuery.error.message : undefined,
-    applyStatus,
-    applyError,
     force,
     removeDependencies,
     busy: applyMutation.isPending,

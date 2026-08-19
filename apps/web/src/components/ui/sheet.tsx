@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import type { ComponentProps, ReactNode } from 'react';
 import { X } from '@phosphor-icons/react/dist/csr/X';
 import { cn } from '../../lib/utils';
+import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
 export const Sheet = Dialog.Root;
 export const SheetTrigger = Dialog.Trigger;
@@ -20,9 +21,14 @@ export function SheetContent({ className, side = 'right', children, ...props }: 
         {...props}
       >
         {children}
-        <Dialog.Close className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" aria-label="Close">
-          <X size={18} aria-hidden="true" />
-        </Dialog.Close>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Dialog.Close className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" aria-label="Close">
+              <X size={18} aria-hidden="true" />
+            </Dialog.Close>
+          </TooltipTrigger>
+          <TooltipContent>Close</TooltipContent>
+        </Tooltip>
       </Dialog.Content>
     </Dialog.Portal>
   );
