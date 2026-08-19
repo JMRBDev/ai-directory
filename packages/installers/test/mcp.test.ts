@@ -177,8 +177,7 @@ describe('MCP server installation', () => {
     );
 
     expect(applied.removed).toHaveLength(1);
-    const content = await readFile(join(directory, '.mcp.json'), 'utf8');
-    expect(content).not.toContain('github');
+    await expect(readFile(join(directory, '.mcp.json'), 'utf8')).rejects.toThrow();
 
     const manifest = await readInstallationManifest(
       join(directory, '.ai-directory', 'installed.json'),
@@ -319,6 +318,32 @@ env:
       path: openCodePath,
     });
     expect(mcp?.resource).toBeUndefined();
+  });
+
+  it('discovers unmanaged MCP servers in project configs', async () => {
+    const directory = await createTemporaryDirectory();
+    const configPath = join(directory, '.mcp.json');
+    await writeFile(
+      configPath,
+      JSON.stringify({ mcpServers: { 'project-tools': { command: 'project-tools' } } }),
+      'utf8',
+    );
+
+    const resources = await discoverLocalResources({
+      cwd: directory,
+      homeDirectory: join(directory, 'home'),
+    });
+    const mcp = resources.find(
+      (resource) => resource.type === 'mcp-servers' && resource.name === 'project-tools',
+    );
+
+    expect(mcp).toMatchObject({
+      name: 'project-tools',
+      harness: 'claude-code',
+      path: configPath,
+      scope: 'project',
+      state: 'unmanaged',
+    });
   });
 
   it('does not list managed MCP servers as unmanaged', async () => {

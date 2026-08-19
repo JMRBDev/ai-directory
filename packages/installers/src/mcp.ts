@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { getScopeInstallManifestPath, writeFileAtomic, type ConfigScope } from '@ai-directory/config';
 import { mcpEnvTokens, mcpEnvTokenPattern, type McpServerManifest } from '@ai-directory/contracts';
@@ -273,7 +274,9 @@ export async function applyMcpOperations(
           if (operation.action === 'install') {
             const resources = operation.resources ?? [];
             const path = await mcpConfigPath(harness, scope, options);
-            let content = (await currentFile(path)) ?? '';
+            const existingContent = await currentFile(path);
+            let content = existingContent ?? '';
+            const manifest = await readInstallationManifest(manifestPath);
             const records: InstallationRecord[] = [];
 
             for (const resource of resources) {
@@ -282,14 +285,27 @@ export async function applyMcpOperations(
               const result = mcpEntryFor(harness, serverManifest);
               content = upsertEntry(harness, content, path, server, result.entry);
               const persisted = readEntry(harness, content, path, server);
+              const resourceId = resourceKey(resource.resource);
+              const previous = manifest.installations.find(
+                (item) => item.harness === harness && item.resource === resourceId,
+              );
+              const previousOwnership = previous?.shared?.find(
+                (item) => item.path === path && item.key === resourceId,
+              );
 
               records.push({
-                resource: resourceKey(resource.resource),
+                resource: resourceId,
                 version: resource.version,
                 harness,
                 destination: path,
                 files: [path],
                 fileHashes: { [path]: entryHash(persisted) },
+                shared: [{
+                  path,
+                  key: resourceId,
+                  hash: entryHash(persisted),
+                  created: previousOwnership?.created ?? existingContent === null,
+                }],
                 kind: 'mcp',
                 scope,
                 installedAt: new Date().toISOString(),
@@ -313,7 +329,16 @@ export async function applyMcpOperations(
 
               if (content !== null) {
                 const removal = removeEntry(harness, content, path, resourceName(record.resource));
-                if (removal.changed) await writeFileAtomic(path, removal.content);
+                if (removal.changed) {
+                  const ownership = record.shared?.find(
+                    (item) => item.path === path && item.key === record.resource,
+                  );
+                  if (ownership?.created && isEmptyMcpConfig(harness, removal.content, path)) {
+                    await rm(path, { force: true });
+                  } else {
+                    await writeFileAtomic(path, removal.content);
+                  }
+                }
               }
 
               await removeInstallationRecord(manifestPath, record);
@@ -407,25 +432,42 @@ export type DiscoveredMcpServer = {
   harness: Harness;
   server: string;
   path: string;
+  scope: ConfigScope;
 };
 
 export async function discoverMcpServers(
   options: InstallOptions = {},
+  scopes: readonly ConfigScope[] = ['user', 'project'],
 ): Promise<DiscoveredMcpServer[]> {
   const harnesses: Harness[] = ['claude-code', 'opencode', 'codex'];
   const results: DiscoveredMcpServer[] = [];
 
-  for (const harness of harnesses) {
-    const path = await mcpConfigPath(harness, 'user', options);
-    const content = await currentFile(path);
-    if (content === null) continue;
+  for (const scope of scopes) {
+    for (const harness of harnesses) {
+      const path = await mcpConfigPath(harness, scope, options);
+      const content = await currentFile(path);
+      if (content === null) continue;
 
-    for (const server of mcpServerNames(harness, content, path)) {
-      results.push({ harness, server, path });
+      for (const server of mcpServerNames(harness, content, path)) {
+        results.push({ harness, server, path, scope });
+      }
     }
   }
 
   return results;
+}
+
+function isEmptyMcpConfig(harness: Harness, content: string, path: string): boolean {
+  if (harness === 'codex') {
+    const config = readTomlConfig(content, path);
+    return Object.keys(config).every((key) => key === 'mcp_servers')
+      && Object.keys(config.mcp_servers ?? {}).length === 0;
+  }
+
+  const config = readJsonConfig(content, path);
+  const container = containerKey(harness);
+  return Object.keys(config).every((key) => key === container)
+    && Object.keys(config[container] ?? {}).length === 0;
 }
 
 function mcpServerNames(harness: Harness, content: string, path: string): string[] {

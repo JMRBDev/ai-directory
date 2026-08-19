@@ -80,6 +80,7 @@ export async function discoverLocalResources(
       files: [server.path],
       state: 'unmanaged',
       registryState: 'unknown',
+      scope: server.scope,
     });
   }
 
