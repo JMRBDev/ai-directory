@@ -144,7 +144,7 @@ export default function InstallResource({ resourceKey, resourceType }: Props) {
       {resourceType === 'templates' && (
         <div className="alert alert-info mt-5 items-start text-sm leading-6" role="status">
           <i className="ph ph-package text-xl" aria-hidden="true"></i>
-          <span>Templates install their component resources together.</span>
+          <span>A resource pack installs its component resources together.</span>
         </div>
       )}
 

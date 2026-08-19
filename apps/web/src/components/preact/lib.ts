@@ -110,7 +110,7 @@ export const RESOURCE_TYPE_LABELS = {
   agents: 'Agent',
   rules: 'Rule',
   'mcp-servers': 'MCP Server',
-  templates: 'Template',
+  templates: 'Resource pack',
   plugins: 'Plugin',
 } satisfies Record<ResourceType, string>;
 
