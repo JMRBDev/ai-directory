@@ -9,6 +9,7 @@ import {
   publishResource,
   readMcpServerManifest,
   readPluginManifest,
+  readToolManifest,
   readRemoteRegistryIndex,
   readRemoteResource,
   resolveRegistrySource,
@@ -507,6 +508,59 @@ describe('validateResourceDirectory', () => {
         version: '1.0.0',
       },
     });
+  });
+
+  it('validates a tool manifest with a command', async () => {
+    const { sourceDirectory } = await createPublishFixture();
+    await writeFile(
+      join(sourceDirectory, 'TOOL.md'),
+      '---\nname: rtk\ndescription: Reduce shell output.\ncommand: rtk\nexecutables:\n  - bin/rtk\n---\n# RTK\n',
+      'utf8',
+    );
+    await mkdir(join(sourceDirectory, 'bin'), { recursive: true });
+    await writeFile(join(sourceDirectory, 'bin', 'rtk'), '#!/bin/sh\n', 'utf8');
+
+    const result = await validateResourceDirectory({
+      sourceDirectory,
+      resourceId: 'john-doe/tools/rtk',
+      version: '1.0.0',
+    });
+
+    expect(result.resource.type).toBe('tools');
+    expect(result.description).toBe('Reduce shell output.');
+    expect(readToolManifest({
+      resource: {
+        ...result.resource,
+        description: result.description,
+        latestVersion: '1.0.0',
+        reviewStatus: 'unreviewed',
+        lifecycleStatus: 'active',
+        visibility: 'public',
+        updatedAt: 'local',
+      },
+      version: '1.0.0',
+      files: result.files,
+    })).toEqual({
+      name: 'rtk',
+      description: 'Reduce shell output.',
+      command: 'rtk',
+      executables: ['bin/rtk'],
+    });
+  });
+
+  it('rejects a tool manifest without a command', async () => {
+    const { sourceDirectory } = await createPublishFixture();
+    await writeFile(
+      join(sourceDirectory, 'TOOL.md'),
+      '---\nname: rtk\ndescription: Reduce shell output.\n---\n# RTK\n',
+      'utf8',
+    );
+
+    await expect(validateResourceDirectory({
+      sourceDirectory,
+      resourceId: 'john-doe/tools/rtk',
+      version: '1.0.0',
+    })).rejects.toThrow('Tool manifest is invalid');
   });
 });
 

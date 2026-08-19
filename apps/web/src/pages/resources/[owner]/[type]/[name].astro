@@ -20,6 +20,7 @@ const TYPE_ICONS = {
   'mcp-servers': 'ph-plugs-connected',
   templates: 'ph-layout',
   plugins: 'ph-puzzle-piece',
+  tools: 'ph-wrench',
 } satisfies Record<ResourceType, string>;
 
 const requestedResourceId = [Astro.params.owner, Astro.params.type, Astro.params.name].join('/');

@@ -5,6 +5,7 @@ import {
   registryIndexSchema,
   resourceIdSchema,
   templateManifestSchema,
+  toolManifestSchema,
 } from '../src/index.js';
 
 const resource = {
@@ -139,6 +140,41 @@ describe('plugin manifest contract', () => {
   });
 });
 
+describe('tool manifest contract', () => {
+  it('accepts a command-line tool manifest', () => {
+    expect(
+      toolManifestSchema.parse({
+        name: 'rtk',
+        description: 'Reduce shell output for agent workflows.',
+        command: 'rtk',
+        executables: ['bin/rtk'],
+      }),
+    ).toEqual({
+      name: 'rtk',
+      description: 'Reduce shell output for agent workflows.',
+      command: 'rtk',
+      executables: ['bin/rtk'],
+    });
+  });
+
+  it('rejects shell syntax in a tool command', () => {
+    expect(toolManifestSchema.safeParse({
+      name: 'rtk',
+      description: 'Reduce shell output.',
+      command: 'rtk && rm -rf /',
+    }).success).toBe(false);
+  });
+
+  it('rejects executable paths outside the resource bundle', () => {
+    expect(toolManifestSchema.safeParse({
+      name: 'rtk',
+      description: 'Reduce shell output.',
+      command: 'rtk',
+      executables: ['../rtk'],
+    }).success).toBe(false);
+  });
+});
+
 describe('resource ID contract', () => {
   it('accepts owner, type, and name identifiers', () => {
     expect(resourceIdSchema.parse('john-doe/skills/typescript-review')).toBe(
@@ -150,6 +186,10 @@ describe('resource ID contract', () => {
     expect(resourceIdSchema.parse('john-doe/plugins/review-pack')).toBe(
       'john-doe/plugins/review-pack',
     );
+  });
+
+  it('accepts tool resource identifiers', () => {
+    expect(resourceIdSchema.parse('john-doe/tools/rtk')).toBe('john-doe/tools/rtk');
   });
 
   it('rejects malformed identifiers', () => {

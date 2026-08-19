@@ -21,6 +21,7 @@ export const resourceTypeOptions = [
   { value: 'mcp-servers' as const, label: 'MCP Server', hint: 'A Model Context Protocol server' },
   { value: 'templates' as const, label: 'Resource pack', hint: 'A pack of existing resources' },
   { value: 'plugins' as const, label: 'Plugin', hint: 'A self-contained bundle of components' },
+  { value: 'tools' as const, label: 'Tool', hint: 'A command-line tool with harness adapters' },
 ];
 
 export const harnessOptions = [

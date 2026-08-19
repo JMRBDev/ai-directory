@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rm } from 'node:fs/promises';
+import { chmod, mkdir, open, readFile, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -13,7 +13,7 @@ import {
 } from '@ai-directory/config';
 export { isMissingPathError, pathExists } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/contracts';
-import type { ResourceFile, ResourceVersion } from '@ai-directory/registry';
+import { readToolManifest, type ResourceFile, type ResourceVersion } from '@ai-directory/registry';
 import { applyEdits, modify, parse } from 'jsonc-parser';
 import { z } from 'zod';
 import {
@@ -242,7 +242,7 @@ export async function installCodexResources(
   const paths = codexInstallPaths(options);
   const plans = resources.map((resource) => createCodexPlan(paths, resource));
   const rules = plans.filter((plan) => plan.resource.resource.type === 'rules');
-  const plugins = plans.filter((plan) => plan.resource.resource.type === 'plugins');
+  const plugins = plans.filter((plan) => isPluginBundle(plan.resource));
   const guidance = rules.length > 0
     ? await prepareCodexGuidance(paths.guidanceRoot, rules, options.force ?? false)
     : undefined;
@@ -264,7 +264,7 @@ export async function installCodexResources(
   const fileHashes = await hashInstallPlans(plans);
 
   return plans.map((plan) => {
-    const isPlugin = plan.resource.resource.type === 'plugins';
+    const isPlugin = isPluginBundle(plan.resource);
     const result: InstallResult = {
       destination:
         plan.resource.resource.type === 'rules' && guidance
@@ -336,6 +336,7 @@ async function writeInstallPlans(plans: InstallPlan[], dryRun: boolean): Promise
   for (const plan of plans) {
     for (const file of plan.files) {
       await writeFileAtomic(file.destination, file.content);
+      if (file.mode !== undefined) await chmod(file.destination, file.mode);
     }
   }
 }
@@ -388,6 +389,7 @@ const claudeCodeInstaller: HarnessAdapter = {
     rules: 'native',
     'mcp-servers': 'configured',
     plugins: 'native',
+    tools: 'native',
   },
   install: installClaudeCodeResources,
 };
@@ -401,6 +403,7 @@ export const openCodeInstaller: HarnessAdapter = {
     rules: 'configured',
     'mcp-servers': 'configured',
     plugins: 'native',
+    tools: 'native',
   },
   install: installOpenCodeResources,
 };
@@ -414,6 +417,7 @@ const codexInstaller: HarnessAdapter = {
     rules: 'configured',
     'mcp-servers': 'configured',
     plugins: 'configured',
+    tools: 'configured',
   },
   install: installCodexResources,
 };
@@ -940,7 +944,7 @@ async function removeSharedConfiguration(
 ): Promise<InstallChange[]> {
   const type = resourceType(record.resource);
 
-  if (type === 'plugins' && record.harness === 'codex') {
+  if (isPluginBundleType(type) && record.harness === 'codex') {
     const change = await removeCodexMarketplaceEntry(record, options);
     return change ? [change] : [];
   }
@@ -1038,9 +1042,19 @@ async function removeCodexGuidance(record: InstallationRecord): Promise<InstallC
 
 export function resourceType(resource: string): ResourceKind | undefined {
   const type = resource.split('/')[1];
-  return type === 'skills' || type === 'agents' || type === 'rules' || type === 'plugins'
+  return type === 'skills' || type === 'agents' || type === 'rules' || type === 'plugins' || type === 'tools'
     ? type
     : undefined;
+}
+
+function isPluginBundle(resource: ResourceVersion): boolean {
+  return isPluginBundleType(resource.resource.type);
+}
+
+function isPluginBundleType(
+  type: ResourceVersion['resource']['type'] | undefined,
+): type is 'plugins' | 'tools' {
+  return type === 'plugins' || type === 'tools';
 }
 
 function installationKey(record: InstallationRecord): string {
@@ -1061,6 +1075,7 @@ type InstallPlan = {
 type InstallFile = {
   path: string;
   content: string;
+  mode?: number;
   destination: string;
 };
 
@@ -1083,12 +1098,12 @@ function createClaudeCodePlan(
 ): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
-      'Claude Code installation supports skills, agents, and rules. Templates must be expanded first.',
+      'Claude Code installation supports skills, agents, rules, plugins, and tools. Templates must be expanded first.',
     );
   }
 
-  if (resource.resource.type === 'plugins') {
-    return createPluginPlan(join(root, 'skills'), resource);
+  if (isPluginBundle(resource)) {
+    return createPluginPlan(join(root, 'skills'), resource, toolExecutablePaths(resource));
   }
 
   const projection = projectFiles(resource, 'claude-code');
@@ -1111,7 +1126,7 @@ function createOpenCodePlan(
 ): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
-      'OpenCode installation supports skills, agents, and rules. Templates must be expanded first.',
+      'OpenCode installation supports skills, agents, rules, plugins, and tools. Templates must be expanded first.',
     );
   }
 
@@ -1138,6 +1153,10 @@ function createOpenCodePlan(
     };
   }
 
+  if (resource.resource.type === 'tools') {
+    return createOpenCodeToolPlan(root, resource);
+  }
+
   const projection = projectFiles(resource, 'opencode');
   const files = projection.files.map((file) => ({
     ...file,
@@ -1162,12 +1181,12 @@ function createCodexPlan(
 ): InstallPlan {
   if (resource.resource.type === 'templates') {
     throw new Error(
-      'Codex installation supports skills, agents, and rules. Templates must be expanded first.',
+      'Codex installation supports skills, agents, rules, plugins, and tools. Templates must be expanded first.',
     );
   }
 
-  if (resource.resource.type === 'plugins') {
-    return createPluginPlan(join(paths.codexHome, 'plugins'), resource);
+  if (isPluginBundle(resource)) {
+    return createPluginPlan(join(paths.codexHome, 'plugins'), resource, toolExecutablePaths(resource));
   }
 
   const projection = projectFiles(resource, 'codex');
@@ -1191,12 +1210,14 @@ function createCodexPlan(
 function createPluginPlan(
   root: string,
   resource: ResourceVersion,
+  executablePaths: readonly string[] = [],
 ): InstallPlan {
   const destination = join(root, resource.resource.name);
-  const files = resource.files.map((file) => ({
+  const executables = new Set(executablePaths);
+  const files = resource.files.map((file) => withExecutableMode({
     ...file,
     destination: safeDestination(destination, file.path),
-  }));
+  }, executables.has(file.path)));
 
   return { resource, destination, files, skippedFiles: [] };
 }
@@ -1204,6 +1225,84 @@ function createPluginPlan(
 function openCodePluginModule(resource: ResourceVersion): ResourceFile | undefined {
   return resource.files.find((file) => file.path === '.opencode/plugin.ts')
     ?? resource.files.find((file) => file.path === '.opencode/plugin.js');
+}
+
+function createOpenCodeToolPlan(
+  root: string,
+  resource: ResourceVersion,
+): InstallPlan {
+  const executables = new Set(readToolManifest(resource).executables);
+  const moduleFile = openCodePluginModule(resource);
+  const customToolFiles = resource.files.filter((file) =>
+    file.path.startsWith('.opencode/tools/'),
+  );
+
+  if (!moduleFile && customToolFiles.length === 0) {
+    throw new Error(
+      `Tool is missing an OpenCode adapter (.opencode/plugin.ts, .opencode/plugin.js, or .opencode/tools/*): ${resourceKey(resource.resource)}`,
+    );
+  }
+
+  const files: InstallFile[] = [];
+  let destination: string | undefined;
+
+  if (moduleFile) {
+    const extension = moduleFile.path.endsWith('.ts') ? '.ts' : '.js';
+    destination = safeDestination(
+      join(root, 'plugins'),
+      `${resource.resource.name}${extension}`,
+    );
+    files.push(withExecutableMode({
+      ...moduleFile,
+      destination,
+    }, executables.has(moduleFile.path)));
+  }
+
+  for (const file of customToolFiles) {
+    const relativePath = file.path.slice('.opencode/tools/'.length);
+    const fileDestination = safeDestination(
+      join(root, 'tools', resource.resource.name),
+      relativePath,
+    );
+    destination ??= fileDestination;
+    files.push(withExecutableMode({
+      ...file,
+      destination: fileDestination,
+    }, executables.has(file.path)));
+  }
+
+  const installed = new Set(files.map((file) => file.path));
+  const supportRoot = moduleFile
+    ? join(root, 'plugins', `${resource.resource.name}.files`)
+    : join(root, 'tools', `${resource.resource.name}.files`);
+
+  for (const file of resource.files) {
+    if (installed.has(file.path)) continue;
+    files.push(withExecutableMode({
+      ...file,
+      destination: safeDestination(supportRoot, file.path),
+    }, executables.has(file.path)));
+  }
+
+  if (!destination) {
+    throw new Error(`Tool has no installable OpenCode files: ${resourceKey(resource.resource)}`);
+  }
+
+  return {
+    resource,
+    destination,
+    files,
+    skippedFiles: [],
+  };
+}
+
+function toolExecutablePaths(resource: ResourceVersion): readonly string[] {
+  return resource.resource.type === 'tools' ? readToolManifest(resource).executables : [];
+}
+
+function withExecutableMode(file: InstallFile, executable: boolean): InstallFile {
+  if (executable) file.mode = 0o755;
+  return file;
 }
 
 function projectFiles(resource: ResourceVersion, harness: Harness) {

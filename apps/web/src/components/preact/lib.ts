@@ -112,6 +112,7 @@ export const RESOURCE_TYPE_LABELS = {
   'mcp-servers': 'MCP Server',
   templates: 'Resource pack',
   plugins: 'Plugin',
+  tools: 'Tool',
 } satisfies Record<ResourceType, string>;
 
 export function useStatus(initialValue = '') {

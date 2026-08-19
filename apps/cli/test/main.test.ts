@@ -235,6 +235,43 @@ describe('CLI', () => {
     }
   });
 
+  it('creates a tool scaffold with a command manifest', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ai-directory-cli-tool-create-'));
+
+    try {
+      const result = runAid(
+        [
+          'create',
+          'rtk',
+          '--type',
+          'tools',
+          '--owner',
+          'jane-doe',
+          '--description',
+          'Reduce shell output for agent workflows.',
+          '--output',
+          'tool',
+        ],
+        cwd,
+      );
+      const entry = readFileSync(join(cwd, 'tool', 'TOOL.md'), 'utf8');
+
+      expect(result.code).toBe(0);
+      expect(entry).toContain('name: rtk');
+      expect(entry).toContain('description: "Reduce shell output for agent workflows."');
+      expect(entry).toContain('command: rtk');
+
+      const validation = runAid(
+        ['validate', 'tool', '--id', 'jane-doe/tools/rtk'],
+        cwd,
+      );
+      expect(validation.code).toBe(0);
+      expect(validation.stdout).toContain('Valid: jane-doe/tools/rtk@1.0.0');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('reports missing arguments without prompting without a terminal', () => {
     const result = runAid(['install']);
 

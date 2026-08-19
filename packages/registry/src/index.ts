@@ -18,6 +18,7 @@ import {
   resourceEntryFiles,
   resourceIdSchema,
   resourceVersionSchema,
+  toolManifestSchema,
   templateManifestSchema,
   type McpServerManifest,
   type PluginManifest,
@@ -25,6 +26,7 @@ import {
   type ResourceSummary,
   type RegistryIndex,
   type TemplateManifest,
+  type ToolManifest,
 } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/contracts';
 import {
@@ -661,7 +663,9 @@ export async function validateResourceDirectory(
   const description = options.description?.trim()
     || (resource.type === 'plugins'
       ? readPluginManifest(resourceVersion).manifest.description
-      : inferResourceDescription(entryFile.content));
+      : resource.type === 'tools'
+        ? readToolManifest(resourceVersion).description
+        : inferResourceDescription(entryFile.content));
   if (!description) {
     throw new Error(
       `${options.resourceId}@${options.version} has no usable description. Add a description to ${entryFile.path} or pass one explicitly.`,
@@ -678,6 +682,10 @@ export async function validateResourceDirectory(
 
   if (resource.type === 'plugins') {
     readPluginManifest(resourceVersion);
+  }
+
+  if (resource.type === 'tools') {
+    readToolManifest(resourceVersion);
   }
 
   return { sourceDirectory, resource, entryFile, files, description };
@@ -976,6 +984,68 @@ export function readMcpServerManifest(resource: ResourceVersion): McpServerManif
   return result.data;
 }
 
+export function readToolManifest(resource: ResourceVersion): ToolManifest {
+  if (resource.resource.type !== 'tools') {
+    throw new Error(`Resource is not a tool: ${resourceKey(resource.resource)}`);
+  }
+
+  const entryFile = resource.files.find((file) => file.path === 'TOOL.md');
+
+  if (!entryFile) {
+    throw new Error(`Tool is missing TOOL.md: ${resourceKey(resource.resource)}`);
+  }
+
+  const frontmatter = entryFile.content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+
+  if (!frontmatter) {
+    throw new Error(
+      `Tool manifest is missing YAML frontmatter: ${resourceKey(resource.resource)}@${resource.version}`,
+    );
+  }
+
+  let data: unknown;
+  const yaml = frontmatter[1] ?? '';
+
+  try {
+    data = parseYaml(yaml);
+  } catch (error) {
+    throw new Error(
+      `Tool manifest is not valid YAML: ${resourceKey(resource.resource)}@${resource.version}`,
+      { cause: error },
+    );
+  }
+
+  const result = toolManifestSchema.safeParse(data);
+
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `${issue.path.join('.') || 'manifest'}: ${issue.message}`)
+      .join('; ');
+
+    throw new Error(
+      `Tool manifest is invalid (${resourceKey(resource.resource)}@${resource.version}): ${issues}`,
+    );
+  }
+
+  if (result.data.name !== resource.resource.name) {
+    throw new Error(
+      `Tool manifest name does not match resource name: ${result.data.name} !== ${resource.resource.name}`,
+    );
+  }
+
+  const missingExecutables = result.data.executables.filter(
+    (path) => !resource.files.some((file) => file.path === path),
+  );
+
+  if (missingExecutables.length > 0) {
+    throw new Error(
+      `Tool manifest lists missing executable file(s): ${missingExecutables.join(', ')}`,
+    );
+  }
+
+  return result.data;
+}
+
 export type PluginManifestResult = {
   file: ResourceFile;
   manifest: PluginManifest;
@@ -1079,6 +1149,10 @@ async function validateResourceIndex(
         );
       } else if (!entryFile.content.trim()) {
         issues.push(`${id}@${requestedVersion} has an empty ${entryFile.path}`);
+      }
+
+      if (resource.type === 'tools') {
+        readToolManifest(loadedVersion);
       }
     } catch (error) {
       if (isMissingPathError(error)) {
