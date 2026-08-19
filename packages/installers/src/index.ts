@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, open, readFile, rm, rmdir } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readFile, rm, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -2455,13 +2455,18 @@ function dependencyOptionsFrom(options: ResourceChangeOptions): ToolDependencyOp
 export type FileSnapshot = {
   path: string;
   content: string | null;
+  existingDirectories?: string[];
 };
 
 export async function snapshotFiles(paths: string[]): Promise<FileSnapshot[]> {
   const snapshots: FileSnapshot[] = [];
 
   for (const path of new Set(paths)) {
-    snapshots.push({ path, content: await currentFile(path) });
+    snapshots.push({
+      path,
+      content: await currentFile(path),
+      existingDirectories: await existingDirectoryAncestors(path),
+    });
   }
 
   return snapshots;
@@ -2474,6 +2479,60 @@ export async function restoreFiles(snapshots: FileSnapshot[]): Promise<void> {
     } else {
       await writeFileAtomic(snapshot.path, snapshot.content);
     }
+  }
+
+  const existingDirectories = new Set(
+    snapshots.flatMap((snapshot) => snapshot.existingDirectories ?? []),
+  );
+  for (const snapshot of snapshots) {
+    if (snapshot.content === null) {
+      await removeEmptyRollbackDirectories(dirname(resolve(snapshot.path)), existingDirectories);
+    }
+  }
+}
+
+async function existingDirectoryAncestors(path: string): Promise<string[]> {
+  const existing: string[] = [];
+  let current = dirname(resolve(path));
+
+  while (current !== dirname(current)) {
+    try {
+      if (!(await lstat(current)).isDirectory()) break;
+      existing.push(current);
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        current = dirname(current);
+        continue;
+      }
+      throw error;
+    }
+    current = dirname(current);
+  }
+
+  return existing;
+}
+
+async function removeEmptyRollbackDirectories(
+  start: string,
+  existingDirectories: Set<string>,
+): Promise<void> {
+  let current = resolve(start);
+
+  while (current !== dirname(current) && !existingDirectories.has(current)) {
+    try {
+      await rmdir(current);
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        current = dirname(current);
+        continue;
+      }
+      const code = error instanceof Error && 'code' in error
+        ? error.code
+        : undefined;
+      if (code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'ENOTDIR') break;
+      throw error;
+    }
+    current = dirname(current);
   }
 }
 
@@ -2612,6 +2671,7 @@ function toError(cause: unknown): Error {
 }
 
 async function acquireInstallationLock(path: string): Promise<InstallationLock> {
+  const existingDirectories = new Set(await existingDirectoryAncestors(path));
   await mkdir(dirname(path), { recursive: true });
   const owner = { pid: process.pid, token: randomUUID() } satisfies InstallationLockOwner;
   const content = `${JSON.stringify(owner)}\n`;
@@ -2630,7 +2690,10 @@ async function acquireInstallationLock(path: string): Promise<InstallationLock> 
 
       return {
         release: async () => {
-          if (await currentFile(path) === content) await rm(path, { force: true });
+          if (await currentFile(path) === content) {
+            await rm(path, { force: true });
+            await removeEmptyRollbackDirectories(dirname(resolve(path)), existingDirectories);
+          }
         },
       };
     } catch (error) {

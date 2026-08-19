@@ -1256,7 +1256,15 @@ describe('shared resource operations', () => {
         readFile(join(homeDirectory, '.claude', 'skills', 'typescript-api-review', 'SKILL.md'), 'utf8'),
       ).rejects.toThrow();
       await expect(
+        access(join(homeDirectory, '.claude', 'skills', 'typescript-api-review')),
+      ).rejects.toThrow();
+      await expect(access(join(homeDirectory, '.claude', 'skills'))).rejects.toThrow();
+      await expect(access(join(homeDirectory, '.config', 'opencode'))).rejects.toThrow();
+      await expect(
         readFile(join(homeDirectory, '.local', 'share', 'ai-directory', 'installed.json'), 'utf8'),
+      ).rejects.toThrow();
+      await expect(
+        access(join(homeDirectory, '.local', 'share', 'ai-directory')),
       ).rejects.toThrow();
     } finally {
       failedInstaller.mockRestore();
