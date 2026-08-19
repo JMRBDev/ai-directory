@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, open, readFile, rm } from 'node:fs/promises';
+import { chmod, mkdir, open, readFile, rm, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   configuredPath,
   getScopeInstallManifestPath,
@@ -20,6 +20,19 @@ import {
   resolveHarnessPaths,
   type Harness,
 } from './harnesses.js';
+import {
+  toolDependencyRecordsForResources,
+  toolDependencyRemovalCandidates,
+  installToolDependencies,
+  uninstallToolDependencies,
+  type DependencyCommandRunner,
+  type ToolDependencyInstallResult,
+  type ToolDependencyOptions,
+  type ToolDependencyRecord,
+  type ToolDependencyRemovalCandidate,
+  type ToolDependencyUninstallResult,
+} from './dependencies.js';
+export * from './dependencies.js';
 
 export type {
   Harness,
@@ -37,6 +50,9 @@ export type InstallOptions = {
   dryRun?: boolean;
   scope?: ConfigScope;
   environment?: NodeJS.ProcessEnv;
+  installDependencies?: boolean;
+  removeDependencies?: boolean;
+  dependencyCommandRunner?: DependencyCommandRunner;
 };
 
 export type InstallResult = {
@@ -79,12 +95,19 @@ export type ResourceChangePlan = {
   conflicts: string[];
   warnings: string[];
   projectionNotes: string[];
+  dependencyRemovals: ToolDependencyRemovalCandidate[];
   fingerprint: string;
 };
 
 export type ResourceChangeOptions = Pick<
   InstallOptions,
-  'cwd' | 'homeDirectory' | 'environment' | 'scope'
+  | 'cwd'
+  | 'homeDirectory'
+  | 'environment'
+  | 'scope'
+  | 'installDependencies'
+  | 'removeDependencies'
+  | 'dependencyCommandRunner'
 >;
 
 export type ResourceApplyResult = {
@@ -92,6 +115,9 @@ export type ResourceApplyResult = {
   installed: InstallationRecord[];
   removed: InstallationRecord[];
   warnings: string[];
+  dependencies: ToolDependencyInstallResult[];
+  removedDependencies: ToolDependencyUninstallResult[];
+  dependencyRemovals: ToolDependencyRemovalCandidate[];
 };
 
 export const installationRecordSchema = z.object({
@@ -106,14 +132,29 @@ export const installationRecordSchema = z.object({
   installedAt: z.string().min(1),
 });
 
+const toolDependencyRecordSchema = z.object({
+  resource: z.string().min(1),
+  command: z.string().min(1),
+  manager: z.enum(['homebrew', 'pipx', 'npm', 'cargo']),
+  package: z.string().min(1),
+  version: z.string().min(1).optional(),
+  installedAt: z.string().min(1),
+});
+
 export type InstallationRecord = z.infer<typeof installationRecordSchema>;
 
 export const installationManifestSchema = z.object({
   schemaVersion: z.literal(1),
   installations: z.array(installationRecordSchema),
+  dependencies: z.array(toolDependencyRecordSchema).default([]),
 });
 
-export type InstallationManifest = z.infer<typeof installationManifestSchema>;
+export type InstallationManifest = {
+  schemaVersion: 1;
+  installations: InstallationRecord[];
+  dependencies: ToolDependencyRecord[];
+};
+export type { ToolDependencyRecord };
 
 export type ResourceInstallationMode = 'native' | 'translated' | 'configured';
 
@@ -434,7 +475,7 @@ export async function readInstallationManifest(path: string): Promise<Installati
   try {
     data = JSON.parse(await readFile(path, 'utf8'));
   } catch (error) {
-    if (isMissingPathError(error)) return { schemaVersion: 1, installations: [] };
+    if (isMissingPathError(error)) return { schemaVersion: 1, installations: [], dependencies: [] };
     throw new Error(`Installation manifest is not valid JSON: ${path}`, { cause: error });
   }
 
@@ -444,7 +485,23 @@ export async function readInstallationManifest(path: string): Promise<Installati
     throw new Error(`Installation manifest is invalid: ${path}`);
   }
 
-  return result.data;
+  const dependencies = result.data.dependencies.map((record) => {
+    const dependency: ToolDependencyRecord = {
+      resource: record.resource,
+      command: record.command,
+      manager: record.manager,
+      package: record.package,
+      installedAt: record.installedAt,
+    };
+    if (record.version !== undefined) dependency.version = record.version;
+    return dependency;
+  });
+
+  return {
+    schemaVersion: result.data.schemaVersion,
+    installations: result.data.installations,
+    dependencies,
+  };
 }
 
 export function assertInstalledFor(
@@ -532,15 +589,50 @@ export async function removeInstallationRecord(
   );
 }
 
+export async function updateToolDependencyRecords(
+  path: string,
+  records: ToolDependencyRecord[],
+): Promise<InstallationManifest> {
+  const keys = new Set(records.map((record) => `${record.resource}\u0000${record.command}`));
+  return rewriteFullInstallationManifest(path, (current) => ({
+    ...current,
+    dependencies: [
+      ...current.dependencies.filter((record) => !keys.has(`${record.resource}\u0000${record.command}`)),
+      ...records,
+    ],
+  }));
+}
+
+export async function removeToolDependencyRecords(
+  path: string,
+  resourceIds: string[],
+): Promise<{ manifest: InstallationManifest; candidates: ToolDependencyRemovalCandidate[] }> {
+  const current = await readInstallationManifest(path);
+  const candidates = toolDependencyRemovalCandidates(current.dependencies, resourceIds);
+  const removing = new Set(resourceIds);
+  const manifest = await rewriteFullInstallationManifest(path, (latest) => ({
+    ...latest,
+    dependencies: latest.dependencies.filter((record) => !removing.has(record.resource)),
+  }));
+  return { manifest, candidates };
+}
+
 async function rewriteInstallationManifest(
   path: string,
   select: (records: InstallationRecord[]) => InstallationRecord[],
 ): Promise<InstallationManifest> {
-  const current = await readInstallationManifest(path);
-  const manifest = {
-    schemaVersion: 1 as const,
+  return rewriteFullInstallationManifest(path, (current) => ({
+    ...current,
     installations: select(current.installations),
-  };
+  }));
+}
+
+async function rewriteFullInstallationManifest(
+  path: string,
+  select: (manifest: InstallationManifest) => InstallationManifest,
+): Promise<InstallationManifest> {
+  const current = await readInstallationManifest(path);
+  const manifest = select(current);
 
   await writeFileAtomic(path, `${JSON.stringify(manifest, null, 2)}\n`);
 
@@ -601,6 +693,7 @@ export async function uninstallInstallation(
       if (change.content !== null) await writeFileAtomic(change.path, change.content);
     }
     await Promise.all(files.map((path) => rm(path, { force: true })));
+    await removeEmptyInstallationDirectories(record, files);
   }
 
   return [
@@ -767,12 +860,33 @@ export async function planResourceOperations(
     }
   }
 
+  const manifest = await readInstallationManifest(installationManifestPath(options));
+  const dependencyResourceIds = fullyRemovedResourceIds(operations, manifest.installations);
+  const retainedDependencyCommands = operations
+    .filter((operation) => operation.action === 'install')
+    .flatMap((operation) => operation.resources ?? [])
+    .flatMap((resource) => {
+      if (resource.resource.type !== 'tools') return [];
+      const manifest = readToolManifest(resource);
+      return manifest.runtime
+        ? [manifest.runtime.command, ...manifest.runtime.dependencies.map((dependency) => dependency.command)]
+        : [];
+    });
+  const dependencyRemovals = dependencyResourceIds.length > 0
+    ? toolDependencyRemovalCandidates(
+        manifest.dependencies,
+        dependencyResourceIds,
+        retainedDependencyCommands,
+      )
+    : [];
+
   return {
     operations: operations.map(publicOperation),
     changes,
     conflicts: [...new Set(conflicts)],
     warnings: [...new Set(warnings)],
     projectionNotes: [...new Set(projectionNotes)],
+    dependencyRemovals,
     fingerprint: await fingerprintPaths(resourcePlanPaths(operations, changes, options)),
   };
 }
@@ -794,6 +908,16 @@ export async function applyResourceOperations(
       const installed: InstallationRecord[] = [];
       const removed: InstallationRecord[] = [];
       const warnings = [...plan.warnings];
+      const dependencyOptions = dependencyOptionsFrom(options);
+      const installingResources = operations
+        .filter((operation) => operation.action === 'install')
+        .flatMap((operation) => operation.resources ?? []);
+      const manifest = await readInstallationManifest(installationManifestPath(options));
+      const removingResourceIds = fullyRemovedResourceIds(operations, manifest.installations);
+      const dependencies = options.installDependencies && installingResources.length > 0
+        ? await installToolDependencies(installingResources, dependencyOptions)
+        : [];
+      let removedDependencies: ToolDependencyUninstallResult[] = [];
 
       for (const operation of operations) {
         try {
@@ -840,7 +964,36 @@ export async function applyResourceOperations(
         }
       }
 
-      return { plan, installed, removed, warnings: [...new Set(warnings)] };
+      const manifestPath = installationManifestPath(options);
+      if (installingResources.length > 0) {
+        const manifest = await readInstallationManifest(manifestPath);
+        const dependencyRecords = toolDependencyRecordsForResources(
+          installingResources,
+          dependencies,
+          manifest.dependencies,
+        );
+        await updateToolDependencyRecords(manifestPath, dependencyRecords);
+      }
+
+      if (removingResourceIds.length > 0) {
+        if (options.removeDependencies && plan.dependencyRemovals.length > 0) {
+          removedDependencies = await uninstallToolDependencies(
+            plan.dependencyRemovals,
+            dependencyOptions,
+          );
+        }
+        await removeToolDependencyRecords(manifestPath, removingResourceIds);
+      }
+
+      return {
+        plan,
+        installed,
+        removed,
+        warnings: [...new Set(warnings)],
+        dependencies,
+        removedDependencies,
+        dependencyRemovals: plan.dependencyRemovals,
+      };
     },
     'Installation failed',
   );
@@ -912,7 +1065,64 @@ export async function removeStaleInstallationFiles(
 
     await assertInstallationFilesUnchanged(staleRecord, options?.force ?? false);
     await Promise.all(stale.map((path) => rm(path, { force: true })));
+    await removeEmptyInstallationDirectories(staleRecord, stale);
   }
+}
+
+async function removeEmptyInstallationDirectories(
+  record: InstallationRecord,
+  files: string[],
+): Promise<void> {
+  const destination = resolve(record.destination);
+  const roots = new Set<string>();
+
+  if (files.some((path) => isPathWithin(resolve(path), destination) && resolve(path) !== destination)) {
+    roots.add(destination);
+  }
+
+  for (const path of files) {
+    let current = dirname(resolve(path));
+    while (current !== dirname(current)) {
+      if (basename(current).endsWith('.files')) {
+        roots.add(current);
+        break;
+      }
+      current = dirname(current);
+    }
+  }
+
+  for (const root of roots) {
+    for (const path of files) {
+      const resolvedPath = resolve(path);
+      if (!isPathWithin(resolvedPath, root) || resolvedPath === root) continue;
+
+      let current = dirname(resolvedPath);
+      while (isPathWithin(current, root)) {
+        try {
+          await rmdir(current);
+        } catch (error) {
+          if (isMissingPathError(error)) break;
+          const code = error instanceof Error && 'code' in error
+            ? error.code
+            : undefined;
+          if (code === 'ENOTEMPTY' || code === 'EEXIST') break;
+          throw error;
+        }
+        if (current === root) break;
+        const parent = dirname(current);
+        if (parent === current) break;
+        current = parent;
+      }
+    }
+  }
+}
+
+function isPathWithin(path: string, root: string): boolean {
+  const pathRelativeToRoot = relative(root, path);
+  return pathRelativeToRoot === ''
+    || (!isAbsolute(pathRelativeToRoot)
+      && pathRelativeToRoot !== '..'
+      && !pathRelativeToRoot.startsWith('..' + sep));
 }
 
 async function ownedInstallationFiles(
@@ -1059,6 +1269,44 @@ function isPluginBundleType(
 
 function installationKey(record: InstallationRecord): string {
   return `${record.harness}:${record.resource}`;
+}
+
+function fullyRemovedResourceIds(
+  operations: ResourceOperation[],
+  installations: InstallationRecord[],
+): string[] {
+  const removalKeys = new Set(
+    operations
+      .filter((operation) => operation.action === 'uninstall')
+      .flatMap((operation) => {
+        const resourceIds = operation.resourceIds
+          ?? operation.resources?.map((resource) => resourceKey(resource.resource))
+          ?? [];
+        return operation.harnesses.flatMap((harness) =>
+          resourceIds.map((resource) => `${harness}:${resource}`),
+        );
+      }),
+  );
+  const installedResourceIds = new Set(
+    installations
+      .filter((record) => !removalKeys.has(installationKey(record)))
+      .map((record) => record.resource),
+  );
+  const installingResourceIds = new Set(
+    operations
+      .filter((operation) => operation.action === 'install')
+      .flatMap((operation) =>
+        operation.resources?.map((resource) => resourceKey(resource.resource)) ?? [],
+      ),
+  );
+
+  return [...new Set(
+    operations
+      .filter((operation) => operation.action === 'uninstall')
+      .flatMap((operation) =>
+        operation.resourceIds ?? operation.resources?.map((resource) => resourceKey(resource.resource)) ?? [],
+      ),
+  )].filter((resource) => !installedResourceIds.has(resource) && !installingResourceIds.has(resource));
 }
 
 const openCodeConfigSchema = z.object({
@@ -1742,6 +1990,14 @@ function operationInstallOptions(
   if (options.scope) result.scope = options.scope;
   if (options.environment) result.environment = options.environment;
 
+  return result;
+}
+
+function dependencyOptionsFrom(options: ResourceChangeOptions): ToolDependencyOptions {
+  const result: ToolDependencyOptions = {};
+  if (options.cwd) result.cwd = options.cwd;
+  if (options.environment) result.environment = options.environment;
+  if (options.dependencyCommandRunner) result.commandRunner = options.dependencyCommandRunner;
   return result;
 }
 

@@ -514,7 +514,7 @@ describe('validateResourceDirectory', () => {
     const { sourceDirectory } = await createPublishFixture();
     await writeFile(
       join(sourceDirectory, 'TOOL.md'),
-      '---\nname: rtk\ndescription: Reduce shell output.\ncommand: rtk\nexecutables:\n  - bin/rtk\n---\n# RTK\n',
+      '---\nname: rtk\ndescription: Reduce shell output.\ncommand: rtk\nruntime:\n  command: rtk\n  minimumVersion: 0.23.0\n  installers:\n    - manager: homebrew\n      package: rtk\nexecutables:\n  - bin/rtk\n---\n# RTK\n',
       'utf8',
     );
     await mkdir(join(sourceDirectory, 'bin'), { recursive: true });
@@ -544,6 +544,12 @@ describe('validateResourceDirectory', () => {
       name: 'rtk',
       description: 'Reduce shell output.',
       command: 'rtk',
+      runtime: {
+        command: 'rtk',
+        minimumVersion: '0.23.0',
+        installers: [{ manager: 'homebrew', package: 'rtk' }],
+        dependencies: [],
+      },
       executables: ['bin/rtk'],
     });
   });

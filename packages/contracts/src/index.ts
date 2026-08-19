@@ -56,14 +56,44 @@ const toolPathSchema = z.string().min(1).refine((value) => {
   return !normalized.startsWith('/') && !segments.includes('') && !segments.includes('..');
 }, 'Must be a relative resource file path.');
 
-export const toolManifestSchema = z.object({
-  name: slugSchema,
-  description: z.string().min(1),
-  command: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
-  executables: z.array(toolPathSchema).default([]),
+const toolCommandSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+const toolPackageSchema = z.string().regex(/^[A-Za-z0-9@._/+:-]+$/);
+
+export const toolPackageManagerSchema = z.enum(['homebrew', 'pipx', 'npm', 'cargo']);
+
+export const toolInstallerSchema = z.object({
+  manager: toolPackageManagerSchema,
+  package: toolPackageSchema,
 });
 
+export const toolDependencySchema = z.object({
+  command: toolCommandSchema,
+  minimumVersion: resourceVersionSchema.optional(),
+  installers: z.array(toolInstallerSchema).min(1),
+});
+
+export const toolRuntimeSchema = toolDependencySchema.extend({
+  dependencies: z.array(toolDependencySchema).default([]),
+});
+
+export const toolManifestSchema = z
+  .object({
+  name: slugSchema,
+  description: z.string().min(1),
+  command: toolCommandSchema,
+  executables: z.array(toolPathSchema).default([]),
+  runtime: toolRuntimeSchema.optional(),
+  })
+  .refine(
+    (manifest) => manifest.runtime === undefined || manifest.runtime.command === manifest.command,
+    'Tool runtime command must match the tool command.',
+  );
+
 export type ToolManifest = z.infer<typeof toolManifestSchema>;
+export type ToolDependency = z.infer<typeof toolDependencySchema>;
+export type ToolInstaller = z.infer<typeof toolInstallerSchema>;
+export type ToolPackageManager = z.infer<typeof toolPackageManagerSchema>;
+export type ToolRuntime = z.infer<typeof toolRuntimeSchema>;
 
 export const mcpTransportSchema = z.enum(['stdio', 'http', 'sse', 'ws']);
 

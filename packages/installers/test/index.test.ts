@@ -889,6 +889,12 @@ describe('portable harness installers', () => {
         'utf8',
       ),
     ).rejects.toThrow();
+    await expect(
+      access(join(homeDirectory, '.codex', 'plugins', 'review-pack')),
+    ).rejects.toThrow();
+    await expect(
+      access(join(homeDirectory, '.codex', 'plugins')),
+    ).resolves.toBeUndefined();
     const marketplace = await readFile(
       join(homeDirectory, '.agents', 'plugins', 'marketplace.json'),
       'utf8',
@@ -1099,6 +1105,7 @@ describe('installation manifest', () => {
     await expect(readInstallationManifest(path)).resolves.toEqual({
       schemaVersion: 1,
       installations: [],
+      dependencies: [],
     });
     await updateInstallationManifest(path, [record]);
     await updateInstallationManifest(path, [{ ...record, version: '1.1.0' }]);

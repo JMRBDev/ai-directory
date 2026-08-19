@@ -127,8 +127,31 @@ export function useStatus(initialValue = '') {
   return { status, error, showStatus };
 }
 
-export function appliedChangesMessage(changeCount: number, warnings: string[]) {
+export function appliedChangesMessage(
+  changeCount: number,
+  warnings: string[],
+  dependencies: Array<{ status?: { runtime?: { command?: string }; version?: string } }> = [],
+  removedDependencies: Array<{ candidate?: { command?: string } }> = [],
+  dependencyRemovals: Array<{ command: string }> = [],
+) {
   const applied = 'Applied ' + changeCount + ' file change' + (changeCount === 1 ? '' : 's') + '.';
-  const details = warnings.length > 0 ? '\n' + [...new Set(warnings)].join('\n') : '';
-  return applied + details;
+  const installed = [...new Set(
+    dependencies
+      .map((dependency) => {
+        const command = dependency.status?.runtime?.command;
+        const version = dependency.status?.version;
+        return command ? command + (version ? ' ' + version : '') : undefined;
+      })
+      .filter((value): value is string => value !== undefined),
+  )];
+  const details = [
+    installed.length > 0 ? 'Installed ' + installed.join(', ') + '.' : '',
+    removedDependencies.length > 0
+      ? 'Removed ' + [...new Set(removedDependencies.map((dependency) => dependency.candidate?.command).filter((value): value is string => value !== undefined))].join(', ') + '.'
+      : dependencyRemovals.length > 0
+        ? 'Kept ' + [...new Set(dependencyRemovals.map((dependency) => dependency.command))].join(', ') + ' because it may be used elsewhere.'
+        : '',
+    ...new Set(warnings),
+  ].filter(Boolean);
+  return details.length > 0 ? applied + '\n' + details.join('\n') : applied;
 }

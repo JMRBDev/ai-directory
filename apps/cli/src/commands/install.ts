@@ -6,6 +6,9 @@ import {
   assertInstalledFor,
   discoverLocalResources,
   enrichLocalResources,
+  dependencyStatusMessage,
+  inspectToolDependencies,
+  planResourceOperations,
   readInstallationManifest,
   type McpOperation,
   type ResourceOperation,
@@ -20,6 +23,7 @@ import {
 import {
   readRegistrySourceIndex,
   readRegistrySourceResource,
+  type ResourceVersion,
 } from '@ai-directory/registry';
 import {
   getRegistrySource,
@@ -35,6 +39,8 @@ import {
   promptInstalledHarnesses,
   promptInstalledResource,
   promptResource,
+  promptToolDependencyInstall,
+  promptToolDependencyRemoval,
 } from '../prompts';
 
 export const install = defineCommand({
@@ -77,6 +83,10 @@ export const install = defineCommand({
       type: 'boolean',
       description: 'Overwrite files already installed at the destination',
     },
+    'install-dependencies': {
+      type: 'boolean',
+      description: 'Install missing tool dependencies with a supported package manager',
+    },
     scope: {
       type: 'string',
       default: 'user',
@@ -115,6 +125,12 @@ export const install = defineCommand({
         }
       }
 
+      const installDependencies = await ensureToolDependencies(
+        [result, ...resources],
+        isInteractiveTerminal(),
+        args['install-dependencies'] ?? false,
+      );
+
       const manifestPath = installManifestPath(isMcpResource(resource) ? scope : 'user');
       const interactive = interactiveTerminal && (!resourceArgument || !explicitHarnesses);
 
@@ -151,7 +167,7 @@ export const install = defineCommand({
 
           return applyResourceOperations(
             [operation],
-            { cwd: process.cwd() },
+            { cwd: process.cwd(), installDependencies },
             force,
           );
         },
@@ -164,6 +180,11 @@ export const install = defineCommand({
           `Location: ${installation.destination} (${installation.resource}@${installation.version}, ${installation.harness})`,
         );
         console.log(`Files: ${installation.files.join(', ')}`);
+      }
+      for (const dependency of 'dependencies' in applied ? applied.dependencies : []) {
+        console.log(
+          `Installed ${dependency.status.runtime.command} with ${dependency.command} ${dependency.args.join(' ')} (version ${dependency.status.version ?? 'unknown'}).`,
+        );
       }
       for (const note of applied.plan.projectionNotes ?? []) {
         console.log(`Note: ${note}`);
@@ -276,6 +297,10 @@ export const update = defineCommand({
       type: 'boolean',
       description: 'Continue when managed files were modified',
     },
+    'install-dependencies': {
+      type: 'boolean',
+      description: 'Install missing tool dependencies with a supported package manager',
+    },
     scope: {
       type: 'string',
       default: 'user',
@@ -321,6 +346,11 @@ export const update = defineCommand({
           const manifestPath = installManifestPath(isMcpResource(resource) ? scope : 'user');
           const manifest = await readInstallationManifest(manifestPath);
           const loaded = await readRegistrySourceResource(source, resource);
+          const installDependencies = await ensureToolDependencies(
+            loaded.resources,
+            isInteractiveTerminal(),
+            args['install-dependencies'] ?? false,
+          );
           const existing = harnesses.map((harness) =>
             loaded.resources.map((entry) =>
               manifest.installations.find(
@@ -373,7 +403,7 @@ export const update = defineCommand({
               warningResources: [loaded.resource, ...loaded.resources],
               version: loaded.resource.version,
             }],
-            { cwd: process.cwd() },
+            { cwd: process.cwd(), installDependencies },
             force,
           );
 
@@ -439,6 +469,10 @@ export const uninstall = defineCommand({
     force: {
       type: 'boolean',
       description: 'Continue when managed files were modified',
+    },
+    'remove-dependencies': {
+      type: 'boolean',
+      description: 'Remove unused tool dependencies installed by AI Directory',
     },
     scope: {
       type: 'string',
@@ -506,24 +540,64 @@ export const uninstall = defineCommand({
             );
           }
 
+          const operation: ResourceOperation = {
+            resource,
+            harnesses,
+            action: 'uninstall',
+            resourceIds,
+          };
+          const plan = await planResourceOperations([operation], { cwd: process.cwd() }, force);
+          let removeDependencies = args['remove-dependencies'] ?? false;
+          if (plan.dependencyRemovals.length > 0 && interactiveTerminal && !removeDependencies) {
+            removeDependencies = await promptToolDependencyRemoval(plan.dependencyRemovals) ?? false;
+          }
+
           return applyResourceOperations(
-            [{
-              resource,
-              harnesses,
-              action: 'uninstall',
-              resourceIds,
-            }],
-            { cwd: process.cwd() },
+            [operation],
+            { cwd: process.cwd(), removeDependencies },
             force,
+            plan,
           );
         },
       );
 
       if (!result) return;
       console.log(`Uninstalled ${resource} for ${harnesses.join(', ')}.`);
+      for (const dependency of 'removedDependencies' in result ? result.removedDependencies : []) {
+        console.log(`Removed unused dependency ${dependency.candidate.command}.`);
+      }
       console.log(`Tracked in: ${installManifestPath(isMcpResource(resource) ? scope : 'user')}`);
     } catch (error) {
       reportError(error);
     }
   },
 });
+
+async function ensureToolDependencies(
+  resources: ResourceVersion[],
+  interactive: boolean,
+  allowInstall: boolean,
+): Promise<boolean> {
+  const statuses = await inspectToolDependencies(resources, { cwd: process.cwd() });
+  const missing = statuses.filter((status) => !status.ready);
+
+  if (missing.length === 0) return true;
+
+  const approved = allowInstall || (
+    interactive
+      ? await promptToolDependencyInstall(missing) ?? false
+      : false
+  );
+
+  if (!approved) {
+    throw new Error(
+      'Missing tool dependencies: ' +
+      missing.map(dependencyStatusMessage).join('; ') +
+      '. Re-run with --install-dependencies to install them using ' +
+      [...new Set(missing.flatMap((status) => status.installCommands))].join(' or ') +
+      '.',
+    );
+  }
+
+  return true;
+}

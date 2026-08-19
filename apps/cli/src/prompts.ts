@@ -1,6 +1,7 @@
 import {
   autocomplete,
   autocompleteMultiselect,
+  confirm,
   isCancel,
   select,
   text,
@@ -8,7 +9,12 @@ import {
   type TextOptions,
 } from '@clack/prompts';
 import { resourceKey } from '@ai-directory/contracts';
-import type { InstallationRecord, Harness } from '@ai-directory/installers';
+import type {
+  InstallationRecord,
+  Harness,
+  ToolDependencyStatus,
+  ToolDependencyRemovalCandidate,
+} from '@ai-directory/installers';
 import { installationResourceIds } from '@ai-directory/server-core';
 import { readRegistrySourceIndex, type RegistrySource } from '@ai-directory/registry';
 import { cancelled } from './helpers';
@@ -121,6 +127,30 @@ export async function promptHarnesses(initialValues?: Harness[]): Promise<Harnes
   if (initialValues) options.initialValues = initialValues;
 
   const answer = await autocompleteMultiselect(options);
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+export async function promptToolDependencyInstall(
+  statuses: ToolDependencyStatus[],
+): Promise<boolean | undefined> {
+  const commands = [...new Set(statuses.flatMap((status) => status.installCommands))];
+  const answer = await confirm({
+    message: 'Install missing tool dependencies with ' + commands.join(' or ') + '?',
+    initialValue: true,
+  });
+
+  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+export async function promptToolDependencyRemoval(
+  candidates: ToolDependencyRemovalCandidate[],
+): Promise<boolean | undefined> {
+  const commands = [...new Set(candidates.map((candidate) => candidate.command))];
+  const answer = await confirm({
+    message: 'Remove unused tool dependencies (' + commands.join(', ') + ')?',
+    initialValue: false,
+  });
 
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
 }
