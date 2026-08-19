@@ -13,7 +13,7 @@ import { ErrorMessage, LoadingCard } from './common';
 import { CatalogCard } from './catalog-card';
 import { CatalogFilters } from './catalog-filters';
 import { useDirectory } from './context';
-import { PAGE_SIZE, RESOURCE_TYPES, resourceType, type InstalledFilter, type ReviewFilter, type SortOption } from './model';
+import { activeResourceType, PAGE_SIZE, RESOURCE_TYPES, resourceType, type InstalledFilter, type ReviewFilter, type SortOption } from './model';
 
 export function CatalogPage() {
   const registry = useQuery<RegistryResponse>({ queryKey: ['registry'], queryFn: api.registry });
@@ -27,7 +27,7 @@ export function CatalogPage() {
   const [installed, setInstalled] = useState<InstalledFilter>('all');
   const [sort, setSort] = useState<SortOption>('updated');
   const [page, setPage] = useState(1);
-  const activeType = selectedType ?? resources[0]?.type ?? 'skills';
+  const activeType = activeResourceType(resources, selectedType);
 
   const typeResources = resources.filter((resource) => resource.type === activeType);
   const filtered = [...typeResources]

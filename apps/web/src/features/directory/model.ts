@@ -5,6 +5,7 @@ import {
   type Harness,
   type InstallScope,
   type LocalResource,
+  type ResourceSummary,
   type ResourceType,
   type StagedItem,
 } from '../../lib/types';
@@ -146,6 +147,10 @@ export function installScope(value: string): InstallScope {
 
 export function resourceType(value: string): ResourceType {
   return RESOURCE_TYPES.find((option) => option.value === value)?.value ?? 'skills';
+}
+
+export function activeResourceType(resources: Array<Pick<ResourceSummary, 'type'>>, selected?: ResourceType): ResourceType {
+  return selected ?? resources[0]?.type ?? 'skills';
 }
 
 export function parseHarnessFilter(value: string): HarnessFilter {
