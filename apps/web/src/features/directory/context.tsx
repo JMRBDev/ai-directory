@@ -1,0 +1,214 @@
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '../../lib/api';
+import {
+  groupStaged,
+  hasApplyableOperation,
+  mergePlans,
+  operationsFor,
+  readStorage,
+  writeStorage,
+  type PlanData,
+  type SheetName,
+} from './model';
+import { harnessOptions } from '../../lib/types';
+import type {
+  ApplyResponse,
+  Harness,
+  InstallScope,
+  LocalResource,
+  StagedItem,
+  StagedMap,
+} from '../../lib/types';
+
+export type DirectoryContextValue = {
+  installations: NonNullable<Awaited<ReturnType<typeof api.installed>>['installations']>;
+  localResources: LocalResource[];
+  localRegistryError: string | undefined;
+  homeDirectory: string | undefined;
+  localLoading: boolean;
+  staged: StagedMap;
+  harnesses: Harness[];
+  scope: InstallScope;
+  sheet: SheetName;
+  plan: PlanData | undefined;
+  planLoading: boolean;
+  planError: string | undefined;
+  applyStatus: string | undefined;
+  applyError: string | undefined;
+  force: boolean;
+  removeDependencies: boolean;
+  busy: boolean;
+  setSheet: (sheet: SheetName) => void;
+  setHarnesses: (harnesses: Harness[]) => void;
+  setScope: (scope: InstallScope) => void;
+  setForce: (force: boolean) => void;
+  setRemoveDependencies: (remove: boolean) => void;
+  stage: (item: StagedItem) => void;
+  updateStage: (item: StagedItem) => void;
+  unstage: (key: string) => void;
+  clear: () => void;
+  applyChanges: () => void;
+  refreshRegistry: () => void;
+};
+
+const DirectoryContext = createContext<DirectoryContextValue | null>(null);
+
+export function useDirectory() {
+  const value = useContext(DirectoryContext);
+  if (!value) throw new Error('useDirectory must be used inside DirectoryProvider.');
+  return value;
+}
+
+export function DirectoryProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const [sheet, setSheet] = useState<SheetName>(null);
+  const [staged, setStaged] = useState<StagedMap>(() => readStorage('ai-directory-staged', {}));
+  const [harnesses, setHarnessesState] = useState<Harness[]>(() => {
+    const stored = readStorage<Harness[]>('ai-directory-harnesses', ['claude-code']);
+    return stored.length > 0 ? stored : ['claude-code'];
+  });
+  const [scope, setScope] = useState<InstallScope>('user');
+  const [force, setForce] = useState(false);
+  const [removeDependencies, setRemoveDependencies] = useState(false);
+  const [applyStatus, setApplyStatus] = useState<string | undefined>(undefined);
+  const [applyError, setApplyError] = useState<string | undefined>(undefined);
+
+  const installationsQuery = useQuery({ queryKey: ['installed'], queryFn: api.installed });
+  const localResourcesQuery = useQuery({ queryKey: ['local-resources'], queryFn: api.localResources });
+  const stagedItems = Object.values(staged);
+  const groups = groupStaged(stagedItems);
+  const planQuery = useQuery<PlanData>({
+    queryKey: ['plan', stagedItems, harnesses, scope],
+    enabled: stagedItems.length > 0 && harnesses.length > 0,
+    queryFn: async () => {
+      const groupPlans = await Promise.all(groups.map(async (group) => ({
+        ...group,
+        plan: await api.plan(operationsFor(group.items, harnesses, scope)),
+      })));
+      return { groups: groupPlans, plan: mergePlans(groupPlans.map((group) => group.plan)) };
+    },
+  });
+  const applyMutation = useMutation({
+    mutationFn: async ({ data, applyForce, removeDeps }: { data: PlanData; applyForce: boolean; removeDeps: boolean }) => {
+      const results: ApplyResponse[] = [];
+      for (const group of data.groups) {
+        results.push(await api.apply({
+          operations: operationsFor(group.items, harnesses, scope),
+          force: applyForce,
+          installDependencies: true,
+          removeDependencies: removeDeps,
+          planFingerprint: group.plan.fingerprint,
+        }));
+      }
+      return results;
+    },
+    onMutate: () => {
+      setApplyStatus(undefined);
+      setApplyError(undefined);
+    },
+    onSuccess: (results) => {
+      const changes = results.reduce((total, result) => total + result.plan.changes.length, 0);
+      const warnings = results.flatMap((result) => result.warnings ?? []);
+      setApplyStatus(
+        warnings.length > 0
+          ? `Applied ${changes} file changes with warnings: ${warnings.join(' ')}`
+          : `Applied ${changes} file changes.`,
+      );
+      setStaged({});
+      writeStorage('ai-directory-staged', {});
+      setForce(false);
+      setRemoveDependencies(false);
+      void queryClient.invalidateQueries({ queryKey: ['installed'] });
+      void queryClient.invalidateQueries({ queryKey: ['local-resources'] });
+    },
+    onError: (error) => {
+      setApplyError(error instanceof Error ? error.message : 'Could not apply the change plan.');
+    },
+  });
+
+  function setHarnesses(next: Harness[]) {
+    const normalized = harnessesFor(next);
+    if (normalized.length === 0) return;
+    setHarnessesState(normalized);
+    writeStorage('ai-directory-harnesses', normalized);
+  }
+
+  function saveStaged(next: StagedMap) {
+    setStaged(next);
+    writeStorage('ai-directory-staged', next);
+  }
+
+  function stage(item: StagedItem) {
+    if (item.harnesses.length === 0) return;
+    const normalized: StagedItem = { ...item, harnesses: [...new Set(item.harnesses)] };
+    if (normalized.type === 'mcp-servers' && !normalized.scope) normalized.scope = scope;
+    saveStaged({ ...staged, [normalized.key]: normalized });
+    setSheet('changes');
+  }
+
+  function updateStage(item: StagedItem) {
+    if (item.harnesses.length === 0) return;
+    saveStaged({ ...staged, [item.key]: { ...item, harnesses: [...new Set(item.harnesses)] } });
+  }
+
+  function unstage(key: string) {
+    const next = { ...staged };
+    delete next[key];
+    saveStaged(next);
+  }
+
+  function clear() {
+    saveStaged({});
+    setForce(false);
+    setRemoveDependencies(false);
+    setApplyStatus(undefined);
+    setApplyError(undefined);
+  }
+
+  function applyChanges() {
+    if (!planQuery.data || !hasApplyableOperation(planQuery.data.plan) || applyMutation.isPending) return;
+    void applyMutation.mutateAsync({ data: planQuery.data, applyForce: force, removeDeps: removeDependencies });
+  }
+
+  function refreshRegistry() {
+    void api.refresh().then(() => queryClient.invalidateQueries({ queryKey: ['registry'] }));
+  }
+
+  const value: DirectoryContextValue = {
+    installations: installationsQuery.data?.installations ?? [],
+    localResources: localResourcesQuery.data?.resources ?? [],
+    localRegistryError: localResourcesQuery.data?.registryError,
+    homeDirectory: localResourcesQuery.data?.homeDirectory,
+    localLoading: localResourcesQuery.isFetching,
+    staged,
+    harnesses,
+    scope,
+    sheet,
+    plan: planQuery.data,
+    planLoading: planQuery.isPending && stagedItems.length > 0,
+    planError: planQuery.error instanceof Error ? planQuery.error.message : undefined,
+    applyStatus,
+    applyError,
+    force,
+    removeDependencies,
+    busy: applyMutation.isPending,
+    setSheet,
+    setHarnesses,
+    setScope,
+    setForce,
+    setRemoveDependencies,
+    stage,
+    updateStage,
+    unstage,
+    clear,
+    applyChanges,
+    refreshRegistry,
+  };
+
+  return <DirectoryContext.Provider value={value}>{children}</DirectoryContext.Provider>;
+}
+
+function harnessesFor(next: Harness[]) {
+  return harnessOptions.map((option) => option.value).filter((item) => next.includes(item));
+}
