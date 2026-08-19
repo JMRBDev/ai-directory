@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -38,7 +38,7 @@ import {
   type ResourcePackOperation,
   type DependencyCommandRunner,
 } from '@ai-directory/installers';
-import { harnessSchema, resourceKey } from '@ai-directory/contracts';
+import { harnessSchema, resourceKey, type RegistryIndex } from '@ai-directory/contracts';
 import {
   createCachedRegistry,
   readRegistrySourceResource,
@@ -508,6 +508,13 @@ type ApplyOutcome<T> =
   | { stale: false; conflict: true; plan: PlannedChangeSummary }
   | { stale: false; conflict: false; plan: PlannedChangeSummary; result: T };
 
+type RegistryApiResponse = {
+  index: RegistryIndex | null;
+  source: 'local' | 'remote';
+  repository?: string;
+  error?: string;
+};
+
 async function applyPlannedChange<T>(
   planFingerprint: string | undefined,
   force: boolean,
@@ -602,6 +609,55 @@ export function createApp(options: ServerOptions = {}) {
   });
 
   app.get('/api/config', (context) => context.json(configResponse(cwd)));
+
+  app.get('/api/registry', async (context) => {
+    const source = registrySource(options, cwd);
+
+    try {
+      const index = await withRegistrySnapshot(options, cwd, (snapshot) => snapshot.readIndex());
+      const response: RegistryApiResponse = {
+        index,
+        source: source.type,
+      };
+      if (source.type === 'remote') response.repository = source.repositoryUrl;
+      return context.json(response);
+    } catch (caught) {
+      const response: RegistryApiResponse = {
+        index: null,
+        source: source.type,
+        error: errorMessage(caught),
+      };
+      if (source.type === 'remote') response.repository = source.repositoryUrl;
+      return context.json(response);
+    }
+  });
+
+  app.get('/api/registry/resource/:owner/:type/:name', async (context) => {
+    const resourceId = [
+      context.req.param('owner'),
+      context.req.param('type'),
+      context.req.param('name'),
+    ].join('/');
+
+    try {
+      const result = await withRegistrySnapshot(options, cwd, async (snapshot) => {
+        const index = await snapshot.readIndex();
+        const resource = index.resources.find((candidate) =>
+          `${candidate.owner}/${candidate.type}/${candidate.name}` === resourceId,
+        );
+        if (!resource) throw new Error(`Resource not found: ${resourceId}`);
+        try {
+          const version = await snapshot.readResource(resourceId, resource.latestVersion);
+          return { resource, version: version.resource };
+        } catch (caught) {
+          return { resource, version: null, error: errorMessage(caught) };
+        }
+      });
+      return context.json(result);
+    } catch (caught) {
+      return context.json({ error: errorMessage(caught) }, 404);
+    }
+  });
 
   app.put('/api/config', async (context) => {
     let body: RequestBody;
@@ -759,10 +815,12 @@ export function createApp(options: ServerOptions = {}) {
       interface LocalResourcesResponse {
         resources: LocalResource[];
         registryError?: string;
+        homeDirectory?: string;
       }
 
       const response: LocalResourcesResponse = { resources: enriched };
       if (registryError) response.registryError = registryError;
+      response.homeDirectory = options.homeDirectory ?? homedir();
 
       return context.json(response);
     } catch (caught) {
