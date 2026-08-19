@@ -94,13 +94,15 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     void applyMutation.mutateAsync({ data: planQuery.data, applyForce: force, removeDeps: removeDependencies });
   }
 
-  function refreshRegistry() {
-    void api.refresh().then(() => queryClient.invalidateQueries({ queryKey: ['registry'] }));
+  async function refreshRegistry() {
+    await api.refresh();
+    await queryClient.invalidateQueries({ queryKey: ['registry'] });
   }
 
   const value: DirectoryContextValue = {
     installations: installationsQuery.data?.installations ?? [],
     localResources: localResourcesQuery.data?.resources ?? [],
+    localError: localResourcesQuery.error instanceof Error ? localResourcesQuery.error.message : localResourcesQuery.error ? 'Could not scan local resources.' : undefined,
     localRegistryError: localResourcesQuery.data?.registryError,
     homeDirectory: localResourcesQuery.data?.homeDirectory,
     localLoading: localResourcesQuery.isFetching,
