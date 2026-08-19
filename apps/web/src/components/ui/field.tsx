@@ -5,6 +5,14 @@ export function Field({ className, ...props }: ComponentProps<'div'>) {
   return <div className={cn('space-y-2', className)} {...props} />;
 }
 
+export function FieldGroup({ className, ...props }: ComponentProps<'fieldset'>) {
+  return <fieldset className={cn('space-y-2', className)} {...props} />;
+}
+
+export function FieldLegend({ className, ...props }: ComponentProps<'legend'>) {
+  return <legend className={cn('text-sm font-medium leading-none', className)} {...props} />;
+}
+
 export function FieldLabel({ className, ...props }: ComponentProps<'label'>) {
   return <label className={cn('text-sm font-medium leading-none', className)} {...props} />;
 }

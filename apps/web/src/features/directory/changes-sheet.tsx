@@ -5,12 +5,13 @@ import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
-import { Field, FieldLabel } from '../../components/ui/field';
+import { FieldGroup, FieldLegend } from '../../components/ui/field';
 import { Label } from '../../components/ui/label';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
 import { ScrollArea } from '../../components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
+import { Card, CardContent } from '../../components/ui/card';
 import { harnessLabel, harnessOptions, scopeOptions, type ChangePlan, type StagedItem } from '../../lib/types';
 import { cn } from '../../lib/utils';
 import { ErrorMessage, LoadingCard, SheetFrame } from './common';
@@ -52,8 +53,8 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             {items.map((item) => <ChangeItem item={item} key={item.key} onRemove={() => unstage(item.key)} onUpdate={updateStage} disabled={busy} />)}
             <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={clear}>Discard all</Button></div>
             {items.some((item) => item.type === 'mcp-servers') && (
-              <Field className="border-t pt-5">
-                <FieldLabel>Default MCP scope</FieldLabel>
+              <FieldGroup className="border-t pt-5">
+                <FieldLegend>Default MCP scope</FieldLegend>
                 <RadioGroup className="mt-3 grid gap-2 sm:grid-cols-2" value={scope} onValueChange={(value) => setScope(installScope(value))}>
                   {scopeOptions.map((option) => (
                     <Label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm" htmlFor={`changes-scope-${option.value}`} key={option.value}>
@@ -62,7 +63,7 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                     </Label>
                   ))}
                 </RadioGroup>
-              </Field>
+              </FieldGroup>
             )}
             {planLoading && <LoadingCard />}
             {planError && <ErrorMessage message={planError} />}
@@ -82,7 +83,8 @@ function ChangeItem({ item, onRemove, onUpdate, disabled }: { item: StagedItem; 
   const selected = item.harnesses.length > 0 ? item.harnesses : harnesses;
 
   return (
-    <div className="rounded-xl border p-4">
+    <Card className="rounded-xl">
+      <CardContent className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div><p className="font-medium">{item.resource}</p><Badge className="mt-2" variant={item.action === 'install' ? 'success' : 'destructive'}>{item.action === 'install' ? 'Install' : 'Uninstall'}</Badge></div>
         <Tooltip>
@@ -99,7 +101,8 @@ function ChangeItem({ item, onRemove, onUpdate, disabled }: { item: StagedItem; 
         ))}
       </div>
       {item.type === 'mcp-servers' && <Select value={item.scope ?? scope} onValueChange={(value) => onUpdate({ ...item, scope: installScope(value) })} disabled={disabled}><SelectTrigger className="mt-3"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="user">User scope</SelectItem><SelectItem value="project">Project scope</SelectItem></SelectContent></Select>}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -108,7 +111,8 @@ function PlanSummary({ plan }: { plan: ChangePlan }) {
   const recordOnlyOperations = plan.operations.filter((operation) => !changedResources.has(operation.resource));
 
   return (
-    <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
+    <Card className="rounded-xl bg-muted/40">
+      <CardContent className="space-y-3 p-4">
       <div className="flex items-center justify-between gap-3"><p className="font-medium">Preview</p><Badge variant={plan.conflicts.length > 0 ? 'warning' : 'success'}>{plan.changes.length > 0 ? `${plan.changes.length} changes` : `${plan.operations.length} operations`}</Badge></div>
       {plan.conflicts.length > 0 && <div className="text-sm text-destructive"><strong>Conflicts:</strong> {plan.conflicts.join(' ')}</div>}
       {plan.warnings.length > 0 && <div className="text-sm text-amber-700 dark:text-amber-300">{plan.warnings.join(' ')}</div>}
@@ -123,6 +127,7 @@ function PlanSummary({ plan }: { plan: ChangePlan }) {
           ))}
         </Accordion>
       </ScrollArea>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
