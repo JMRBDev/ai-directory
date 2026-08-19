@@ -69,7 +69,7 @@ export function CatalogPage() {
         <Empty><EmptyHeader><EmptyMedia><FileText size={20} /></EmptyMedia><EmptyTitle>No active resources yet</EmptyTitle><EmptyDescription>Publish the first resource, then refresh the registry.</EmptyDescription></EmptyHeader></Empty>
       ) : (
         <section aria-labelledby="catalog-title">
-            <Tabs value={activeType} onValueChange={(value) => { setSelectedType(resourceType(value)); setPage(1); }}>
+          <Tabs value={activeType} onValueChange={(value) => { setSelectedType(resourceType(value)); setPage(1); }}>
             <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b bg-transparent p-0" aria-label="Resource types">
               {RESOURCE_TYPES.map((option) => <TabsTrigger className="shrink-0 rounded-none border-b-2 border-transparent px-3 py-3 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none" value={option.value} key={option.value}>{option.label} <span className="text-xs text-muted-foreground">({resources.filter((resource) => resource.type === option.value).length})</span></TabsTrigger>)}
             </TabsList>
