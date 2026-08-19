@@ -10,19 +10,9 @@ import { useDirectory } from './context';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
-import { Label } from '../../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 import { Skeleton } from '../../components/ui/skeleton';
 import { cn } from '../../lib/utils';
-
-export function IconButton({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
-  return (
-    <Button variant="ghost" size="icon" aria-label={label} title={label} onClick={onClick}>
-      {children}
-    </Button>
-  );
-}
 
 export function SiteHeader() {
   const { setSheet, staged, refreshRegistry } = useDirectory();
@@ -38,8 +28,9 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-30 border-b border-border/80 bg-background/90 backdrop-blur">
       <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-4 px-5 sm:px-8">
-        <button
-          className="flex items-center gap-3 text-left"
+        <Button
+          className="h-auto gap-3 p-0 text-left hover:bg-transparent hover:text-foreground"
+          variant="ghost"
           type="button"
           onClick={() => void navigate({ to: '/' })}
         >
@@ -52,22 +43,22 @@ export function SiteHeader() {
               Reusable development resources
             </span>
           </span>
-        </button>
+        </Button>
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
-          <IconButton label="Refresh registry" onClick={refresh}>
+          <Button variant="ghost" size="icon" aria-label="Refresh registry" title="Refresh registry" onClick={refresh}>
             <ArrowsClockwise className={cn(refreshing && 'animate-spin')} size={18} />
-          </IconButton>
-          <IconButton label="Installed resources" onClick={() => setSheet('installed')}>
+          </Button>
+          <Button variant="ghost" size="icon" aria-label="Installed resources" title="Installed resources" onClick={() => setSheet('installed')}>
             <ListDashes size={18} />
-          </IconButton>
+          </Button>
           <Button className="hidden sm:inline-flex" variant="outline" size="sm" onClick={() => setSheet('publish')}>
             <UploadSimple size={16} />
             Publish
           </Button>
           <span className="sm:hidden">
-            <IconButton label="Publish resource" onClick={() => setSheet('publish')}>
+            <Button variant="ghost" size="icon" aria-label="Publish resource" title="Publish resource" onClick={() => setSheet('publish')}>
               <UploadSimple size={18} />
-            </IconButton>
+            </Button>
           </span>
           <Button
             variant={Object.keys(staged).length > 0 ? 'default' : 'outline'}
@@ -77,9 +68,9 @@ export function SiteHeader() {
             <ListDashes size={16} />
             Changes{Object.keys(staged).length > 0 ? ` (${Object.keys(staged).length})` : ''}
           </Button>
-          <IconButton label="Settings" onClick={() => setSheet('settings')}>
+          <Button variant="ghost" size="icon" aria-label="Settings" title="Settings" onClick={() => setSheet('settings')}>
             <Gear size={18} />
-          </IconButton>
+          </Button>
         </nav>
       </div>
     </header>
@@ -132,18 +123,5 @@ export function SheetFrame({
         {children}
       </SheetContent>
     </Sheet>
-  );
-}
-
-export function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
-  const id = `select-${label.toLowerCase().replaceAll(' ', '-')}`;
-  return (
-    <div>
-      <Label htmlFor={id}>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id={id} className="mt-2"><SelectValue /></SelectTrigger>
-        <SelectContent>{options.map(([option, text]) => <SelectItem value={option} key={option}>{text}</SelectItem>)}</SelectContent>
-      </Select>
-    </div>
   );
 }
