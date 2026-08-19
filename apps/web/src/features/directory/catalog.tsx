@@ -8,6 +8,7 @@ import { FileText } from '@phosphor-icons/react/dist/csr/FileText';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
 import { Wrench } from '@phosphor-icons/react/dist/csr/Wrench';
 import { resourceKey, type ResourceSummary } from '@ai-directory/contracts';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -15,6 +16,7 @@ import { Checkbox } from '../../components/ui/checkbox';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { api } from '../../lib/api';
 import {
@@ -31,7 +33,7 @@ import {
 } from '../../lib/types';
 import { cn } from '../../lib/utils';
 import { useDirectory } from './context';
-import { ErrorMessage, IconButton, LoadingCard, SelectField } from './common';
+import { ErrorMessage, LoadingCard } from './common';
 import {
   installScope,
   PAGE_SIZE,
@@ -70,13 +72,16 @@ export function CatalogCard({
         stagedAction === 'uninstall' && 'border-destructive bg-destructive/5',
       )}
     >
-      <button
-        className="absolute inset-0 z-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      <Button
+        className="absolute inset-0 z-0 h-full w-full rounded-lg bg-transparent p-0 hover:bg-transparent hover:text-inherit"
+        variant="ghost"
         type="button"
         aria-label={stagedAction ? `Unstage ${id}` : `Stage ${id} for ${installed ? 'uninstall' : 'install'}`}
         aria-pressed={stagedAction !== undefined}
         onClick={onStage}
-      />
+      >
+        <span className="sr-only">{stagedAction ? `Unstage ${id}` : `Stage ${id} for ${installed ? 'uninstall' : 'install'}`}</span>
+      </Button>
       <CardContent className="pointer-events-none relative z-10 space-y-4 p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -230,9 +235,27 @@ export function CatalogPage() {
                     />
                   </div>
                 </div>
-                <SelectField label="Review status" value={review} onChange={(value) => { setReview(reviewFilter(value)); setPage(1); }} options={[['all', 'All resources'], ['reviewed', 'Reviewed'], ['unreviewed', 'Unreviewed']]} />
-                <SelectField label="Installed" value={installed} onChange={(value) => { setInstalled(installedFilter(value)); setPage(1); }} options={[['all', 'All'], ['installed', 'Installed'], ['not-installed', 'Not installed']]} />
-                <SelectField label="Sort by" value={sort} onChange={(value) => { setSort(sortOption(value)); setPage(1); }} options={[['updated', 'Recently updated'], ['name', 'Name A-Z'], ['version', 'Newest version']]} />
+                <div>
+                  <Label htmlFor="resource-review">Review status</Label>
+                  <Select value={review} onValueChange={(value) => { setReview(reviewFilter(value)); setPage(1); }}>
+                    <SelectTrigger id="resource-review" className="mt-2"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">All resources</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="unreviewed">Unreviewed</SelectItem></SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="resource-installed">Installed</Label>
+                  <Select value={installed} onValueChange={(value) => { setInstalled(installedFilter(value)); setPage(1); }}>
+                    <SelectTrigger id="resource-installed" className="mt-2"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="installed">Installed</SelectItem><SelectItem value="not-installed">Not installed</SelectItem></SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="resource-sort">Sort by</Label>
+                  <Select value={sort} onValueChange={(value) => { setSort(sortOption(value)); setPage(1); }}>
+                    <SelectTrigger id="resource-sort" className="mt-2"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="updated">Recently updated</SelectItem><SelectItem value="name">Name A-Z</SelectItem><SelectItem value="version">Newest version</SelectItem></SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
                 <span>{filtered.length === 0 ? 'No resources found' : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}-${Math.min(currentPage * PAGE_SIZE, filtered.length)} of ${filtered.length}`}</span>
@@ -334,13 +357,15 @@ export function ResourcePage() {
       {version ? (
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText size={18} /> Source files</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {version.files.map((file, index) => (
-              <details className="overflow-hidden rounded-lg border" key={file.path} open={index === 0}>
-                <summary className="cursor-pointer px-3 py-2 text-sm font-medium hover:bg-muted/60"><code className="font-mono text-xs">{file.path}</code></summary>
-                <pre className="max-h-80 overflow-auto border-t bg-muted/40 p-4 text-xs leading-5"><code>{file.content}</code></pre>
-              </details>
-            ))}
+          <CardContent>
+            <Accordion type="multiple" defaultValue={version.files[0] ? [version.files[0].path] : []} className="space-y-2">
+              {version.files.map((file) => (
+                <AccordionItem className="overflow-hidden rounded-lg border" key={file.path} value={file.path}>
+                  <AccordionTrigger className="px-3 py-2 hover:no-underline"><code className="font-mono text-xs">{file.path}</code></AccordionTrigger>
+                  <AccordionContent className="border-t bg-muted/40 px-4 pb-4 pt-3"><pre className="max-h-80 overflow-auto text-xs leading-5"><code>{file.content}</code></pre></AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
           </CardContent>
         </Card>
       ) : !resourceQuery.data.error ? (
@@ -387,34 +412,34 @@ function InstallPanel({ resource, staged }: { resource: ResourceSummary; staged:
       <p className="mt-2 text-sm text-muted-foreground">Choose the target harnesses, then review the change plan before applying it.</p>
       <Card className="mt-5">
         <CardContent className="space-y-6 p-5 sm:p-6">
-          <fieldset>
-            <legend className="text-sm font-medium">Install in</legend>
+          <div>
+            <Label className="text-sm font-medium">Install in</Label>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {harnessOptions.map((option) => (
-                <label className={cn('flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 text-sm transition-colors', selectedHarnesses.includes(option.value) ? 'border-primary/50 bg-primary/5' : 'border-border')} key={option.value}>
-                  <Checkbox checked={selectedHarnesses.includes(option.value)} onCheckedChange={(checked) => toggleHarness(option.value, checked === true)} />
+                <Label className={cn('flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 text-sm transition-colors', selectedHarnesses.includes(option.value) ? 'border-primary/50 bg-primary/5' : 'border-border')} htmlFor={`install-harness-${option.value}`} key={option.value}>
+                  <Checkbox id={`install-harness-${option.value}`} checked={selectedHarnesses.includes(option.value)} onCheckedChange={(checked) => toggleHarness(option.value, checked === true)} />
                   <span>{option.label}</span>
-                </label>
+                </Label>
               ))}
             </div>
-          </fieldset>
+          </div>
           {resource.type === 'mcp-servers' && (
-            <fieldset className="border-t pt-5">
-              <legend className="text-sm font-medium">Scope</legend>
+            <div className="border-t pt-5">
+              <Label className="text-sm font-medium">Scope</Label>
               <RadioGroup className="mt-3 grid gap-2 sm:grid-cols-2" value={selectedScope} onValueChange={(value) => { const next = installScope(value); setSelectedScope(next); setScope(next); }}>
                 {scopeOptions.map((option) => (
-                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm" htmlFor={`resource-scope-${option.value}`} key={option.value}>
+                  <Label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm" htmlFor={`resource-scope-${option.value}`} key={option.value}>
                     <RadioGroupItem className="mt-0.5" id={`resource-scope-${option.value}`} value={option.value} />
                     <span><span className="block font-medium">{option.label}</span><span className="mt-1 block text-xs text-muted-foreground">{option.hint}</span></span>
-                  </label>
+                  </Label>
                 ))}
               </RadioGroup>
-            </fieldset>
+            </div>
           )}
           <div className="border-t pt-5">
             <div className="flex items-center gap-3 rounded-lg bg-muted px-3 py-2">
               <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs">{command || 'Select at least one harness.'}</code>
-              <IconButton label="Copy install command" onClick={() => void copy()}>{copied ? <Check size={17} /> : <Copy size={17} />}</IconButton>
+              <Button variant="ghost" size="icon" aria-label="Copy install command" title="Copy install command" onClick={() => void copy()}>{copied ? <Check size={17} /> : <Copy size={17} />}</Button>
             </div>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground">{selectedHarnesses.length === 0 ? 'Select at least one harness.' : staged ? 'Saved in Changes.' : `${selectedHarnesses.length} harness${selectedHarnesses.length === 1 ? '' : 'es'} selected.`}</span>
