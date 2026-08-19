@@ -27,12 +27,15 @@ import {
   planResourceOperations,
   readInstallationManifest,
   type Harness,
+  type InstallationManifest,
+  type InstallationPackRecord,
   type InstallationRecord,
   type LocalResource,
   type McpOperation,
   type ResourceChangeOptions,
   type ResourceDiscoveryOptions,
   type ResourceOperation,
+  type ResourcePackOperation,
   type DependencyCommandRunner,
 } from '@ai-directory/installers';
 import { harnessSchema, resourceKey } from '@ai-directory/contracts';
@@ -384,6 +387,18 @@ export async function readInstallationRecords(
   return manifests.flatMap((manifest) => manifest.installations);
 }
 
+export async function readInstallationPacks(
+  homeDirectory?: string,
+  cwd?: string,
+): Promise<InstallationPackRecord[]> {
+  const manifests = await Promise.all([
+    readInstallationManifest(getInstallManifestPath(homeDirectory)),
+    readInstallationManifest(getProjectInstallManifestPath(cwd ?? process.cwd())),
+  ]);
+
+  return manifests.flatMap((manifest) => manifest.packs);
+}
+
 export function localResourceFromMcpRecord(record: InstallationRecord): LocalResource {
   const resource: LocalResource = {
     resource: record.resource,
@@ -403,14 +418,40 @@ export function localResourceFromMcpRecord(record: InstallationRecord): LocalRes
 export async function installationResourceIds(
   resource: string,
   source: RegistrySource | undefined,
+  manifest?: InstallationManifest,
+  harnesses?: Harness[],
 ): Promise<string[]> {
   if (!resource.includes('/templates/')) return [resource];
+
+  const recorded = manifest?.packs.filter((pack) =>
+    pack.resource === resource && (harnesses === undefined || harnesses.includes(pack.harness)),
+  ) ?? [];
+  if (recorded.length > 0) {
+    return [...new Set(recorded.flatMap((pack) => pack.resources.map((entry) => entry.resource)))];
+  }
+
   if (!source) {
     throw new Error('A registry source is required to inspect this template.');
   }
 
   const loaded = await readRegistrySourceResource(source, resource);
   return loaded.resources.map((item) => resourceKey(item.resource));
+}
+
+export function installationPackOperation(
+  manifest: InstallationManifest,
+  resource: string,
+  harness: Harness,
+): ResourcePackOperation | undefined {
+  const record = manifest.packs.find((pack) =>
+    pack.resource === resource && pack.harness === harness,
+  );
+  if (!record) return undefined;
+
+  return {
+    version: record.version,
+    resources: record.resources,
+  };
 }
 
 export function isMcpResource(resource: string): boolean {
@@ -506,11 +547,21 @@ async function resolveOperations<T extends boolean>(
       return result;
     }
 
-    return {
+    const result: ResourceOperation = {
       ...operation,
       resources: loaded.resources,
       warningResources: [loaded.resource, ...loaded.resources],
     };
+    if (loaded.resource.resource.type === 'templates') {
+      result.pack = {
+        version: loaded.resource.version,
+        resources: loaded.resources.map((resource) => ({
+          resource: resourceKey(resource.resource),
+          version: resource.version,
+        })),
+      } satisfies ResourcePackOperation;
+    }
+    return result;
   }));
 
   // SAFETY: The isMcp branch above yields McpOperation entries, the other
@@ -843,12 +894,21 @@ export function createApp(options: ServerOptions = {}) {
       );
       const isMcp = isMcpResource(request.resource);
       const scope = isMcp ? (request.scope ?? 'user') : 'user';
-      const resourceOperation = {
+      const resourceOperation: ResourceOperation = {
         ...request,
         action: 'install' as const,
         resources: loaded.resources,
         warningResources: [loaded.resource, ...loaded.resources],
       };
+      if (loaded.resource.resource.type === 'templates') {
+        resourceOperation.pack = {
+          version: loaded.resource.version,
+          resources: loaded.resources.map((resource) => ({
+            resource: resourceKey(resource.resource),
+            version: resource.version,
+          })),
+        };
+      }
       const resourceOptions = changeOptions(options, cwd, undefined, {
         installDependencies: request.installDependencies,
       });
@@ -945,13 +1005,22 @@ export function createApp(options: ServerOptions = {}) {
         });
       }
 
-      const resourceOperation = {
+      const resourceOperation: ResourceOperation = {
         ...request,
         harnesses: updatedHarnesses,
         action: 'install' as const,
         resources: loaded.resources,
         warningResources: [loaded.resource, ...loaded.resources],
       };
+      if (loaded.resource.resource.type === 'templates') {
+        resourceOperation.pack = {
+          version: loaded.resource.version,
+          resources: loaded.resources.map((resource) => ({
+            resource: resourceKey(resource.resource),
+            version: resource.version,
+          })),
+        };
+      }
       const resourceOptions = changeOptions(options, cwd, undefined, {
         installDependencies: request.installDependencies,
       });
@@ -1004,11 +1073,13 @@ export function createApp(options: ServerOptions = {}) {
       const manifest = await readInstallationManifest(
         installManifestPath(scope, options, cwd),
       );
+      const source = registrySource(options, cwd);
       const resourceIds = await installationResourceIds(
         request.resource,
-        registrySource(options, cwd),
+        source,
+        manifest,
+        request.harnesses,
       );
-      assertInstalledFor(manifest, resourceIds, request.harnesses, request.resource);
 
       const result = isMcp
         ? await applyMcpOperations(
@@ -1022,17 +1093,35 @@ export function createApp(options: ServerOptions = {}) {
             changeOptions(options, cwd, scope),
             request.force,
           )
-        : await applyResourceOperations(
-            [{
-              ...request,
-              action: 'uninstall',
-              resourceIds,
-            }],
-            changeOptions(options, cwd, undefined, {
-              removeDependencies: request.removeDependencies,
-            }),
-            request.force,
-          );
+        : await (async () => {
+            const operations: ResourceOperation[] = [];
+            for (const harness of request.harnesses) {
+              const resourceIds = await installationResourceIds(
+                request.resource,
+                source,
+                manifest,
+                [harness],
+              );
+              assertInstalledFor(manifest, resourceIds, [harness], request.resource);
+              const operation: ResourceOperation = {
+                ...request,
+                harnesses: [harness],
+                action: 'uninstall',
+                resourceIds,
+              };
+              const pack = installationPackOperation(manifest, request.resource, harness);
+              if (pack) operation.pack = pack;
+              operations.push(operation);
+            }
+
+            return applyResourceOperations(
+              operations,
+              changeOptions(options, cwd, undefined, {
+                removeDependencies: request.removeDependencies,
+              }),
+              request.force,
+            );
+          })();
 
       return context.json({
         removed: result.removed,

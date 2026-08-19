@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +13,9 @@ const fixtureIndexPath = fileURLToPath(
 );
 const templateIndexPath = fileURLToPath(
   new URL('../../registry/test/fixtures/template-index.json', import.meta.url),
+);
+const fixtureRoot = fileURLToPath(
+  new URL('../../registry/test/fixtures/', import.meta.url),
 );
 
 afterEach(async () => {
@@ -633,7 +636,10 @@ describe('local control API', () => {
   it('installs and uninstalls a template pack by its template ID', async () => {
     const cwd = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();
-    const app = createApp({ cwd, homeDirectory, registryIndexPath: templateIndexPath });
+    const registryDirectory = await createTemporaryDirectory();
+    await cp(fixtureRoot, registryDirectory, { recursive: true });
+    const copiedTemplateIndexPath = join(registryDirectory, 'template-index.json');
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: copiedTemplateIndexPath });
     const request = {
       resource: 'john-doe/templates/review-pack',
       harnesses: ['codex', 'opencode'],
@@ -669,6 +675,17 @@ describe('local control API', () => {
       harnesses: request.harnesses,
     });
 
+    const templatePath = join(
+      registryDirectory,
+      'resources/john-doe/templates/review-pack/1.0.0/TEMPLATE.md',
+    );
+    const template = await readFile(templatePath, 'utf8');
+    await writeFile(
+      templatePath,
+      template.replace('  - id: jane-doe/agents/api-reviewer\n    version: 0.3.0\n', ''),
+      'utf8',
+    );
+
     const remove = await app.request(
       `/api/installed?resource=${encodeURIComponent(request.resource)}&harnesses=${encodeURIComponent(request.harnesses.join(','))}`,
       { method: 'DELETE' },
@@ -678,6 +695,12 @@ describe('local control API', () => {
     await expect(app.request('/api/installed').then((response) => response.json())).resolves.toEqual({
       installations: [],
     });
+    await expect(
+      readFile(join(homeDirectory, '.agents', 'skills', 'typescript-review', 'SKILL.md'), 'utf8'),
+    ).rejects.toThrow();
+    await expect(
+      readFile(join(homeDirectory, '.codex', 'agents', 'api-reviewer.toml'), 'utf8'),
+    ).rejects.toThrow();
   });
 
   it('installs and manages an MCP server at project scope', async () => {
