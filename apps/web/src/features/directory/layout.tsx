@@ -4,7 +4,7 @@ import { Toaster } from '../../components/ui/sonner';
 import { useDirectory } from './context';
 import { DirectoryProvider } from './directory-provider';
 import { ChangesSheet, InstalledSheet, PublishSheet, SettingsSheet } from './sheets';
-import { SiteHeader } from './common';
+import { SiteHeader } from './site-header';
 
 export function RootLayout() {
   return (
@@ -12,16 +12,12 @@ export function RootLayout() {
       <TooltipProvider delayDuration={300}>
         <div className="flex min-h-screen flex-col bg-background text-foreground">
           <SiteHeader />
-          <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8 sm:py-10">
+          <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8">
             <Outlet />
           </main>
-          <footer className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 border-t px-5 py-6 text-xs text-muted-foreground sm:px-8">
-            <span>Backed by the production resource registry.</span>
-            <span>Local-first workspace</span>
-          </footer>
           <WorkspaceSheets />
+          <Toaster />
         </div>
-        <Toaster />
       </TooltipProvider>
     </DirectoryProvider>
   );

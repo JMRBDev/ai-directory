@@ -3,7 +3,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
 import { DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
 import { Gear } from '@phosphor-icons/react/dist/csr/Gear';
-import { ListDashes } from '@phosphor-icons/react/dist/csr/ListDashes';
+import { HardDrives } from '@phosphor-icons/react/dist/csr/HardDrives';
+import { ListPlus } from '@phosphor-icons/react/dist/csr/ListPlus';
 import { Package } from '@phosphor-icons/react/dist/csr/Package';
 import { UploadSimple } from '@phosphor-icons/react/dist/csr/UploadSimple';
 import { toast } from 'sonner';
@@ -34,41 +35,75 @@ export function SiteHeader() {
   const changeCount = Object.keys(staged).length;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border/80 bg-background/90 backdrop-blur">
-      <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-4 px-5 sm:px-8">
-        <Button className="h-auto gap-3 p-0 text-left hover:bg-transparent hover:text-foreground" variant="ghost" type="button" onClick={() => void navigate({ to: '/' })}>
-          <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground"><Package size={20} weight="bold" /></span>
-          <span>
-            <span className="block font-semibold tracking-tight">AI Directory</span>
-            <span className="hidden text-xs text-muted-foreground sm:block">Reusable development resources</span>
+    <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
+      <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-5 sm:px-8">
+        <button
+          className="flex items-center gap-2.5 rounded-md outline-offset-4 transition-opacity hover:opacity-80"
+          type="button"
+          onClick={() => void navigate({ to: '/' })}
+        >
+          <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <Package size={16} weight="bold" />
           </span>
-        </Button>
+          <span className="text-sm font-semibold tracking-tight">AI Directory</span>
+        </button>
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
           <div className="hidden items-center gap-1 sm:flex">
             <Tooltip>
-              <TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label="Refresh registry" onClick={() => void refresh()} disabled={refreshing}><ArrowsClockwise className={cn(refreshing && 'animate-spin')} size={18} /></Button></TooltipTrigger>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Refresh registry" onClick={() => void refresh()} disabled={refreshing}>
+                  <ArrowsClockwise size={17} className={cn(refreshing && 'animate-spin')} />
+                </Button>
+              </TooltipTrigger>
               <TooltipContent>Refresh registry</TooltipContent>
             </Tooltip>
             <Tooltip>
-              <TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label="Installed resources" onClick={() => setSheet('installed')}><ListDashes size={18} /></Button></TooltipTrigger>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Installed resources" onClick={() => setSheet('installed')}>
+                  <HardDrives size={17} />
+                </Button>
+              </TooltipTrigger>
               <TooltipContent>Installed resources</TooltipContent>
             </Tooltip>
-            <Button variant="outline" size="sm" onClick={() => setSheet('publish')}><UploadSimple size={16} /> Publish</Button>
-            <Button variant={changeCount > 0 ? 'default' : 'outline'} size="sm" onClick={() => setSheet('changes')}><ListDashes size={16} /> Changes{changeCount > 0 ? ` (${changeCount})` : ''}</Button>
             <Tooltip>
-              <TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSheet('settings')}><Gear size={18} /></Button></TooltipTrigger>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSheet('settings')}>
+                  <Gear size={17} />
+                </Button>
+              </TooltipTrigger>
               <TooltipContent>Settings</TooltipContent>
             </Tooltip>
+            <div className="mx-1 h-5 w-px bg-border" role="presentation" />
+            <Button variant="outline" size="sm" onClick={() => setSheet('publish')}>
+              <UploadSimple size={15} /> Publish
+            </Button>
+            <Button variant={changeCount > 0 ? 'default' : 'outline'} size="sm" onClick={() => setSheet('changes')}>
+              <ListPlus size={15} /> Changes{changeCount > 0 && <span className="tabular-nums">· {changeCount}</span>}
+            </Button>
           </div>
           <div className="sm:hidden">
             <DropdownMenu>
-              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="Open workspace actions"><DotsThree size={22} /></Button></DropdownMenuTrigger>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Open workspace actions">
+                  <DotsThree size={20} weight="bold" />
+                </Button>
+              </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => void refresh()} disabled={refreshing}><ArrowsClockwise size={16} /> Refresh registry</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSheet('installed')}><ListDashes size={16} /> Installed resources</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSheet('publish')}><UploadSimple size={16} /> Publish resource</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSheet('changes')}><ListDashes size={16} /> Changes{changeCount > 0 ? ` (${changeCount})` : ''}</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSheet('settings')}><Gear size={16} /> Settings</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void refresh()} disabled={refreshing}>
+                  <ArrowsClockwise size={16} /> Refresh registry
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSheet('installed')}>
+                  <HardDrives size={16} /> Installed resources
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSheet('publish')}>
+                  <UploadSimple size={16} /> Publish resource
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSheet('changes')}>
+                  <ListPlus size={16} /> Changes{changeCount > 0 ? ` · ${changeCount}` : ''}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSheet('settings')}>
+                  <Gear size={16} /> Settings
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
