@@ -9,6 +9,7 @@ import { ErrorMessage, LoadingCards } from './feedback';
 import { CatalogCard } from './catalog-card';
 import { CatalogFilters } from './catalog-filters';
 import { useDirectory } from './context';
+import { DirectoryEmpty, NoResourcesEmpty } from './shared';
 import { activeResourceType, PAGE_SIZE, RESOURCE_TYPES, resourceType, type InstalledFilter, type ReviewFilter, type SortOption } from './model';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Search01Icon } from '@hugeicons/core-free-icons';

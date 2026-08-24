@@ -6,6 +6,16 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '..
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { harnessOptions, type Harness, type InstallScope } from '../../lib/types';
+import { installScope } from './model';
+
+// Base UI toggle groups emit raw string values; convert them back to domain types here
+// so every consumer can stay fully typed.
+function toHarnesses(values: string[]): Harness[] {
+  return values.flatMap((value) => {
+    const match = harnessOptions.find((option) => option.value === value);
+    return match ? [match.value] : [];
+  });
+}
 
 export function HarnessToggleGroup({ value, onValueChange, disabled, ariaLabel = 'Target harnesses' }: {
   value: Harness[];
@@ -17,7 +27,7 @@ export function HarnessToggleGroup({ value, onValueChange, disabled, ariaLabel =
     <ToggleGroup
       multiple
       value={value}
-      onValueChange={onValueChange}
+      onValueChange={(values) => onValueChange(toHarnesses(values))}
       disabled={disabled}
       aria-label={ariaLabel}
     >
@@ -37,7 +47,7 @@ export function ScopeToggleGroup({ value, onValueChange, disabled, ariaLabel = '
   return (
     <ToggleGroup
       value={[value]}
-      onValueChange={(values) => { const next = values[0]; if (next) onValueChange(next); }}
+      onValueChange={(values) => { const next = values[0]; if (next) onValueChange(installScope(next)); }}
       disabled={disabled}
       aria-label={ariaLabel}
     >
