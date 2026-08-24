@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check } from '@phosphor-icons/react/dist/csr/Check';
+import { FolderOpen } from '@phosphor-icons/react/dist/csr/FolderOpen';
 import { api } from '../../lib/api';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../../components/ui/alert-dialog';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card';
 import { Field, FieldDescription, FieldLabel } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import { ScrollArea } from '../../components/ui/scroll-area';
@@ -28,6 +30,7 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [pullRequestUrl, setPullRequestUrl] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const userQuery = useQuery({ queryKey: ['github-user'], queryFn: api.githubUser, enabled: open && owner.length === 0 });
   const validateMutation = useMutation({ mutationFn: (body: FormData) => api.validate(body) });
   const submitMutation = useMutation({ mutationFn: (body: FormData) => api.submit(body) });
@@ -107,8 +110,8 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
 
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Publish resource" description="Validate a resource folder and submit it for review.">
-      <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); void validate(); }}>
-        <section className="space-y-4">
+      <form className="flex flex-col gap-5" onSubmit={(event) => { event.preventDefault(); void validate(); }}>
+        <section className="flex flex-col gap-4">
           <h3 className="text-sm font-medium">Identity</h3>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_10rem]">
             <Field>
@@ -134,29 +137,43 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           <p className="break-all font-mono text-xs text-muted-foreground" aria-live="polite">{resolvedOwner ? `${resolvedOwner}/${type}/${name}` : 'Loading GitHub user…'}</p>
         </section>
         <Separator />
-        <section className="space-y-3">
+        <section className="flex flex-col gap-3">
           <h3 className="text-sm font-medium">Files</h3>
           <Field>
-            <FieldLabel htmlFor="publish-files">Resource folder</FieldLabel>
-            <Input id="publish-files" type="file" multiple required aria-label="Resource files directory" ref={(element) => element?.setAttribute('webkitdirectory', '')} onChange={(event) => { setFiles(Array.from(event.currentTarget.files ?? [])); resetValidation(); }} disabled={busy} />
+            <FieldLabel>Resource folder</FieldLabel>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" variant="outline" disabled={busy} onClick={() => fileInputRef.current?.click()}>
+                <FolderOpen size={16} /> Choose folder
+              </Button>
+              <p className="min-w-0 truncate text-sm text-muted-foreground" aria-live="polite">
+                {files.length === 0 ? 'No folder chosen' : `${folder ?? 'Selection'} · ${files.length} file${files.length === 1 ? '' : 's'}`}
+              </p>
+            </div>
+            <input
+              ref={(element) => { fileInputRef.current = element; element?.setAttribute('webkitdirectory', ''); }}
+              id="publish-files"
+              type="file"
+              multiple
+              hidden
+              aria-label="Resource files directory"
+              onChange={(event) => { setFiles(Array.from(event.currentTarget.files ?? [])); resetValidation(); }}
+              disabled={busy}
+            />
             <FieldDescription>Choose the folder that contains the resource files.</FieldDescription>
           </Field>
           {paths.length > 0 && (
-            <div className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3">
-              <p className="text-xs font-medium">{paths.length} file{paths.length === 1 ? '' : 's'}{folder ? ` · ${folder}` : ''}</p>
-              <ScrollArea className="h-36">
-                <ul aria-live="polite" className="font-mono text-xs text-muted-foreground">
-                  {paths.slice(0, 12).map((path) => <li className="py-0.5" key={path}>{path}</li>)}
-                  {paths.length > 12 && <li className="py-0.5">…and {paths.length - 12} more</li>}
-                </ul>
-              </ScrollArea>
-            </div>
+            <ScrollArea className="h-36 rounded-lg border p-3">
+              <ul aria-live="polite" className="font-mono text-xs text-muted-foreground">
+                {paths.slice(0, 12).map((path) => <li className="py-0.5" key={path}>{path}</li>)}
+                {paths.length > 12 && <li className="py-0.5">…and {paths.length - 12} more</li>}
+              </ul>
+            </ScrollArea>
           )}
         </section>
         {review && (
           <>
             <Separator />
-            <section className="space-y-3">
+            <section className="flex flex-col gap-3">
               <h3 className="text-sm font-medium">Description</h3>
               <Textarea rows={3} value={description} placeholder="Resource description" onChange={(event) => setDescription(event.target.value)} disabled={busy} />
               <FieldDescription>Inferred from the resource files.</FieldDescription>
@@ -164,18 +181,20 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           </>
         )}
         <Separator />
-        <section className="space-y-4">
+        <section className="flex flex-col gap-4">
           <div className="flex flex-wrap gap-3">
             <Button variant={review ? 'outline' : 'default'} type="submit" disabled={busy}>
               {validateMutation.isPending ? 'Validating…' : 'Validate'}
             </Button>
             {review && (
               <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-                <AlertDialogTrigger asChild>
+                <AlertDialogTrigger
+                render={
                   <Button type="button" variant="default" disabled={busy || submitted}>
                     {submitMutation.isPending ? 'Creating pull request…' : submitted ? 'Pull request created' : 'Submit pull request'}
                   </Button>
-                </AlertDialogTrigger>
+                }
+              />
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>Create pull request?</AlertDialogTitle>
@@ -194,24 +213,30 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           </Alert>
         </section>
         {review && (
-          <section aria-labelledby="publish-review-title" className="space-y-4 rounded-xl border p-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 id="publish-review-title" className="text-sm font-medium">Ready to submit</h3>
-              <Badge variant="success"><Check size={13} weight="bold" /> Validated</Badge>
-            </div>
-            <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-              <div><dt className="text-xs text-muted-foreground">Resource</dt><dd className="mt-0.5 break-all font-mono text-xs">{review.resource}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Version</dt><dd className="mt-0.5 tabular-nums">{review.version}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Entry file</dt><dd className="mt-0.5 break-all font-mono text-xs">{review.entryFile}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Files</dt><dd className="mt-0.5 tabular-nums">{review.files.length}</dd></div>
-              <div className="sm:col-span-2"><dt className="text-xs text-muted-foreground">Description</dt><dd className="mt-0.5 leading-relaxed">{reviewDescription}</dd></div>
-            </dl>
+          <Card aria-labelledby="publish-review-title">
+            <CardHeader>
+              <CardTitle id="publish-review-title">Ready to submit</CardTitle>
+              <CardAction>
+                <Badge variant="success"><Check /> Validated</Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+                <div><dt className="text-muted-foreground">Resource</dt><dd className="break-all font-mono">{review.resource}</dd></div>
+                <div><dt className="text-muted-foreground">Version</dt><dd className="tabular-nums">{review.version}</dd></div>
+                <div><dt className="text-muted-foreground">Entry file</dt><dd className="break-all font-mono">{review.entryFile}</dd></div>
+                <div><dt className="text-muted-foreground">Files</dt><dd className="tabular-nums">{review.files.length}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-muted-foreground">Description</dt><dd>{reviewDescription}</dd></div>
+              </dl>
+            </CardContent>
             {pullRequestUrl && (
-              <Button asChild variant="outline" size="sm">
-                <a href={pullRequestUrl} target="_blank" rel="noreferrer"><Check size={15} /> Open pull request</a>
-              </Button>
+              <CardFooter>
+                <Button asChild variant="outline" size="sm">
+                  <a href={pullRequestUrl} target="_blank" rel="noreferrer"><Check size={15} /> Open pull request</a>
+                </Button>
+              </CardFooter>
             )}
-          </section>
+          </Card>
         )}
       </form>
     </SheetFrame>

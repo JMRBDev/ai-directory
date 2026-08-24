@@ -1,26 +1,62 @@
+import { cva, type VariantProps } from 'class-variance-authority';
 import type { ComponentProps } from 'react';
 import { cn } from '../../lib/utils';
 
-export function Empty({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed p-8 text-center', className)} {...props} />;
+function Empty({ className, ...props }: ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="empty"
+      className={cn('flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border border-dashed p-6 text-center text-balance', className)}
+      {...props}
+    />
+  );
 }
 
-export function EmptyHeader({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('flex max-w-sm flex-col items-center gap-2', className)} {...props} />;
+function EmptyHeader({ className, ...props }: ComponentProps<'div'>) {
+  return <div data-slot="empty-header" className={cn('flex max-w-sm flex-col items-center gap-1', className)} {...props} />;
 }
 
-export function EmptyMedia({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('mb-1 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground', className)} {...props} />;
+const emptyMediaVariants = cva(
+  'mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
+  {
+    variants: {
+      variant: {
+        default: 'bg-transparent',
+        icon: 'flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground [&_svg:not([class*=\'size-\'])]:size-4',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+    },
+  },
+);
+
+function EmptyMedia({ className, variant = 'default', ...props }: ComponentProps<'div'> & VariantProps<typeof emptyMediaVariants>) {
+  return <div data-slot="empty-icon" data-variant={variant} className={cn(emptyMediaVariants({ variant, className }))} {...props} />;
 }
 
-export function EmptyTitle({ className, ...props }: ComponentProps<'h3'>) {
-  return <h3 className={cn('font-semibold', className)} {...props} />;
+function EmptyTitle({ className, ...props }: ComponentProps<'div'>) {
+  return <div data-slot="empty-title" className={cn('font-heading text-sm tracking-tight', className)} {...props} />;
 }
 
-export function EmptyDescription({ className, ...props }: ComponentProps<'p'>) {
-  return <p className={cn('text-sm text-muted-foreground', className)} {...props} />;
+function EmptyDescription({ className, ...props }: ComponentProps<'p'>) {
+  return (
+    <div
+      data-slot="empty-description"
+      className={cn('text-xs/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary', className)}
+      {...props}
+    />
+  );
 }
 
-export function EmptyContent({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('mt-4 flex items-center justify-center gap-2', className)} {...props} />;
+function EmptyContent({ className, ...props }: ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="empty-content"
+      className={cn('flex w-full max-w-sm min-w-0 flex-col items-center gap-2 text-xs/relaxed text-balance', className)}
+      {...props}
+    />
+  );
 }
+
+export { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent, EmptyMedia };

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
 import { DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
 import { Gear } from '@phosphor-icons/react/dist/csr/Gear';
@@ -10,13 +10,13 @@ import { UploadSimple } from '@phosphor-icons/react/dist/csr/UploadSimple';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
+import { Separator } from '../../components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { cn } from '../../lib/utils';
 import { useDirectory } from './context';
 
 export function SiteHeader() {
   const { setSheet, staged, refreshRegistry } = useDirectory();
-  const navigate = useNavigate();
   const [refreshing, setRefreshing] = useState(false);
 
   async function refresh() {
@@ -37,16 +37,14 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-5 sm:px-8">
-        <button
-          className="flex items-center gap-2.5 rounded-md outline-offset-4 transition-opacity hover:opacity-80"
-          type="button"
-          onClick={() => void navigate({ to: '/' })}
-        >
-          <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Package size={16} weight="bold" />
-          </span>
-          <span className="text-sm font-semibold tracking-tight">AI Directory</span>
-        </button>
+        <Button asChild variant="ghost" size="sm" className="-ml-2 font-semibold">
+          <Link to="/">
+            <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
+              <Package size={16} weight="bold" />
+            </span>
+            AI Directory
+          </Link>
+        </Button>
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
           <div className="hidden items-center gap-1 sm:flex">
             <Tooltip>
@@ -73,7 +71,7 @@ export function SiteHeader() {
               </TooltipTrigger>
               <TooltipContent>Settings</TooltipContent>
             </Tooltip>
-            <div className="mx-1 h-5 w-px bg-border" role="presentation" />
+            <Separator orientation="vertical" className="mx-1 h-5" />
             <Button variant="outline" size="sm" onClick={() => setSheet('publish')}>
               <UploadSimple size={15} /> Publish
             </Button>

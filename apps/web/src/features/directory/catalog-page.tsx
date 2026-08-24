@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
 import { resourceKey } from '@ai-directory/contracts';
-import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
@@ -59,18 +58,18 @@ export function CatalogPage() {
     setPage(1);
   }
 
-  if (registry.isPending) return <div className="space-y-6"><PageIntro /><LoadingCards /></div>;
-  if (registry.error) return <div className="space-y-6"><PageIntro /><ErrorMessage message={registry.error instanceof Error ? registry.error.message : 'Could not load the registry.'} /></div>;
+  if (registry.isPending) return <div className="flex flex-col gap-6"><PageIntro /><LoadingCards /></div>;
+  if (registry.error) return <div className="flex flex-col gap-6"><PageIntro /><ErrorMessage message={registry.error instanceof Error ? registry.error.message : 'Could not load the registry.'} /></div>;
 
   const registryError = registry.data?.error;
   return (
-    <div className="space-y-6">
-      <PageIntro source={registry.data.source} />
+    <div className="flex flex-col gap-6">
+      <PageIntro />
       {registryError && <ErrorMessage message={`${registryError} Run aid setup or pass --index <path>.`} />}
       {resources.length === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyMedia><MagnifyingGlass size={18} /></EmptyMedia>
+            <EmptyMedia variant="icon"><MagnifyingGlass /></EmptyMedia>
             <EmptyTitle>No active resources yet</EmptyTitle>
             <EmptyDescription>Publish the first resource, then refresh the registry.</EmptyDescription>
           </EmptyHeader>
@@ -81,9 +80,6 @@ export function CatalogPage() {
               {RESOURCE_TYPES.map((option) => (
                 <TabsTrigger className="shrink-0" value={option.value} key={option.value}>
                   {option.label}
-                  <span className="-me-1 ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-black/5 px-1.5 text-[11px] font-medium tabular-nums text-muted-foreground dark:bg-white/10">
-                    {resources.filter((resource) => resource.type === option.value).length}
-                  </span>
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -135,7 +131,7 @@ export function CatalogPage() {
           ) : (
             <Empty>
               <EmptyHeader>
-                <EmptyMedia><MagnifyingGlass size={18} /></EmptyMedia>
+                <EmptyMedia variant="icon"><MagnifyingGlass /></EmptyMedia>
                 <EmptyTitle>{typeResources.length === 0 ? `No ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s yet` : 'No matching resources'}</EmptyTitle>
                 <EmptyDescription>{typeResources.length === 0 ? 'Publish a resource to add it to this registry.' : 'Try a different search or filter.'}</EmptyDescription>
               </EmptyHeader>
@@ -147,14 +143,13 @@ export function CatalogPage() {
   );
 }
 
-function PageIntro({ source = 'local' }: { source?: RegistryResponse['source'] }) {
+function PageIntro() {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 id="catalog-title" className="text-2xl font-semibold tracking-tight">Catalog</h1>
+        <h1 id="catalog-title" className="font-heading text-2xl">Catalog</h1>
         <p className="mt-1 text-sm text-muted-foreground">Browse the registry, then apply staged changes together from Changes.</p>
       </div>
-      <Badge variant="muted">{source === 'remote' ? 'Remote registry' : 'Local registry'}</Badge>
     </div>
   );
 }

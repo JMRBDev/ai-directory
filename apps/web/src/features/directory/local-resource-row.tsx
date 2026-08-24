@@ -39,7 +39,7 @@ export function LocalResourceRow({ resource, homeDirectory, staged, onInstall, o
         staged ? (
           <div className="flex shrink-0 flex-col items-end gap-1.5">
             <Badge variant={staged.action === 'uninstall' ? 'destructive' : 'success'}>{staged.action === 'uninstall' ? 'Removal staged' : 'Staged'}</Badge>
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onDiscard}>Discard</Button>
+            <Button variant="ghost" size="sm" onClick={onDiscard}>Discard</Button>
           </div>
         ) : (
           <div className="flex shrink-0 gap-2">

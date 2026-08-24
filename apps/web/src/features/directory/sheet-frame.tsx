@@ -24,7 +24,7 @@ export function SheetFrame({
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
-        {children}
+        <div className="flex flex-col gap-5 px-6 pb-6">{children}</div>
       </SheetContent>
     </Sheet>
   );
