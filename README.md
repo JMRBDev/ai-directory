@@ -9,7 +9,8 @@ The repository is a Turborepo monorepo. It contains the local website, the Hono 
 - Turborepo and pnpm workspaces
 - TypeScript
 - Hono for the local HTTP application boundary
-- Astro for the website
+- Vite, React, TanStack Router, and TanStack Query for the website
+- Source-owned shadcn-style UI components with Tailwind CSS
 - Bun for the CLI runtime and release binaries
 - Citty for CLI commands and flags
 - `@clack/prompts` for interactive CLI flows
@@ -20,7 +21,7 @@ The repository is a Turborepo monorepo. It contains the local website, the Hono 
 apps/
   api/              Local Hono entrypoint
   cli/              Bun CLI entrypoint
-  web/              Astro website
+  web/              Static React website
 
 packages/
   config/          Shared user/project configuration
@@ -37,7 +38,7 @@ pnpm install
 pnpm dev
 ```
 
-The root `dev` command starts the long-running API and website. The CLI is interactive or command-driven and is not part of that process; run it directly with `apps/cli/dist/aid ...` after `pnpm build`. The workspace contains the first discovery slices. Product behavior will continue to be added in small vertical slices.
+The root `dev` command starts the long-running Hono API and Vite website. The CLI is interactive or command-driven and is not part of that process; run it directly with `apps/cli/dist/aid ...` after `pnpm build`.
 
 Run the development CLI without building its compiled binary:
 
@@ -148,9 +149,11 @@ pnpm build
 apps/cli/dist/aid web --open
 ```
 
-Use the Settings control in the catalog or publishing page to configure the registry repository from the browser. The drawer writes through the local API, so the CLI and website share the same user/project configuration. Use `--index`, `--host`, `--port`, or `--api-port` to change the local setup. The command starts Astro and the local API from the workspace.
+Use the Settings control in the catalog to configure the registry repository from the browser. The sheet writes through the local API, so the CLI and website share the same user/project configuration. Use `--index`, `--host`, or `--port` to change the local setup. The CLI serves the built Vite `dist` folder and the Hono API from one process.
 
-Open `/publish/` to submit a resource from the website. The page fills the authenticated GitHub username, then lets you choose the resource type and name, select its directory, and enter its version. AI Directory infers the registry description from the entry file. Validate it locally, review the summary, then confirm the pull request. The local API keeps the uploaded files in a temporary directory and removes them after validation or submission. Website publishing requires the configured source to be a Git repository and uses the employee's existing Git and GitHub CLI credentials. Use `Refresh registry` on the catalog after a pull request is merged to fetch the latest production branch.
+Use `Publish` in the catalog to submit a resource. The local API keeps uploaded files in a temporary directory and removes them after validation or submission. Website publishing requires the configured source to be a Git repository and uses the employee's existing Git and GitHub CLI credentials. Use `Refresh registry` on the catalog after a pull request is merged to fetch the latest production branch.
+
+For a release, ship the compiled `aid` binary with the contents of `apps/web/dist` in a sibling `web` directory. The CLI also accepts `AI_DIRECTORY_WEB_DIST` when the assets use another location. This keeps the website static and avoids a second runtime process.
 
 Inspect a version from the configured registry:
 

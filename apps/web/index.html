@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Internal catalog of reusable AI development resources."
+    />
+    <title>AI Directory</title>
+    <script>
+      (() => {
+        const key = 'ai-directory-theme';
+        let stored = null;
+        try {
+          stored = JSON.parse(localStorage.getItem(key));
+        } catch {
+          // Use the system theme when localStorage is unavailable or malformed.
+        }
+        const theme = stored === 'light' || stored === 'dark' || stored === 'system'
+          ? stored
+          : 'system';
+        const dark = theme === 'dark'
+          || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.dataset.themePreference = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

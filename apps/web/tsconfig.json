@@ -1,14 +1,13 @@
 {
-  "extends": "astro/tsconfigs/strictest",
-  "include": [
-    ".astro/types.d.ts",
-    "**/*"
-  ],
-  "exclude": [
-    "dist"
-  ],
+  "extends": "../../tsconfig.base.json",
+  "include": ["src", "test", "vite.config.ts", "index.html"],
+  "exclude": ["dist"],
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "preact"
+    "jsxImportSource": "react",
+    "types": ["vite/client"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   }
 }
