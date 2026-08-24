@@ -1,21 +1,15 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowUpRight } from '@phosphor-icons/react/dist/csr/ArrowUpRight';
-import { Check } from '@phosphor-icons/react/dist/csr/Check';
-import { Copy } from '@phosphor-icons/react/dist/csr/Copy';
 import { resourceKey, type ResourceSummary } from '@ai-directory/contracts';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../../components/ui/input-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
-import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { harnessOptions, scopeOptions, type Harness, type InstallScope, type StagedItem } from '../../lib/types';
-import { installScope } from './model';
 import { useDirectory } from './context';
-
-function harnessesFrom(value: string[]): Harness[] {
-  return harnessOptions.map((option) => option.value).filter((item) => value.includes(item));
-}
+import { HarnessToggleGroup, ScopeToggleGroup } from './shared';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { ArrowUpRight01Icon, Copy01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 
 export function InstallPanel({ resource }: { resource: ResourceSummary }) {
   const { staged, harnesses, scope, setScope, stage, unstage } = useDirectory();
@@ -58,29 +52,15 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium">Install in</p>
-          <ToggleGroup
-            multiple
-            value={selectedHarnesses}
-            onValueChange={(value) => setSelectedHarnesses(harnessesFrom(value))}
-            aria-label="Target harnesses"
-          >
-            {harnessOptions.map((option) => (
-              <ToggleGroupItem value={option.value} key={option.value}>{option.label}</ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <HarnessToggleGroup value={selectedHarnesses} onValueChange={setSelectedHarnesses} />
         </div>
         {isServer && (
           <div className="flex flex-col gap-2">
             <p className="text-sm font-medium">Scope</p>
-            <ToggleGroup
-              value={[selectedScope]}
-              onValueChange={(value) => { const next = value[0]; if (next) { const scoped = installScope(next); setSelectedScope(scoped); setScope(scoped); } }}
-              aria-label="Installation scope"
-            >
-              {scopeOptions.map((option) => (
-                <ToggleGroupItem value={option.value} key={option.value}>{option.label}</ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+            <ScopeToggleGroup
+              value={selectedScope}
+              onValueChange={(scoped) => { setSelectedScope(scoped); setScope(scoped); }}
+            />
             <p className="text-muted-foreground">{scopeHint}</p>
           </div>
         )}
@@ -92,7 +72,7 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <InputGroupButton size="icon-sm" aria-label="Copy install command" disabled={!command} onClick={() => void copy()}>
-                    {copied ? <Check /> : <Copy />}
+                    {copied ? <HugeiconsIcon icon={Tick02Icon} /> : <HugeiconsIcon icon={Copy01Icon} />}
                   </InputGroupButton>
                 </TooltipTrigger>
                 <TooltipContent>{copied ? 'Copied' : 'Copy install command'}</TooltipContent>
@@ -103,7 +83,7 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2 border-t">
         <Button className="w-full" onClick={save} disabled={selectedHarnesses.length === 0}>
-          {stagedItem ? 'Update changes' : 'Add to changes'} <ArrowUpRight data-icon="inline-end" size={15} />
+          {stagedItem ? 'Update changes' : 'Add to changes'} <HugeiconsIcon icon={ArrowUpRight01Icon} data-icon="inline-end" size={15} />
         </Button>
         {stagedItem && (
           <Button className="w-full" variant="ghost" size="sm" onClick={() => unstage(id)}>Remove from changes</Button>

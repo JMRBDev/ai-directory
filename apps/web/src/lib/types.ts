@@ -96,7 +96,7 @@ export function shortenHomePath(path: string, homeDir?: string) {
 }
 
 export function harnessLabel(harness: Harness) {
-  return harness === 'claude-code' ? 'Claude Code' : harness === 'opencode' ? 'OpenCode' : 'Codex';
+  return harnessOptions.find((option) => option.value === harness)?.label ?? harness;
 }
 
 export function detailPath(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>) {

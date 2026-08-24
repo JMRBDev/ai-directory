@@ -1,12 +1,13 @@
-import { WarningCircle } from '@phosphor-icons/react/dist/csr/WarningCircle';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Card, CardContent, CardHeader } from '../../components/ui/card';
 import { Skeleton } from '../../components/ui/skeleton';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { AlertCircleIcon } from '@hugeicons/core-free-icons';
 
 export function ErrorMessage({ message }: { message: string }) {
   return (
     <Alert variant="destructive">
-      <WarningCircle size={17} />
+      <HugeiconsIcon icon={AlertCircleIcon} size={17} />
       <AlertDescription>{message}</AlertDescription>
     </Alert>
   );

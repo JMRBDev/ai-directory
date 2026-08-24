@@ -1,19 +1,17 @@
 import type { ComponentProps } from 'react';
 import { Toaster as Sonner } from 'sonner';
-import { CheckCircle } from '@phosphor-icons/react/dist/csr/CheckCircle';
-import { Info } from '@phosphor-icons/react/dist/csr/Info';
-import { Warning } from '@phosphor-icons/react/dist/csr/Warning';
-import { XCircle } from '@phosphor-icons/react/dist/csr/XCircle';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Alert02Icon, CheckmarkCircle02Icon, InfoIcon, MultiplicationSignCircleIcon } from '@hugeicons/core-free-icons';
 
 function Toaster() {
   return (
     <Sonner
       className="toaster group"
       icons={{
-        success: <CheckCircle className="size-4" />,
-        info: <Info className="size-4" />,
-        warning: <Warning className="size-4" />,
-        error: <XCircle className="size-4" />,
+        success: <HugeiconsIcon icon={CheckmarkCircle02Icon} className="size-4" />,
+        info: <HugeiconsIcon icon={InfoIcon} className="size-4" />,
+        warning: <HugeiconsIcon icon={Alert02Icon} className="size-4" />,
+        error: <HugeiconsIcon icon={MultiplicationSignCircleIcon} className="size-4" />,
       }}
       // SAFETY: sonner accepts CSS custom properties that React's style type omits.
       style={

@@ -4,7 +4,8 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { harnessOptions, type ApplyResponse, type Harness, type InstallScope, type StagedItem, type StagedMap } from '../../lib/types';
 import { DirectoryContext, type DirectoryContextValue } from './context';
-import { groupStaged, hasApplyableOperation, mergePlans, operationsFor, readStorage, writeStorage, type PlanData, type SheetName } from './model';
+import { readStorage, writeStorage } from '../../lib/theme';
+import { groupStaged, hasApplyableOperation, mergePlans, operationsFor, type PlanData, type SheetName } from './model';
 
 export function DirectoryProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();

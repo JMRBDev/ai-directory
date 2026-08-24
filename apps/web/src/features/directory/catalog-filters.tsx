@@ -1,4 +1,3 @@
-import { MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
 import { RESOURCE_TYPE_LABELS, type ResourceType } from '../../lib/types';
 import { Button } from '../../components/ui/button';
 import { Field, FieldLabel } from '../../components/ui/field';
@@ -12,6 +11,8 @@ import {
   type ReviewFilter,
   type SortOption,
 } from './model';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Search01Icon } from '@hugeicons/core-free-icons';
 
 export function CatalogFilters({
   activeType,
@@ -50,7 +51,7 @@ export function CatalogFilters({
         <Field>
           <FieldLabel htmlFor="resource-search">Search</FieldLabel>
           <InputGroup>
-            <InputGroupAddon><MagnifyingGlass /></InputGroupAddon>
+            <InputGroupAddon><HugeiconsIcon icon={Search01Icon} /></InputGroupAddon>
             <InputGroupInput id="resource-search" type="search" placeholder={`Search ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s`} value={query} onChange={(event) => onQueryChange(event.target.value)} />
           </InputGroup>
         </Field>

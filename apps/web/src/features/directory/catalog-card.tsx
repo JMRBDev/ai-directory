@@ -1,4 +1,3 @@
-import { Check } from '@phosphor-icons/react/dist/csr/Check';
 import type { ResourceSummary } from '@ai-directory/contracts';
 import { Link } from '@tanstack/react-router';
 import { Badge } from '../../components/ui/badge';
@@ -7,6 +6,8 @@ import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader,
 import { detailPath, type Action } from '../../lib/types';
 import { cn } from '../../lib/utils';
 import { updatedLabel } from './model';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Tick02Icon } from '@hugeicons/core-free-icons';
 
 export function CatalogCard({
   resource,
@@ -50,7 +51,7 @@ export function CatalogCard({
           </span>
           {installed && (
             <Badge variant="success">
-              <Check /> Installed
+              <HugeiconsIcon icon={Tick02Icon} /> Installed
             </Badge>
           )}
           {!installed && presentLocally && <span className="shrink-0">· Local</span>}

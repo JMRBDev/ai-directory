@@ -1,19 +1,14 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
-import { DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
-import { Gear } from '@phosphor-icons/react/dist/csr/Gear';
-import { HardDrives } from '@phosphor-icons/react/dist/csr/HardDrives';
-import { ListPlus } from '@phosphor-icons/react/dist/csr/ListPlus';
-import { Package } from '@phosphor-icons/react/dist/csr/Package';
-import { UploadSimple } from '@phosphor-icons/react/dist/csr/UploadSimple';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
 import { Separator } from '../../components/ui/separator';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { cn } from '../../lib/utils';
 import { useDirectory } from './context';
+import { TooltipIconButton } from './shared';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { HardDriveIcon, MoreVerticalIcon, PackageIcon, PlayListAddIcon, RefreshIcon, Settings01Icon, Upload04Icon } from '@hugeicons/core-free-icons';
 
 export function SiteHeader() {
   const { setSheet, staged, refreshRegistry } = useDirectory();
@@ -40,67 +35,52 @@ export function SiteHeader() {
         <Button asChild variant="ghost" size="sm" className="-ml-2 font-semibold">
           <Link to="/">
             <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <Package size={16} weight="bold" />
+              <HugeiconsIcon icon={PackageIcon} size={16} />
             </span>
             AI Directory
           </Link>
         </Button>
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
           <div className="hidden items-center gap-1 sm:flex">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Refresh registry" onClick={() => void refresh()} disabled={refreshing}>
-                  <ArrowsClockwise size={17} className={cn(refreshing && 'animate-spin')} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Refresh registry</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Installed resources" onClick={() => setSheet('installed')}>
-                  <HardDrives size={17} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Installed resources</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setSheet('settings')}>
-                  <Gear size={17} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Settings</TooltipContent>
-            </Tooltip>
+            <TooltipIconButton label="Refresh registry" onClick={() => void refresh()} disabled={refreshing}>
+              <HugeiconsIcon icon={RefreshIcon} size={17} className={cn(refreshing && 'animate-spin')} />
+            </TooltipIconButton>
+            <TooltipIconButton label="Installed resources" onClick={() => setSheet('installed')}>
+              <HugeiconsIcon icon={HardDriveIcon} size={17} />
+            </TooltipIconButton>
+            <TooltipIconButton label="Settings" onClick={() => setSheet('settings')}>
+              <HugeiconsIcon icon={Settings01Icon} size={17} />
+            </TooltipIconButton>
             <Separator orientation="vertical" className="mx-1 h-5" />
             <Button variant="outline" size="sm" onClick={() => setSheet('publish')}>
-              <UploadSimple size={15} /> Publish
+              <HugeiconsIcon icon={Upload04Icon} size={15} /> Publish
             </Button>
             <Button variant={changeCount > 0 ? 'default' : 'outline'} size="sm" onClick={() => setSheet('changes')}>
-              <ListPlus size={15} /> Changes{changeCount > 0 && <span className="tabular-nums">· {changeCount}</span>}
+              <HugeiconsIcon icon={PlayListAddIcon} size={15} /> Changes{changeCount > 0 && <span className="tabular-nums">· {changeCount}</span>}
             </Button>
           </div>
           <div className="sm:hidden">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" aria-label="Open workspace actions">
-                  <DotsThree size={20} weight="bold" />
+                  <HugeiconsIcon icon={MoreVerticalIcon} size={20} />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => void refresh()} disabled={refreshing}>
-                  <ArrowsClockwise size={16} /> Refresh registry
+                  <HugeiconsIcon icon={RefreshIcon} size={16} /> Refresh registry
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('installed')}>
-                  <HardDrives size={16} /> Installed resources
+                  <HugeiconsIcon icon={HardDriveIcon} size={16} /> Installed resources
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('publish')}>
-                  <UploadSimple size={16} /> Publish resource
+                  <HugeiconsIcon icon={Upload04Icon} size={16} /> Publish resource
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('changes')}>
-                  <ListPlus size={16} /> Changes{changeCount > 0 ? ` · ${changeCount}` : ''}
+                  <HugeiconsIcon icon={PlayListAddIcon} size={16} /> Changes{changeCount > 0 ? ` · ${changeCount}` : ''}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('settings')}>
-                  <Gear size={16} /> Settings
+                  <HugeiconsIcon icon={Settings01Icon} size={16} /> Settings
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
