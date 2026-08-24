@@ -1,8 +1,8 @@
 import type { ComponentProps } from 'react';
 import { Accordion as AccordionPrimitive } from '@base-ui/react/accordion';
-import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
-import { CaretUp } from '@phosphor-icons/react/dist/csr/CaretUp';
 import { cn } from '../../lib/utils';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { ArrowDown01Icon, ArrowUp01Icon } from '@hugeicons/core-free-icons';
 
 function Accordion({ className, ...props }: ComponentProps<typeof AccordionPrimitive.Root>) {
   return (
@@ -30,11 +30,11 @@ function AccordionTrigger({ className, children, ...props }: ComponentProps<type
         {...props}
       >
         {children}
-        <CaretDown
+        <HugeiconsIcon icon={ArrowDown01Icon}
           data-slot="accordion-trigger-icon"
           className="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
         />
-        <CaretUp
+        <HugeiconsIcon icon={ArrowUp01Icon}
           data-slot="accordion-trigger-icon"
           className="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline"
         />

@@ -1,10 +1,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
-import { Info } from '@phosphor-icons/react/dist/csr/Info';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { cn } from '../../lib/utils';
 import type { Action, LocalResource, StagedItem } from '../../lib/types';
@@ -12,6 +9,8 @@ import { ErrorMessage, LoadingCards, SheetFrame } from './common';
 import { useDirectory } from './context';
 import { parseHarnessFilter, parseSourceFilter, type HarnessFilter, type SourceFilter } from './model';
 import { LocalResourceRow } from './local-resource-row';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { InfoIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 
 export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { localResources, localError, localLoading, localRegistryError, homeDirectory, staged, harnesses, stage, unstage } = useDirectory();
@@ -61,7 +60,7 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
           onClick={() => void queryClient.invalidateQueries({ queryKey: ['local-resources'] })}
           disabled={localLoading}
         >
-          <ArrowsClockwise size={16} className={cn(localLoading && 'animate-spin')} />
+          <HugeiconsIcon icon={RefreshIcon} size={16} className={cn(localLoading && 'animate-spin')} />
         </Button>
       </div>
       {localError && <ErrorMessage message={localError} />}
@@ -93,13 +92,11 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
           </Card>
         </>
       ) : (
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon"><Info /></EmptyMedia>
-            <EmptyTitle>{localResources.length === 0 ? 'No local resources found' : 'No matching resources'}</EmptyTitle>
-            <EmptyDescription>{localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <DirectoryEmpty
+          icon={<HugeiconsIcon icon={InfoIcon} />}
+          title={localResources.length === 0 ? 'No local resources found' : 'No matching resources'}
+          description={localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}
+        />
       )}
     </SheetFrame>
   );

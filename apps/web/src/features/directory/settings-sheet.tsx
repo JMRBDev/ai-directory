@@ -9,10 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Separator } from '../../components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { api } from '../../lib/api';
-import { harnessOptions, type InstallScope } from '../../lib/types';
+import type { InstallScope } from '../../lib/types';
 import { ErrorMessage, SheetFrame } from './common';
 import { useDirectory } from './context';
-import { getServerSystemTheme, getSystemTheme, installScope, readStorage, subscribeSystemTheme, writeStorage } from './model';
+import { HarnessToggleGroup } from './shared';
+import { installScope } from './model';
+import { getServerSystemTheme, getSystemTheme, readStorage, subscribeSystemTheme, writeStorage } from '../../lib/theme';
 
 export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { harnesses, setHarnesses } = useDirectory();
@@ -71,16 +73,7 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Settings" description="Registry source, default harnesses, and appearance.">
       <section className="flex flex-col gap-3">
           <h3 className="text-sm font-medium">Default harnesses</h3>
-          <ToggleGroup
-            multiple
-            value={harnesses}
-            onValueChange={(value) => setHarnesses(harnessOptions.map((option) => option.value).filter((item) => value.includes(item)))}
-            aria-label="Default harnesses"
-          >
-            {harnessOptions.map((option) => (
-              <ToggleGroupItem value={option.value} key={option.value}>{option.label}</ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <HarnessToggleGroup value={harnesses} onValueChange={setHarnesses} ariaLabel="Default harnesses" />
           <FieldDescription>New staged resources use these harnesses.</FieldDescription>
         </section>
         <Separator />

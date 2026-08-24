@@ -1,7 +1,8 @@
 import * as CheckboxPrimitive from '@radix-ui/react-checkbox';
-import { Check } from '@phosphor-icons/react/dist/csr/Check';
 import type { ComponentPropsWithoutRef, ElementRef } from 'react';
 import { forwardRef } from 'react';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Tick02Icon } from '@hugeicons/core-free-icons';
 import { cn } from '../../lib/utils';
 
 export const Checkbox = forwardRef<ElementRef<typeof CheckboxPrimitive.Root>, ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>>(
@@ -15,7 +16,7 @@ export const Checkbox = forwardRef<ElementRef<typeof CheckboxPrimitive.Root>, Co
       {...props}
     >
       <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
-        <Check size={14} weight="bold" />
+        <HugeiconsIcon icon={Tick02Icon} size={14} />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   ),

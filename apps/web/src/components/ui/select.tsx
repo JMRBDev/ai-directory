@@ -1,10 +1,9 @@
 import * as SelectPrimitive from '@radix-ui/react-select';
-import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
-import { CaretUp } from '@phosphor-icons/react/dist/csr/CaretUp';
-import { Check } from '@phosphor-icons/react/dist/csr/Check';
 import type { ComponentPropsWithoutRef, ElementRef } from 'react';
 import { forwardRef } from 'react';
 import { cn } from '../../lib/utils';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { ArrowDown01Icon, ArrowUp01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 
 export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
@@ -22,7 +21,7 @@ export const SelectTrigger = forwardRef<ElementRef<typeof SelectPrimitive.Trigge
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <CaretDown size={16} className="opacity-50" />
+        <HugeiconsIcon icon={ArrowDown01Icon} size={16} className="opacity-50" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   ),
@@ -33,7 +32,7 @@ SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
 export const SelectScrollUpButton = forwardRef<ElementRef<typeof SelectPrimitive.ScrollUpButton>, ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollUpButton>>(
   ({ className, ...props }, ref) => (
     <SelectPrimitive.ScrollUpButton ref={ref} className={cn('flex cursor-default items-center justify-center py-1', className)} {...props}>
-      <CaretUp size={16} />
+      <HugeiconsIcon icon={ArrowUp01Icon} size={16} />
     </SelectPrimitive.ScrollUpButton>
   ),
 );
@@ -43,7 +42,7 @@ SelectScrollUpButton.displayName = SelectPrimitive.ScrollUpButton.displayName;
 export const SelectScrollDownButton = forwardRef<ElementRef<typeof SelectPrimitive.ScrollDownButton>, ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollDownButton>>(
   ({ className, ...props }, ref) => (
     <SelectPrimitive.ScrollDownButton ref={ref} className={cn('flex cursor-default items-center justify-center py-1', className)} {...props}>
-      <CaretDown size={16} />
+      <HugeiconsIcon icon={ArrowDown01Icon} size={16} />
     </SelectPrimitive.ScrollDownButton>
   ),
 );
@@ -89,7 +88,7 @@ export const SelectItem = forwardRef<ElementRef<typeof SelectPrimitive.Item>, Co
       {...props}
     >
       <span className="absolute left-2 flex size-3.5 items-center justify-center">
-        <SelectPrimitive.ItemIndicator><Check size={14} weight="bold" /></SelectPrimitive.ItemIndicator>
+        <SelectPrimitive.ItemIndicator><HugeiconsIcon icon={Tick02Icon} size={14} /></SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>

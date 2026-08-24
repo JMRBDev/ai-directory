@@ -1,8 +1,9 @@
 import type { ComponentProps } from 'react';
 import { Dialog as SheetPrimitive } from '@base-ui/react/dialog';
-import { X } from '@phosphor-icons/react/dist/csr/X';
 import { cn } from '../../lib/utils';
 import { Button } from './button';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Cancel01Icon } from '@hugeicons/core-free-icons';
 
 function Sheet({ ...props }: ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
@@ -61,7 +62,7 @@ function SheetContent({
             data-slot="sheet-close"
             render={<Button variant="ghost" className="absolute top-4 right-4" size="icon-sm" />}
           >
-            <X />
+            <HugeiconsIcon icon={Cancel01Icon} />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>
         )}

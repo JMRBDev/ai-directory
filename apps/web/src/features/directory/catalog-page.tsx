@@ -1,9 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
 import { resourceKey } from '@ai-directory/contracts';
 import { Button } from '../../components/ui/button';
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { api } from '../../lib/api';
 import { RESOURCE_TYPE_LABELS, type RegistryResponse, type ResourceType } from '../../lib/types';
@@ -12,6 +10,8 @@ import { CatalogCard } from './catalog-card';
 import { CatalogFilters } from './catalog-filters';
 import { useDirectory } from './context';
 import { activeResourceType, PAGE_SIZE, RESOURCE_TYPES, resourceType, type InstalledFilter, type ReviewFilter, type SortOption } from './model';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Search01Icon } from '@hugeicons/core-free-icons';
 
 export function CatalogPage() {
   const registry = useQuery<RegistryResponse>({ queryKey: ['registry'], queryFn: api.registry });
@@ -67,13 +67,7 @@ export function CatalogPage() {
       <PageIntro />
       {registryError && <ErrorMessage message={`${registryError} Run aid setup or pass --index <path>.`} />}
       {resources.length === 0 ? (
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon"><MagnifyingGlass /></EmptyMedia>
-            <EmptyTitle>No active resources yet</EmptyTitle>
-            <EmptyDescription>Publish the first resource, then refresh the registry.</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <NoResourcesEmpty />
       ) : (
         <section aria-labelledby="catalog-title">          <Tabs value={activeType} onValueChange={(value) => { setSelectedType(resourceType(value)); setPage(1); }}>
             <TabsList className="max-w-full justify-start overflow-x-auto" aria-label="Resource types">
@@ -129,13 +123,11 @@ export function CatalogPage() {
               )}
             </>
           ) : (
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon"><MagnifyingGlass /></EmptyMedia>
-                <EmptyTitle>{typeResources.length === 0 ? `No ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s yet` : 'No matching resources'}</EmptyTitle>
-                <EmptyDescription>{typeResources.length === 0 ? 'Publish a resource to add it to this registry.' : 'Try a different search or filter.'}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <DirectoryEmpty
+              icon={<HugeiconsIcon icon={Search01Icon} />}
+              title={typeResources.length === 0 ? `No ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s yet` : 'No matching resources'}
+              description={typeResources.length === 0 ? 'Publish a resource to add it to this registry.' : 'Try a different search or filter.'}
+            />
           )}
         </section>
       )}
