@@ -9,6 +9,7 @@ import { ErrorMessage, LoadingCards, SheetFrame } from './common';
 import { useDirectory } from './context';
 import { parseHarnessFilter, parseSourceFilter, type HarnessFilter, type SourceFilter } from './model';
 import { LocalResourceRow } from './local-resource-row';
+import { DirectoryEmpty } from './shared';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { InfoIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 

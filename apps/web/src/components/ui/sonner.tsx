@@ -1,7 +1,15 @@
-import type { ComponentProps } from 'react';
+import type { CSSProperties } from 'react';
 import { Toaster as Sonner } from 'sonner';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Alert02Icon, CheckmarkCircle02Icon, InfoIcon, MultiplicationSignCircleIcon } from '@hugeicons/core-free-icons';
+
+// SAFETY: sonner accepts CSS custom properties that React's style type omits.
+const TOASTER_STYLE = {
+  '--normal-bg': 'var(--popover)',
+  '--normal-text': 'var(--popover-foreground)',
+  '--normal-border': 'var(--border)',
+  '--border-radius': 'var(--radius)',
+} as CSSProperties;
 
 function Toaster() {
   return (
@@ -13,15 +21,7 @@ function Toaster() {
         warning: <HugeiconsIcon icon={Alert02Icon} className="size-4" />,
         error: <HugeiconsIcon icon={MultiplicationSignCircleIcon} className="size-4" />,
       }}
-      // SAFETY: sonner accepts CSS custom properties that React's style type omits.
-      style={
-        {
-          '--normal-bg': 'var(--popover)',
-          '--normal-text': 'var(--popover-foreground)',
-          '--normal-border': 'var(--border)',
-          '--border-radius': 'var(--radius)',
-        } as ComponentProps<'div'>['style']
-      }
+      style={TOASTER_STYLE}
     />
   );
 }

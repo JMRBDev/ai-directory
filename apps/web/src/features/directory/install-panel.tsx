@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../../components/ui/input-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
-import { harnessOptions, scopeOptions, type Harness, type InstallScope, type StagedItem } from '../../lib/types';
+import { scopeOptions, type Harness, type InstallScope, type StagedItem } from '../../lib/types';
 import { useDirectory } from './context';
 import { HarnessToggleGroup, ScopeToggleGroup } from './shared';
 import { HugeiconsIcon } from '@hugeicons/react';

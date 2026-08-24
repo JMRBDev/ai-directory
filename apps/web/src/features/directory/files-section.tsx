@@ -4,12 +4,12 @@ import { File02Icon } from '@hugeicons/core-free-icons';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { MarkdownView } from '../../components/markdown-view';
-import type { ResourceVersion } from '@ai-directory/contracts';
+import type { ResourceVersion } from '@ai-directory/registry';
 import { isMarkdownPath } from './model';
 import { DirectoryEmpty } from './shared';
 
 export function FilesSection({ version, hasError }: {
-  version: ResourceVersion | undefined;
+  version: ResourceVersion | null | undefined;
   hasError: boolean;
 }) {
   const [view, setView] = useState<'rendered' | 'text'>('rendered');
