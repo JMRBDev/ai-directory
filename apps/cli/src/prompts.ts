@@ -8,7 +8,7 @@ import {
   type AutocompleteMultiSelectOptions,
   type TextOptions,
 } from '@clack/prompts';
-import { resourceKey } from '@ai-directory/contracts';
+import { resourceKey, type DetectedResource } from '@ai-directory/contracts';
 import type {
   InstallationPackRecord,
   InstallationRecord,
@@ -63,6 +63,22 @@ export async function promptResourceType() {
   });
 
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
+}
+
+export async function promptDetectedResource(
+  candidates: DetectedResource[],
+): Promise<DetectedResource | undefined> {
+  const answer = await select({
+    message: 'Which resource do you want to publish?',
+    options: candidates.map((candidate, index) => ({
+      value: index,
+      label: candidate.root,
+      hint: `${candidate.entryFile} · ${candidate.type}`,
+    })),
+  });
+
+  if (isCancel(answer)) return cancelled('Operation cancelled.');
+  return candidates[answer];
 }
 
 export async function promptSlug(message: string, placeholder: string): Promise<string | undefined> {

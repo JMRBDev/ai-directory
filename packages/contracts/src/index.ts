@@ -202,3 +202,45 @@ export function resourceEntryFiles(type: ResourceType): readonly string[] {
 export function resourceKey(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>): string {
   return `${resource.owner}/${resource.type}/${resource.name}`;
 }
+
+export type DetectedResource = {
+  type: ResourceType;
+  entryFile: string;
+  root: string;
+  name: string;
+};
+
+export function detectResourceRoots(
+  paths: readonly string[],
+  fallbackName?: string,
+): DetectedResource[] {
+  const detected = new Map<string, DetectedResource>();
+
+  for (const path of paths) {
+    const normalized = path.replaceAll('\\', '/');
+
+    for (const type of resourceTypeSchema.options) {
+      for (const entryFile of resourceEntryFiles(type)) {
+        if (normalized !== entryFile && !normalized.endsWith(`/${entryFile}`)) continue;
+
+        const root = normalized.slice(0, normalized.length - entryFile.length).replace(/\/$/, '');
+        const key = `${type}\u0000${root}`;
+        if (detected.has(key)) continue;
+
+        const segments = root ? root.split('/') : [];
+        detected.set(key, {
+          type,
+          entryFile,
+          root,
+          name: segments.at(-1) ?? fallbackName ?? '',
+        });
+      }
+    }
+  }
+
+  return [...detected.values()].sort((left, right) =>
+    left.root === right.root
+      ? left.type.localeCompare(right.type)
+      : left.root.localeCompare(right.root),
+  );
+}

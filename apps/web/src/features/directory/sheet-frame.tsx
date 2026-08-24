@@ -19,7 +19,7 @@ export function SheetFrame({
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className={cn('w-full overflow-y-auto sm:max-w-2xl', className)}>
+      <SheetContent className={cn('overflow-y-auto', className)}>
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>

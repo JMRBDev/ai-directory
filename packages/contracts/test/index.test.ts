@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  detectResourceRoots,
   mcpServerManifestSchema,
   pluginManifestSchema,
   registryIndexSchema,
@@ -249,5 +250,50 @@ describe('resource ID contract', () => {
 
   it('rejects malformed identifiers', () => {
     expect(resourceIdSchema.safeParse('John Doe/skills/my-skill').success).toBe(false);
+  });
+});
+
+describe('detectResourceRoots', () => {
+  it('detects an entry file at the selection root and uses the fallback name', () => {
+    expect(detectResourceRoots(['SKILL.md', 'scripts/run.sh'], 'my-skill')).toEqual([
+      { type: 'skills', entryFile: 'SKILL.md', root: '', name: 'my-skill' },
+    ]);
+  });
+
+  it('detects nested resources of different types with folder-derived names', () => {
+    expect(
+      detectResourceRoots([
+        'pack/skills/code-review/SKILL.md',
+        'pack/agents/reviewer/AGENT.md',
+        'pack/skills/code-review/scripts/lint.sh',
+        'pack/README.md',
+      ]),
+    ).toEqual([
+      { type: 'agents', entryFile: 'AGENT.md', root: 'pack/agents/reviewer', name: 'reviewer' },
+      { type: 'skills', entryFile: 'SKILL.md', root: 'pack/skills/code-review', name: 'code-review' },
+    ]);
+  });
+
+  it('detects plugin manifests from both harness directories and dedupes the root', () => {
+    const claudeOnly = detectResourceRoots(['bundle/.claude-plugin/plugin.json']);
+    expect(claudeOnly).toEqual([
+      { type: 'plugins', entryFile: '.claude-plugin/plugin.json', root: 'bundle', name: 'bundle' },
+    ]);
+    expect(detectResourceRoots(['bundle/.codex-plugin/plugin.json'])).toEqual([
+      { type: 'plugins', entryFile: '.codex-plugin/plugin.json', root: 'bundle', name: 'bundle' },
+    ]);
+
+    const both = detectResourceRoots([
+      'bundle/.claude-plugin/plugin.json',
+      'bundle/.codex-plugin/plugin.json',
+    ]);
+    expect(both).toHaveLength(1);
+  });
+
+  it('normalizes Windows separators and ignores files that are not entries', () => {
+    expect(detectResourceRoots(['pack\\tools\\deployer\\TOOL.md'])).toEqual([
+      { type: 'tools', entryFile: 'TOOL.md', root: 'pack/tools/deployer', name: 'deployer' },
+    ]);
+    expect(detectResourceRoots(['notes/SKILLS.md', 'deep/AGENT.md.bak'])).toEqual([]);
   });
 });

@@ -7,15 +7,58 @@ import {
   resourceIdSchema,
   resourceKey,
   resourceVersionSchema,
+  type DetectedResource,
 } from '@ai-directory/contracts';
 import {
+  detectResourceCandidates,
   submitResource,
   validateResourceDirectory,
   type SubmitResourceOptions,
 } from '@ai-directory/registry';
-import { cancelled, getRegistrySource, isInteractiveTerminal, isResourceType, isSlug, reportError } from '../helpers';
-import { promptRequiredText, promptResourceType, promptSlug, promptTemplateComponents } from '../prompts';
+import { cancelled, getRegistrySource, isInteractiveTerminal, isResourceType, isSlug, reportError, slugify } from '../helpers';
+import { promptRequiredText, promptDetectedResource, promptResourceType, promptSlug, promptTemplateComponents } from '../prompts';
 import { createResourceDirectory, parseTemplateComponents, type TemplateComponent } from '../scaffold';
+
+type DetectionOutcome =
+  | { status: 'none' }
+  | { status: 'cancelled' }
+  | { status: 'narrowed'; sourceDirectory: string; resourceId: string };
+
+async function detectPublishTarget(sourcePath: string): Promise<DetectionOutcome> {
+  const nested = (await detectResourceCandidates(sourcePath)).filter(
+    (candidate) => candidate.root,
+  );
+
+  let chosen: DetectedResource;
+  const [single] = nested;
+  if (nested.length === 1 && single) {
+    chosen = single;
+    console.log(`Found one resource folder: ${chosen.root} (${chosen.type}).`);
+  } else if (nested.length > 1) {
+    const picked = await promptDetectedResource(nested);
+    if (!picked) return { status: 'cancelled' };
+    chosen = picked;
+  } else {
+    return { status: 'none' };
+  }
+
+  const ownerValue = await promptSlug('Who owns this resource?', 'jane-doe');
+  if (!ownerValue) return { status: 'cancelled' };
+  if (!isSlug(ownerValue)) {
+    throw new Error('Owner is required and must use lowercase words separated by hyphens.');
+  }
+
+  const nameValue = slugify(chosen.name);
+  if (!nameValue || !isSlug(nameValue)) {
+    throw new Error(`Could not derive a resource name from ${chosen.root}. Pass --id explicitly.`);
+  }
+
+  return {
+    status: 'narrowed',
+    sourceDirectory: join(sourcePath, chosen.root),
+    resourceId: `${ownerValue}/${chosen.type}/${nameValue}`,
+  };
+}
 
 export const create = defineCommand({
   meta: {
@@ -184,15 +227,30 @@ export const validate = defineCommand({
         throw new Error('Resource directory is required. Run `aid validate <source>` in a script.');
       }
 
-      const resourceId = args.id.trim() || (
-        interactive
+      const sourcePath = resolve(sourceDirectory);
+
+      let effectiveSource = sourcePath;
+      let resourceId: string | undefined = args.id.trim();
+
+      if (!resourceId && interactive) {
+        const outcome = await detectPublishTarget(sourcePath);
+        if (outcome.status === 'cancelled') return cancelled('Validation cancelled.');
+        if (outcome.status === 'narrowed') {
+          effectiveSource = outcome.sourceDirectory;
+          resourceId = outcome.resourceId;
+          console.log(`Validating ${resourceId}.`);
+        }
+      }
+
+      if (!resourceId) {
+        resourceId = interactive
           ? await promptRequiredText('What is the resource ID?', 'owner/skills/my-resource')
-          : undefined
-      );
+          : undefined;
+      }
       if (!resourceId) throw new Error('Resource ID is required. Pass `--id` in a script.');
 
       const result = await validateResourceDirectory({
-        sourceDirectory,
+        sourceDirectory: effectiveSource,
         resourceId,
         version: args.version.trim(),
       });
@@ -291,11 +349,24 @@ export const submit = defineCommand({
       );
       if (!sourceDirectory) throw new Error('Resource directory is required. Run `aid submit <source>` in a script.');
 
-      const resourceId = args.id.trim() || (
-        interactive
+      let effectiveSource = resolve(sourceDirectory);
+      let resourceId: string | undefined = args.id.trim();
+
+      if (!resourceId && interactive) {
+        const outcome = await detectPublishTarget(effectiveSource);
+        if (outcome.status === 'cancelled') return cancelled('Submission cancelled.');
+        if (outcome.status === 'narrowed') {
+          effectiveSource = outcome.sourceDirectory;
+          resourceId = outcome.resourceId;
+          console.log(`Submitting ${resourceId}.`);
+        }
+      }
+
+      if (!resourceId) {
+        resourceId = interactive
           ? await promptRequiredText('What is the resource ID?', 'owner/skills/my-resource')
-          : undefined
-      );
+          : undefined;
+      }
       if (!resourceId) throw new Error('Resource ID is required. Pass `--id` in a script.');
 
       const version = args.version.trim() || (
@@ -330,7 +401,7 @@ export const submit = defineCommand({
 
       const source = getRegistrySource(args.index, args.repository, args.base);
       const submitOptions: SubmitResourceOptions = {
-        sourceDirectory: sourcePath,
+        sourceDirectory: effectiveSource,
         resourceId,
         version,
         baseBranch: args.base,

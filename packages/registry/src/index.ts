@@ -7,11 +7,11 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
-import { tmpdir } from 'node:os';
+import { basename, dirname, join, relative } from 'node:path';import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import {
   PLUGIN_ENTRY_FILES,
+  detectResourceRoots,
   mcpServerManifestSchema,
   pluginManifestSchema,
   registryIndexSchema,
@@ -20,6 +20,7 @@ import {
   resourceVersionSchema,
   toolManifestSchema,
   templateManifestSchema,
+  type DetectedResource,
   type McpServerManifest,
   type PluginManifest,
   type ResourceType,
@@ -639,7 +640,16 @@ export async function validateResourceDirectory(
 
   if (!entryFile) {
     const expected = resourceEntryFiles(resource.type).join(' or ');
-    throw new Error(`${options.resourceId}@${options.version} is missing ${expected}`);
+    const candidates = detectResourceRoots(files.map((file) => file.path), basename(sourceDirectory));
+    const findings = candidates
+      .map((candidate) => `${candidate.root || '.'} (${candidate.entryFile}, ${candidate.type})`)
+      .join(', ');
+
+    throw new Error(
+      findings
+        ? `${options.resourceId}@${options.version} is missing ${expected}. The folder contains other resources: ${findings}. Publish each one from its own folder.`
+        : `${options.resourceId}@${options.version} is missing ${expected}`,
+    );
   }
 
   if (!entryFile.content.trim()) {
@@ -689,6 +699,16 @@ export async function validateResourceDirectory(
   }
 
   return { sourceDirectory, resource, entryFile, files, description };
+}
+
+export async function detectResourceCandidates(
+  sourceDirectory: string,
+): Promise<DetectedResource[]> {
+  const resolved = await resolveDirectory(sourceDirectory, 'Resource source directory');
+  const paths = await listFilesUnder(resolved);
+  const relativePaths = paths.map((path) => relative(resolved, path));
+
+  return detectResourceRoots(relativePaths, basename(resolved));
 }
 
 export async function submitResource(

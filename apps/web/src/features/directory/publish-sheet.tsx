@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { detectResourceRoots, type DetectedResource } from '@ai-directory/contracts';
 import { api } from '../../lib/api';
+import { RESOURCE_TYPE_LABELS } from '../../lib/types';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../../components/ui/alert-dialog';
 import { Button } from '../../components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Separator } from '../../components/ui/separator';
 import { Textarea } from '../../components/ui/textarea';
 import { SheetFrame } from './common';
 import { FolderPicker, folderPathFor } from './folder-picker';
 import { ReviewCard } from './review-card';
-import { RESOURCE_TYPES, resourceType, type DirectoryFile, type PublishReview } from './model';
+import { slugify, type DirectoryFile, type PublishReview } from './model';
 import type { ResourceType } from '../../lib/types';
 
 export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -22,6 +23,8 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [version, setVersion] = useState('1.0.0');
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState<DirectoryFile[]>([]);
+  const [detected, setDetected] = useState<DetectedResource[]>([]);
+  const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
   const [review, setReview] = useState<PublishReview | null>(null);
   const [message, setMessage] = useState('');
   const [pullRequestUrl, setPullRequestUrl] = useState('');
@@ -44,13 +47,42 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
     body.set('resourceId', [resolvedOwner.trim(), type, name.trim()].join('/'));
     body.set('version', version.trim());
     if (description.trim()) body.set('description', description.trim());
-    for (const file of files) body.append('files[]', file, folderPathFor(file));
+    for (const file of files) {
+      const path = folderPathFor(file);
+      if (selectedRoot && !path.startsWith(`${selectedRoot}/`)) continue;
+      body.append('files[]', file, selectedRoot ? path.slice(selectedRoot.length + 1) : path);
+    }
     return body;
+  }
+
+  function applyResource(candidate: DetectedResource, overwriteName: boolean) {
+    setType(candidate.type);
+    setSelectedRoot(candidate.root || null);
+    const suggestion = slugify(candidate.name);
+    if (overwriteName || (!name.trim() && suggestion)) setName(suggestion || name);
+    resetValidation();
+  }
+
+  function detectResources(nextFiles: DirectoryFile[]) {
+    const fallbackName = nextFiles[0]?.webkitRelativePath?.split('/')[0];
+    const candidates = detectResourceRoots(nextFiles.map(folderPathFor), fallbackName);
+    setDetected(candidates);
+
+    const [single] = candidates;
+    if (single) applyResource(single, false);
+    else {
+      setSelectedRoot(null);
+      resetValidation();
+    }
   }
 
   async function validate() {
     if (files.length === 0) {
       setMessage('Choose a resource folder first.');
+      return;
+    }
+    if (detected.length > 1 && selectedRoot === null) {
+      setMessage('This folder holds several resources. Choose which one to publish.');
       return;
     }
     if (!resolvedOwner.trim()) {
@@ -89,6 +121,7 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
 
   const reviewDescription = description.trim() || 'Not found';
   const busy = validateMutation.isPending || submitMutation.isPending;
+  const [singleDetection] = detected;
   const hasError = Boolean(userQuery.error || validateMutation.error || submitMutation.error);
   const statusMessage = userQuery.isPending
     ? 'Loading GitHub username…'
@@ -101,33 +134,56 @@ export function PublishSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       <form className="flex flex-col gap-5" onSubmit={(event) => { event.preventDefault(); void validate(); }}>
         <section className="flex flex-col gap-4">
           <h3 className="text-sm font-medium">Identity</h3>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_10rem]">
+          <div className="flex flex-col gap-4">
             <Field>
               <FieldLabel htmlFor="publish-owner">GitHub user</FieldLabel>
               <Input id="publish-owner" type="text" value={owner || userQuery.data?.username || ''} placeholder="Loading…" onChange={(event) => updateField(() => setOwner(event.target.value))} disabled={!userQuery.error || busy} />
             </Field>
-            <Field>
-              <FieldLabel htmlFor="publish-type">Type</FieldLabel>
-              <Select value={type} onValueChange={(value) => updateField(() => setType(resourceType(value)))} disabled={busy}>
-                <SelectTrigger id="publish-type"><SelectValue /></SelectTrigger>
-                <SelectContent>{RESOURCE_TYPES.map((option) => <SelectItem value={option.value} key={option.value}>{option.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            <Field className="sm:col-span-2 lg:col-span-1">
-              <FieldLabel htmlFor="publish-name">Name</FieldLabel>
-              <Input id="publish-name" value={name} placeholder="my-resource" onChange={(event) => updateField(() => setName(event.target.value))} autoComplete="off" required disabled={busy} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="publish-version">Version</FieldLabel>
-              <Input id="publish-version" value={version} onChange={(event) => updateField(() => setVersion(event.target.value))} autoComplete="off" required disabled={busy} />
-            </Field>
+            <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] gap-4">
+              <Field>
+                <FieldLabel htmlFor="publish-name">Name</FieldLabel>
+                <Input id="publish-name" value={name} placeholder="my-resource" onChange={(event) => updateField(() => setName(event.target.value))} autoComplete="off" required disabled={busy} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="publish-version">Version</FieldLabel>
+                <Input id="publish-version" value={version} onChange={(event) => updateField(() => setVersion(event.target.value))} autoComplete="off" required disabled={busy} />
+              </Field>
+            </div>
           </div>
           <p className="break-all font-mono text-xs text-muted-foreground" aria-live="polite">{resolvedOwner ? `${resolvedOwner}/${type}/${name}` : 'Loading GitHub user…'}</p>
         </section>
         <Separator />
         <section className="flex flex-col gap-3">
           <h3 className="text-sm font-medium">Files</h3>
-          <FolderPicker files={files} onFiles={(nextFiles) => { setFiles(nextFiles); resetValidation(); }} busy={busy} />
+          <FolderPicker files={files} onFiles={(nextFiles) => { setFiles(nextFiles); detectResources(nextFiles); }} busy={busy} />
+          {singleDetection && (
+            <p className="text-sm text-muted-foreground" aria-live="polite">
+              Detected {RESOURCE_TYPE_LABELS[singleDetection.type]} · {singleDetection.root || 'folder root'}
+            </p>
+          )}
+          {detected.length > 1 && (
+            <Field>
+              <FieldLabel>Detected resources — choose one to publish</FieldLabel>
+              <div className="flex flex-col gap-2">
+                {detected.map((candidate) => {
+                  const selected = candidate.root === selectedRoot;
+                  return (
+                    <Button
+                      key={`${candidate.type}:${candidate.root}`}
+                      type="button"
+                      variant={selected ? 'default' : 'outline'}
+                      aria-pressed={selected}
+                      disabled={busy}
+                      className="justify-start font-mono text-xs"
+                      onClick={() => applyResource(candidate, true)}
+                    >
+                      {RESOURCE_TYPE_LABELS[candidate.type]} · {candidate.root || 'folder root'}
+                    </Button>
+                  );
+                })}
+              </div>
+            </Field>
+          )}
         </section>
         {review && (
           <>

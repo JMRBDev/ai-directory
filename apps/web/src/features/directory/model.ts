@@ -115,6 +115,10 @@ export function resourceType(value: string): ResourceType {
   return RESOURCE_TYPES.find((option) => option.value === value)?.value ?? 'skills';
 }
 
+export function slugify(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 export function activeResourceType(resources: Array<Pick<ResourceSummary, 'type'>>, selected?: ResourceType): ResourceType {
   return selected ?? resources[0]?.type ?? 'skills';
 }
