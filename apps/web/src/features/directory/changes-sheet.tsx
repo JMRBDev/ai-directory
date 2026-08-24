@@ -1,20 +1,18 @@
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
+import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
 import { Info } from '@phosphor-icons/react/dist/csr/Info';
 import { Trash } from '@phosphor-icons/react/dist/csr/Trash';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
-import { FieldGroup, FieldLegend } from '../../components/ui/field';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
 import { Label } from '../../components/ui/label';
-import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
-import { ScrollArea } from '../../components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
-import { Card, CardContent } from '../../components/ui/card';
-import { harnessLabel, harnessOptions, scopeOptions, type ChangePlan, type StagedItem } from '../../lib/types';
+import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
+import { harnessLabel, harnessOptions, shortenHomePath, type ChangePlan, type StagedItem } from '../../lib/types';
 import { cn } from '../../lib/utils';
-import { ErrorMessage, LoadingCard, SheetFrame } from './common';
+import { ErrorMessage, SheetFrame } from './common';
 import { useDirectory } from './context';
 import { hasApplyableOperation, installScope } from './model';
 
@@ -33,8 +31,6 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
     clear,
     busy,
     applyChanges,
-    scope,
-    setScope,
   } = useDirectory();
   const items = Object.values(staged);
   const canApply = Boolean(plan && hasApplyableOperation(plan.plan) && (plan.plan.conflicts.length === 0 || force) && !busy);
@@ -42,35 +38,42 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
 
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Changes" description="Review the staged operations before they touch your local harness files.">
-      <div className="space-y-5 py-6">
+      <div className="space-y-5">
         {items.length === 0 ? (
-          <Alert className="border-blue-500/30 bg-blue-500/5 text-muted-foreground">
-            <Info size={17} />
-            <AlertDescription>Select resources from the catalog or an installed resource.</AlertDescription>
-          </Alert>
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia><Info size={18} /></EmptyMedia>
+              <EmptyTitle>Nothing staged</EmptyTitle>
+              <EmptyDescription>Select resources from the catalog or an installed resource.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <>
-            {items.map((item) => <ChangeItem item={item} key={item.key} onRemove={() => unstage(item.key)} onUpdate={updateStage} disabled={busy} />)}
-            <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={clear}>Discard all</Button></div>
-            {items.some((item) => item.type === 'mcp-servers') && (
-              <FieldGroup className="border-t pt-5">
-                <FieldLegend>Default MCP scope</FieldLegend>
-                <RadioGroup className="mt-3 grid gap-2 sm:grid-cols-2" value={scope} onValueChange={(value) => setScope(installScope(value))}>
-                  {scopeOptions.map((option) => (
-                    <Label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-sm" htmlFor={`changes-scope-${option.value}`} key={option.value}>
-                      <RadioGroupItem className="mt-0.5" id={`changes-scope-${option.value}`} value={option.value} />
-                      <span><span className="block font-medium">{option.label}</span><span className="mt-1 block text-xs text-muted-foreground">{option.hint}</span></span>
-                    </Label>
-                  ))}
-                </RadioGroup>
-              </FieldGroup>
-            )}
-            {planLoading && <LoadingCard />}
+            <ul className="divide-y rounded-xl border">
+              {items.map((item) => (
+                <ChangeItem item={item} key={item.key} onRemove={() => unstage(item.key)} onUpdate={updateStage} disabled={busy} />
+              ))}
+            </ul>
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={clear} disabled={busy}>Discard all</Button>
+            </div>
+            {planLoading && <p className="text-sm text-muted-foreground">Planning…</p>}
             {planError && <ErrorMessage message={planError} />}
             {plan && <PlanSummary plan={plan.plan} />}
-            {plan?.plan.conflicts.length ? <Label className="flex items-center gap-2 text-sm" htmlFor="changes-force"><Checkbox id="changes-force" checked={force} onCheckedChange={(checked) => setForce(checked === true)} /> Apply despite conflicts</Label> : null}
-            {plan?.plan.dependencyRemovals.length ? <Label className="flex items-center gap-2 text-sm" htmlFor="changes-remove-dependencies"><Checkbox id="changes-remove-dependencies" checked={removeDependencies} onCheckedChange={(checked) => setRemoveDependencies(checked === true)} /> Remove unused dependencies</Label> : null}
-            <Button className="w-full" onClick={applyChanges} disabled={!canApply}>{busy ? 'Applying…' : plan && plan.plan.changes.length > 0 ? `Apply ${plan.plan.changes.length} file changes` : `Apply ${operationCount} operation${operationCount === 1 ? '' : 's'}`}</Button>
+            {plan?.plan.conflicts.length ? (
+              <Label className="flex items-center gap-2 text-sm" htmlFor="changes-force">
+                <Checkbox id="changes-force" checked={force} onCheckedChange={(checked) => setForce(checked === true)} /> Apply despite conflicts
+              </Label>
+            ) : null}
+            {plan?.plan.dependencyRemovals.length ? (
+              <Label className="flex items-center gap-2 text-sm" htmlFor="changes-remove-dependencies">
+                <Checkbox id="changes-remove-dependencies" checked={removeDependencies} onCheckedChange={(checked) => setRemoveDependencies(checked === true)} /> Remove unused dependencies
+              </Label>
+            ) : null}
+            <Button className="w-full" onClick={applyChanges} disabled={!canApply}>
+              {busy && <ArrowsClockwise size={15} className="animate-spin" />}
+              {busy ? 'Applying…' : plan && plan.plan.changes.length > 0 ? `Apply ${plan.plan.changes.length} file change${plan.plan.changes.length === 1 ? '' : 's'}` : `Apply ${operationCount} operation${operationCount === 1 ? '' : 's'}`}
+            </Button>
           </>
         )}
       </div>
@@ -78,56 +81,114 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   );
 }
 
+function itemName(resource: string) {
+  return resource.split('/')[2] ?? resource;
+}
+
 function ChangeItem({ item, onRemove, onUpdate, disabled }: { item: StagedItem; onRemove: () => void; onUpdate: (item: StagedItem) => void; disabled: boolean }) {
   const { harnesses, scope } = useDirectory();
   const selected = item.harnesses.length > 0 ? item.harnesses : harnesses;
 
   return (
-    <Card className="rounded-xl">
-      <CardContent className="p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div><p className="font-medium">{item.resource}</p><Badge className="mt-2" variant={item.action === 'install' ? 'success' : 'destructive'}>{item.action === 'install' ? 'Install' : 'Uninstall'}</Badge></div>
+    <li className="space-y-3 p-4">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{itemName(item.resource)}</p>
+          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{item.resource.split('/').slice(0, 2).join('/')}</p>
+        </div>
+        <Badge variant={item.action === 'install' ? 'success' : 'destructive'} className="shrink-0">
+          {item.action === 'install' ? 'Install' : 'Remove'}
+        </Badge>
         <Tooltip>
-          <TooltipTrigger asChild><Button variant="ghost" size="icon" aria-label={`Remove ${item.resource}`} onClick={onRemove}><Trash size={17} /></Button></TooltipTrigger>
-          <TooltipContent>Remove {item.resource}</TooltipContent>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label={`Remove ${itemName(item.resource)}`}
+              onClick={onRemove}
+            >
+              <Trash size={15} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Remove</TooltipContent>
         </Tooltip>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <ToggleGroup
+        type="multiple"
+        segmented
+        value={selected}
+        onValueChange={(value) => onUpdate({ ...item, harnesses: harnessOptions.map((option) => option.value).filter((candidate) => value.includes(candidate)) })}
+        disabled={disabled}
+        aria-label={`Harnesses for ${itemName(item.resource)}`}
+      >
         {harnessOptions.map((option) => (
-          <Label className="flex items-center gap-2 text-xs text-muted-foreground" htmlFor={`change-${item.key}-${option.value}`} key={option.value}>
-            <Checkbox id={`change-${item.key}-${option.value}`} checked={selected.includes(option.value)} disabled={disabled} onCheckedChange={(checked) => onUpdate({ ...item, harnesses: checked === true ? [...selected, option.value] : selected.filter((candidate) => candidate !== option.value) })} />
-            {harnessLabel(option.value)}
-          </Label>
+          <ToggleGroupItem value={option.value} key={option.value}>{harnessLabel(option.value)}</ToggleGroupItem>
         ))}
-      </div>
-      {item.type === 'mcp-servers' && <Select value={item.scope ?? scope} onValueChange={(value) => onUpdate({ ...item, scope: installScope(value) })} disabled={disabled}><SelectTrigger className="mt-3"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="user">User scope</SelectItem><SelectItem value="project">Project scope</SelectItem></SelectContent></Select>}
-      </CardContent>
-    </Card>
+      </ToggleGroup>
+      {item.type === 'mcp-servers' && (
+        <ToggleGroup
+          type="single"
+          segmented
+          value={item.scope ?? scope}
+          onValueChange={(value) => { if (value) onUpdate({ ...item, scope: installScope(value) }); }}
+          disabled={disabled}
+          aria-label={`Scope for ${itemName(item.resource)}`}
+        >
+          <ToggleGroupItem value="user">User scope</ToggleGroupItem>
+          <ToggleGroupItem value="project">Project scope</ToggleGroupItem>
+        </ToggleGroup>
+      )}
+    </li>
   );
 }
 
 function PlanSummary({ plan }: { plan: ChangePlan }) {
+  const { homeDirectory } = useDirectory();
   const changedResources = new Set(plan.changes.map((change) => change.resource));
   const recordOnlyOperations = plan.operations.filter((operation) => !changedResources.has(operation.resource));
 
   return (
-    <Card className="rounded-xl bg-muted/40">
-      <CardContent className="space-y-3 p-4">
-      <div className="flex items-center justify-between gap-3"><p className="font-medium">Preview</p><Badge variant={plan.conflicts.length > 0 ? 'warning' : 'success'}>{plan.changes.length > 0 ? `${plan.changes.length} changes` : `${plan.operations.length} operations`}</Badge></div>
-      {plan.conflicts.length > 0 && <div className="text-sm text-destructive"><strong>Conflicts:</strong> {plan.conflicts.join(' ')}</div>}
-      {plan.warnings.length > 0 && <div className="text-sm text-amber-700 dark:text-amber-300">{plan.warnings.join(' ')}</div>}
-      {recordOnlyOperations.length > 0 && <div className="space-y-1 border-t pt-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">Installation records</p>{recordOnlyOperations.map((operation) => <p key={`${operation.resource}-${operation.action}`}><code className="font-mono">{operation.resource}</code> will be {operation.action === 'uninstall' ? 'removed' : 'updated'} without file changes.</p>)}</div>}
-      <ScrollArea className="h-80 border-t pt-3">
-        <Accordion type="multiple">
-          {plan.changes.map((change) => (
-            <AccordionItem className="rounded-lg border bg-background/60 px-2" key={`${change.path}-${change.harness}-${change.action}`} value={`${change.path}-${change.harness}-${change.action}`}>
-              <AccordionTrigger className="gap-2 py-2 text-xs hover:no-underline"><span className={cn('size-1.5 shrink-0 rounded-full', change.action === 'removed' ? 'bg-destructive' : change.action === 'added' ? 'bg-emerald-500' : 'bg-amber-500')} /><span className="min-w-0 flex-1 truncate"><code className="font-mono">{change.path}</code><span className="ml-2 text-muted-foreground">{change.resource} · {harnessLabel(change.harness)}</span></span><span className="shrink-0 text-muted-foreground">{change.action}</span></AccordionTrigger>
-              {(change.before || change.after) && <AccordionContent className="border-t pt-2"><ScrollArea className="h-64"><pre className="text-[11px] leading-5"><code>{change.action === 'modified' ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}` : change.after ?? change.before}</code></pre></ScrollArea></AccordionContent>}
-            </AccordionItem>
+    <section aria-labelledby="changes-plan-title" className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 id="changes-plan-title" className="text-sm font-medium">Preview</h3>
+        <Badge variant={plan.conflicts.length > 0 ? 'warning' : 'secondary'}>{plan.changes.length > 0 ? `${plan.changes.length} file change${plan.changes.length === 1 ? '' : 's'}` : `${plan.operations.length} operations`}</Badge>
+      </div>
+      {plan.conflicts.length > 0 && (
+        <Alert variant="destructive">
+          <AlertDescription>{plan.conflicts.join(' ')}</AlertDescription>
+        </Alert>
+      )}
+      {plan.warnings.length > 0 && <p className="text-sm text-amber-700 dark:text-amber-300">{plan.warnings.join(' ')}</p>}
+      {recordOnlyOperations.length > 0 && (
+        <div className="space-y-1 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+          {recordOnlyOperations.map((operation) => (
+            <p key={`${operation.resource}-${operation.action}`}>
+              <code className="font-mono">{operation.resource}</code> will be {operation.action === 'uninstall' ? 'removed' : 'updated'} without file changes.
+            </p>
           ))}
-        </Accordion>
-      </ScrollArea>
-      </CardContent>
-    </Card>
+        </div>
+      )}
+      {plan.changes.length > 0 && (
+        <div className="max-h-80 overflow-y-auto rounded-lg border" tabIndex={0}>
+          <Accordion type="multiple" className="divide-y">
+            {plan.changes.map((change) => (
+              <AccordionItem className="px-3" key={`${change.path}-${change.harness}-${change.action}`} value={`${change.path}-${change.harness}-${change.action}`}>
+                <AccordionTrigger className="gap-2 py-2.5 text-xs hover:no-underline">
+                  <span className={cn('size-1.5 shrink-0 rounded-full', change.action === 'removed' ? 'bg-destructive' : change.action === 'added' ? 'bg-emerald-500' : 'bg-amber-500')} />
+                  <span className="min-w-0 flex-1 truncate text-left"><code className="font-mono">{shortenHomePath(change.path, homeDirectory)}</code></span>
+                  <span className="shrink-0 text-muted-foreground">{harnessLabel(change.harness)} · {change.action}</span>
+                </AccordionTrigger>
+                {(change.before || change.after) && (
+                  <AccordionContent className="pb-3 pt-1">
+                    <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-5"><code>{change.action === 'modified' ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}` : change.after ?? change.before}</code></pre>
+                  </AccordionContent>
+                )}
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
+      )}
+    </section>
   );
 }

@@ -1,13 +1,11 @@
 import { Check } from '@phosphor-icons/react/dist/csr/Check';
-import { Wrench } from '@phosphor-icons/react/dist/csr/Wrench';
-import { resourceKey, type ResourceSummary } from '@ai-directory/contracts';
+import type { ResourceSummary } from '@ai-directory/contracts';
+import { Link } from '@tanstack/react-router';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Card, CardContent } from '../../components/ui/card';
+import { Card } from '../../components/ui/card';
+import { detailPath, type Action } from '../../lib/types';
 import { cn } from '../../lib/utils';
-import { detailPath } from '../../lib/types';
-import { Link } from '@tanstack/react-router';
-import type { Action } from '../../lib/types';
 import { updatedLabel } from './model';
 
 export function CatalogCard({
@@ -23,56 +21,51 @@ export function CatalogCard({
   stagedAction: Action | undefined;
   onStage: () => void;
 }) {
-  const id = resourceKey(resource);
-  const reviewed = resource.reviewStatus === 'reviewed';
-
   return (
     <Card
       className={cn(
-        'relative transition-colors hover:border-primary/50',
-        stagedAction === 'install' && 'border-primary bg-primary/5',
-        stagedAction === 'uninstall' && 'border-destructive bg-destructive/5',
+        'flex flex-col gap-3 p-5 transition-colors',
+        stagedAction === 'install' && 'border-primary/50 ring-1 ring-primary/20',
+        stagedAction === 'uninstall' && 'border-destructive/40 ring-1 ring-destructive/15',
       )}
     >
-      <Button
-        className="absolute inset-0 z-0 h-full w-full rounded-lg bg-transparent p-0 hover:bg-transparent hover:text-inherit"
-        variant="ghost"
-        type="button"
-        aria-label={stagedAction ? `Unstage ${id}` : `Stage ${id} for ${installed ? 'uninstall' : 'install'}`}
-        aria-pressed={stagedAction !== undefined}
-        onClick={onStage}
-      >
-        <span className="sr-only">{stagedAction ? `Unstage ${id}` : `Stage ${id} for ${installed ? 'uninstall' : 'install'}`}</span>
-      </Button>
-      <CardContent className="pointer-events-none relative z-10 space-y-4 p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <Link className="pointer-events-auto block truncate text-lg font-semibold tracking-tight hover:text-primary" to={detailPath(resource)}>
-              {resource.name}
-            </Link>
-            <p className="mt-1 text-xs text-muted-foreground">{resource.owner} · {id}</p>
-          </div>
-          <Badge variant={reviewed ? 'success' : 'warning'}>{reviewed ? 'Reviewed' : 'Unreviewed'}</Badge>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link className="block truncate font-medium tracking-tight hover:text-primary" to={detailPath(resource)}>
+            {resource.name}
+          </Link>
+          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{resource.owner}/{resource.type}</p>
         </div>
-        <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">{resource.description}</p>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
-          <span>v{resource.latestVersion} · Updated {updatedLabel(resource.updatedAt)}</span>
-          <div className="pointer-events-auto flex items-center gap-2">
-            {installed && <Badge variant="success"><Check size={13} /> Installed</Badge>}
-            {!installed && <Badge variant="muted">Not installed</Badge>}
-            {presentLocally && !installed && <Badge variant="muted"><Wrench size={13} /> Local</Badge>}
-            <Button variant={stagedAction ? 'secondary' : 'outline'} size="sm" onClick={onStage}>
-              {stagedAction === 'install'
-                ? 'Staged'
-                : stagedAction === 'uninstall'
-                  ? 'Unstage removal'
-                  : installed
-                    ? 'Stage removal'
-                    : 'Stage install'}
-            </Button>
-          </div>
-        </div>
-      </CardContent>
+        {resource.reviewStatus !== 'reviewed' && <Badge variant="warning">Unreviewed</Badge>}
+      </div>
+      <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">{resource.description}</p>
+      <div className="mt-auto flex items-center justify-between gap-3 border-t pt-3">
+        <p className="flex min-w-0 items-center text-xs text-muted-foreground">
+          <span className="truncate">
+            v{resource.latestVersion} · Updated {updatedLabel(resource.updatedAt)}
+          </span>
+          {installed && (
+            <span className="ml-2 inline-flex shrink-0 items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+              <Check size={13} weight="bold" /> Installed
+            </span>
+          )}
+          {!installed && presentLocally && <span className="ml-2 shrink-0">· Local</span>}
+        </p>
+        <Button
+          variant={stagedAction ? 'secondary' : 'outline'}
+          size="sm"
+          aria-pressed={stagedAction !== undefined}
+          onClick={onStage}
+        >
+          {stagedAction === 'install'
+            ? 'Staged'
+            : stagedAction === 'uninstall'
+              ? 'Removal staged'
+              : installed
+                ? 'Remove'
+                : 'Install'}
+        </Button>
+      </div>
     </Card>
   );
 }

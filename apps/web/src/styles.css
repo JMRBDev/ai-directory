@@ -1,50 +1,52 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #f5f7f5;
-  --foreground: #18211d;
+  --background: #fafafa;
+  --foreground: #18181b;
   --card: #ffffff;
-  --card-foreground: #18211d;
+  --card-foreground: #18181b;
   --popover: #ffffff;
-  --popover-foreground: #18211d;
+  --popover-foreground: #18181b;
   --primary: #b94d27;
   --primary-foreground: #ffffff;
-  --secondary: #e7ece8;
-  --secondary-foreground: #18211d;
-  --muted: #eef2ef;
-  --muted-foreground: #637069;
-  --accent: #f3e5df;
-  --accent-foreground: #7b321b;
-  --destructive: #a23b32;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #dce4dc;
-  --input: #dce4dc;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
   --ring: #b94d27;
-  --radius: 0.5rem;
+  --radius: 0.625rem;
 }
 
 .dark {
-  --background: #09090b;
+  --background: #0a0a0b;
   --foreground: #f4f4f5;
-  --card: #18181b;
+  --card: #141416;
   --card-foreground: #f4f4f5;
-  --popover: #18181b;
+  --popover: #1b1b1f;
   --popover-foreground: #f4f4f5;
   --primary: #e87952;
-  --primary-foreground: #2a1008;
-  --secondary: #27272a;
+  --primary-foreground: #241009;
+  --secondary: #232328;
   --secondary-foreground: #f4f4f5;
-  --muted: #18181b;
-  --muted-foreground: #a1a1aa;
-  --accent: #3a2119;
-  --accent-foreground: #ffd4c4;
-  --destructive: #f28b82;
-  --destructive-foreground: #3b0a08;
-  --border: #27272a;
-  --input: #3f3f46;
+  --muted: #1b1b1f;
+  --muted-foreground: #9d9da7;
+  --accent: #232328;
+  --accent-foreground: #f4f4f5;
+  --destructive: #ef6b60;
+  --destructive-foreground: #2a0806;
+  --border: #26262b;
+  --input: #333339;
   --ring: #e87952;
 }
 
@@ -68,6 +70,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -98,10 +102,8 @@
   textarea {
     @apply outline-ring/50;
   }
-}
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 20%, transparent);
   }
 }

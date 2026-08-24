@@ -1,50 +1,95 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import { ArrowUpRight } from '@phosphor-icons/react/dist/csr/ArrowUpRight';
+import { ArrowLeft } from '@phosphor-icons/react/dist/csr/ArrowLeft';
 import { FileText } from '@phosphor-icons/react/dist/csr/FileText';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
 import { Badge } from '../../components/ui/badge';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../../components/ui/breadcrumb';
 import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
-import { ScrollArea } from '../../components/ui/scroll-area';
+import { Skeleton } from '../../components/ui/skeleton';
 import { api } from '../../lib/api';
 import { RESOURCE_TYPE_LABELS } from '../../lib/types';
-import { ErrorMessage, LoadingCard } from './common';
-import { useDirectory } from './context';
+import { ErrorMessage } from './feedback';
 import { InstallPanel } from './install-panel';
 import { updatedLabel } from './model';
 
 export function ResourcePage() {
   const params = useParams({ from: '/resources/$owner/$type/$name' });
   const resourceQuery = useQuery({ queryKey: ['resource', params.owner, params.type, params.name], queryFn: () => api.resource(params.owner, params.type, params.name) });
-  const { staged, harnesses, stage, unstage } = useDirectory();
-  const id = `${params.owner}/${params.type}/${params.name}`;
-  const item = staged[id];
   const resource = resourceQuery.data?.resource;
 
-  if (resourceQuery.isPending) return <LoadingCard />;
+  if (resourceQuery.isPending) return <ResourceSkeleton />;
   if (resourceQuery.error || !resource) return <ErrorMessage message={resourceQuery.error instanceof Error ? resourceQuery.error.message : 'Resource not found.'} />;
 
   const version = resourceQuery.data.version;
   return (
-    <div className="space-y-8">
-      <div>
-        <Breadcrumb><BreadcrumbList><BreadcrumbItem><BreadcrumbLink asChild><Link to="/">Catalog</Link></BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage>{resource.name}</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
-        <div className="mt-6 flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
-          <div>
-            <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{RESOURCE_TYPE_LABELS[resource.type]}</Badge><Badge variant={resource.reviewStatus === 'reviewed' ? 'success' : 'warning'}>{resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed'}</Badge></div>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">{resource.name}</h1>
-            <p className="mt-2 text-sm text-muted-foreground">{resource.owner} · v{resource.latestVersion} · Updated {updatedLabel(resource.updatedAt)}</p>
+    <div className="space-y-6">
+      <Button variant="ghost" size="sm" className="-ml-2 text-muted-foreground" asChild>
+        <Link to="/"><ArrowLeft size={15} /> Catalog</Link>
+      </Button>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">{resource.name}</h1>
+            <Badge variant="muted">{RESOURCE_TYPE_LABELS[resource.type]}</Badge>
+            {resource.reviewStatus !== 'reviewed' && <Badge variant="warning">Unreviewed</Badge>}
           </div>
-          <Button variant={item ? 'secondary' : 'default'} onClick={() => item ? unstage(id) : stage({ key: id, resource: id, type: resource.type, action: 'install', harnesses: [...harnesses] })}>{item ? 'Staged in Changes' : 'Stage install'} <ArrowUpRight size={16} /></Button>
+          <p className="mt-1.5 truncate font-mono text-xs text-muted-foreground">
+            {resource.owner}/{resource.type} · v{resource.latestVersion} · Updated {updatedLabel(resource.updatedAt)}
+          </p>
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">{resource.description}</p>
         </div>
-        <p className="mt-6 max-w-3xl text-base leading-7 text-muted-foreground">{resource.description}</p>
       </div>
       {resourceQuery.data.error && <ErrorMessage message={resourceQuery.data.error} />}
-      {version ? <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText size={18} /> Source files</CardTitle></CardHeader><CardContent><Accordion type="multiple" defaultValue={version.files[0] ? [version.files[0].path] : []} className="space-y-2">{version.files.map((file) => <AccordionItem className="overflow-hidden rounded-lg border" key={file.path} value={file.path}><AccordionTrigger className="px-3 py-2 hover:no-underline"><code className="font-mono text-xs">{file.path}</code></AccordionTrigger><AccordionContent className="border-t bg-muted/40 px-4 pb-4 pt-3"><ScrollArea className="h-80"><pre className="text-xs leading-5"><code>{file.content}</code></pre></ScrollArea></AccordionContent></AccordionItem>)}</Accordion></CardContent></Card> : !resourceQuery.data.error ? <Empty><EmptyHeader><EmptyMedia><FileText size={20} /></EmptyMedia><EmptyTitle>No files found</EmptyTitle><EmptyDescription>The registry index points to a package with no readable files.</EmptyDescription></EmptyHeader></Empty> : null}
-      <InstallPanel resource={resource} staged={item} />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+        <section aria-labelledby="files-title" className="min-w-0">
+          <h2 id="files-title" className="text-sm font-medium">Source files</h2>
+          {version ? (
+            <Accordion type="multiple" defaultValue={version.files[0] ? [version.files[0].path] : []} className="mt-3 space-y-2">
+              {version.files.map((file) => (
+                <AccordionItem className="overflow-hidden rounded-lg border" key={file.path} value={file.path}>
+                  <AccordionTrigger className="gap-2 px-3 py-2.5 hover:no-underline">
+                    <FileText size={15} className="text-muted-foreground" />
+                    <code className="min-w-0 flex-1 truncate text-left font-mono text-xs">{file.path}</code>
+                  </AccordionTrigger>
+                  <AccordionContent className="border-t bg-muted/40 px-4 pb-4 pt-3">
+                    <div className="max-h-80 overflow-y-auto rounded-md bg-card">
+                      <pre className="whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs leading-5"><code>{file.content}</code></pre>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          ) : !resourceQuery.data.error ? (
+            <Empty className="mt-3">
+              <EmptyHeader>
+                <EmptyMedia><FileText size={18} /></EmptyMedia>
+                <EmptyTitle>No files found</EmptyTitle>
+                <EmptyDescription>The registry index points to a package with no readable files.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : null}
+        </section>
+        <InstallPanel resource={resource} />
+      </div>
+    </div>
+  );
+}
+
+function ResourceSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-5 w-24" />
+      <div className="space-y-3">
+        <Skeleton className="h-7 w-72 max-w-full" />
+        <Skeleton className="h-4 w-52 max-w-full" />
+        <Skeleton className="h-4 w-full max-w-2xl" />
+        <Skeleton className="h-4 w-full max-w-xl" />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="space-y-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+        <Skeleton className="hidden h-80 rounded-xl lg:block" />
+      </div>
     </div>
   );
 }
