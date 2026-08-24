@@ -29,7 +29,7 @@ function CardHeader({ className, ...props }: ComponentProps<'div'>) {
 }
 
 function CardTitle({ className, ...props }: ComponentProps<'div'>) {
-  return <div data-slot="card-title" className={cn('font-heading text-sm leading-snug', className)} {...props} />;
+  return <div data-slot="card-title" className={cn('text-sm font-medium leading-snug', className)} {...props} />;
 }
 
 function CardDescription({ className, ...props }: ComponentProps<'div'>) {

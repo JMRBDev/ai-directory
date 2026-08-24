@@ -140,7 +140,7 @@ function PageIntro() {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 id="catalog-title" className="font-heading text-2xl">Catalog</h1>
+        <h1 id="catalog-title" className="text-2xl font-semibold tracking-tight">Catalog</h1>
         <p className="mt-1 text-sm text-muted-foreground">Browse the registry, then apply staged changes together from Changes.</p>
       </div>
     </div>
