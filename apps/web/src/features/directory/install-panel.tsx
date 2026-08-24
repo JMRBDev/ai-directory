@@ -5,8 +5,8 @@ import { Check } from '@phosphor-icons/react/dist/csr/Check';
 import { Copy } from '@phosphor-icons/react/dist/csr/Copy';
 import { resourceKey, type ResourceSummary } from '@ai-directory/contracts';
 import { Button } from '../../components/ui/button';
-import { Card } from '../../components/ui/card';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '../../components/ui/input-group';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../../components/ui/input-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { harnessOptions, scopeOptions, type Harness, type InstallScope, type StagedItem } from '../../lib/types';
@@ -51,63 +51,67 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
   }
 
   return (
-    <Card className="flex flex-col gap-5 p-5 lg:sticky lg:top-20">
-      <div className="flex flex-col gap-2">
-        <p className="text-sm font-medium">Install in</p>
-        <ToggleGroup
-          type="multiple"
-          segmented
-          value={selectedHarnesses}
-          onValueChange={(value) => setSelectedHarnesses(harnessesFrom(value))}
-          aria-label="Target harnesses"
-        >
-          {harnessOptions.map((option) => (
-            <ToggleGroupItem value={option.value} key={option.value}>{option.label}</ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </div>
-      {isServer && (
+    <Card className="lg:sticky lg:top-20">
+      <CardHeader>
+        <CardTitle>Install</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
-          <p className="text-sm font-medium">Scope</p>
+          <p className="text-sm font-medium">Install in</p>
           <ToggleGroup
-            type="single"
-            segmented
-            value={selectedScope}
-            onValueChange={(value) => { if (value) { const next = installScope(value); setSelectedScope(next); setScope(next); } }}
-            aria-label="Installation scope"
+            multiple
+            value={selectedHarnesses}
+            onValueChange={(value) => setSelectedHarnesses(harnessesFrom(value))}
+            aria-label="Target harnesses"
           >
-            {scopeOptions.map((option) => (
+            {harnessOptions.map((option) => (
               <ToggleGroupItem value={option.value} key={option.value}>{option.label}</ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <p className="text-xs text-muted-foreground">{scopeHint}</p>
         </div>
-      )}
-      <div className="flex flex-col gap-2">
-        <p className="text-sm font-medium">CLI</p>
-        <InputGroup>
-          <InputGroupInput className="font-mono text-xs" value={command} placeholder="aid install …" readOnly aria-label="Install command" />
-          <InputGroupAddon align="inline-end">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Copy install command" disabled={!command} onClick={() => void copy()}>{copied ? <Check size={16} /> : <Copy size={16} />}</Button>
-              </TooltipTrigger>
-              <TooltipContent>{copied ? 'Copied' : 'Copy install command'}</TooltipContent>
-            </Tooltip>
-          </InputGroupAddon>
-        </InputGroup>
-      </div>
-      <div className="mt-auto space-y-2">
+        {isServer && (
+          <div className="flex flex-col gap-2">
+            <p className="text-sm font-medium">Scope</p>
+            <ToggleGroup
+              value={[selectedScope]}
+              onValueChange={(value) => { const next = value[0]; if (next) { const scoped = installScope(next); setSelectedScope(scoped); setScope(scoped); } }}
+              aria-label="Installation scope"
+            >
+              {scopeOptions.map((option) => (
+                <ToggleGroupItem value={option.value} key={option.value}>{option.label}</ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+            <p className="text-muted-foreground">{scopeHint}</p>
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-medium">CLI</p>
+          <InputGroup className="font-mono">
+            <InputGroupInput value={command} placeholder="aid install …" readOnly aria-label="Install command" />
+            <InputGroupAddon align="inline-end">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <InputGroupButton size="icon-sm" aria-label="Copy install command" disabled={!command} onClick={() => void copy()}>
+                    {copied ? <Check /> : <Copy />}
+                  </InputGroupButton>
+                </TooltipTrigger>
+                <TooltipContent>{copied ? 'Copied' : 'Copy install command'}</TooltipContent>
+              </Tooltip>
+            </InputGroupAddon>
+          </InputGroup>
+        </div>
+      </CardContent>
+      <CardFooter className="flex-col items-stretch gap-2 border-t">
         <Button className="w-full" onClick={save} disabled={selectedHarnesses.length === 0}>
           {stagedItem ? 'Update changes' : 'Add to changes'} <ArrowUpRight data-icon="inline-end" size={15} />
         </Button>
         {stagedItem && (
           <Button className="w-full" variant="ghost" size="sm" onClick={() => unstage(id)}>Remove from changes</Button>
         )}
-        <p className="text-center text-xs text-muted-foreground">
+        <p className="text-center text-muted-foreground">
           {selectedHarnesses.length === 0 ? 'Select at least one harness.' : stagedItem ? 'Saved in Changes.' : 'Reviewed together in Changes before applying.'}
         </p>
-      </div>
+      </CardFooter>
     </Card>
   );
 }

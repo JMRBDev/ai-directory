@@ -80,7 +80,7 @@ export function CatalogFilters({
         <span role="status">
           {filteredCount === 0 ? 'No resources found' : `Showing ${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, filteredCount)} of ${filteredCount}`}
         </span>
-        {hasFilters && <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onClear}>Clear filters</Button>}
+        {hasFilters && <Button variant="ghost" size="sm" onClick={onClear}>Clear filters</Button>}
       </div>
     </div>
   );

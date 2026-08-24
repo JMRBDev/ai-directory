@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
 import { Info } from '@phosphor-icons/react/dist/csr/Info';
 import { Button } from '../../components/ui/button';
+import { Card } from '../../components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '../../components/ui/empty';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { cn } from '../../lib/utils';
@@ -44,37 +45,36 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Installed resources" description="Resources found in your local harness directories.">
-      <div className="space-y-5">
-        <div className="flex items-center gap-2">
-          <Select value={harnessFilter} onValueChange={(value) => setHarnessFilter(parseHarnessFilter(value))}>
-            <SelectTrigger aria-label="Harness" className="flex-1"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="all">All harnesses</SelectItem><SelectItem value="claude-code">Claude Code</SelectItem><SelectItem value="opencode">OpenCode</SelectItem><SelectItem value="codex">Codex</SelectItem></SelectContent>
-          </Select>
-          <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(parseSourceFilter(value))}>
-            <SelectTrigger aria-label="Source" className="flex-1"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="all">All sources</SelectItem><SelectItem value="registry">From this registry</SelectItem><SelectItem value="local">Not from this registry</SelectItem></SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            aria-label="Refresh local scan"
-            onClick={() => void queryClient.invalidateQueries({ queryKey: ['local-resources'] })}
-            disabled={localLoading}
-          >
-            <ArrowsClockwise size={16} className={cn(localLoading && 'animate-spin')} />
-          </Button>
-        </div>
-        {localError && <ErrorMessage message={localError} />}
-        {localRegistryError && <ErrorMessage message={localRegistryError} />}
-        {localLoading ? (
-          <LoadingCards count={2} />
-        ) : !localError && visibleResources.length > 0 ? (
-          <>
-            <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
-              {visibleResources.length} resource{visibleResources.length === 1 ? '' : 's'}
-            </p>
-            <ul className="divide-y rounded-xl border px-4">
+      <div className="flex items-center gap-2">
+        <Select value={harnessFilter} onValueChange={(value) => setHarnessFilter(parseHarnessFilter(value))}>
+          <SelectTrigger aria-label="Harness" className="flex-1"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="all">All harnesses</SelectItem><SelectItem value="claude-code">Claude Code</SelectItem><SelectItem value="opencode">OpenCode</SelectItem><SelectItem value="codex">Codex</SelectItem></SelectContent>
+        </Select>
+        <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(parseSourceFilter(value))}>
+          <SelectTrigger aria-label="Source" className="flex-1"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="all">All sources</SelectItem><SelectItem value="registry">From this registry</SelectItem><SelectItem value="local">Not from this registry</SelectItem></SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label="Refresh local scan"
+          onClick={() => void queryClient.invalidateQueries({ queryKey: ['local-resources'] })}
+          disabled={localLoading}
+        >
+          <ArrowsClockwise size={16} className={cn(localLoading && 'animate-spin')} />
+        </Button>
+      </div>
+      {localError && <ErrorMessage message={localError} />}
+      {localRegistryError && <ErrorMessage message={localRegistryError} />}
+      {localLoading ? (
+        <LoadingCards count={2} />
+      ) : !localError && visibleResources.length > 0 ? (
+        <>
+          <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
+            {visibleResources.length} resource{visibleResources.length === 1 ? '' : 's'}
+          </p>
+          <Card className="gap-0 py-0">
+            <ul className="divide-y px-4">
               {visibleResources.map((resource) => {
                 const key = resource.resource ? `${resource.resource}\u0000${resource.harness}` : '';
                 return (
@@ -90,17 +90,17 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
                 );
               })}
             </ul>
-          </>
-        ) : (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia><Info size={18} /></EmptyMedia>
-              <EmptyTitle>{localResources.length === 0 ? 'No local resources found' : 'No matching resources'}</EmptyTitle>
-              <EmptyDescription>{localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        )}
-      </div>
+          </Card>
+        </>
+      ) : (
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><Info /></EmptyMedia>
+            <EmptyTitle>{localResources.length === 0 ? 'No local resources found' : 'No matching resources'}</EmptyTitle>
+            <EmptyDescription>{localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
     </SheetFrame>
   );
 }

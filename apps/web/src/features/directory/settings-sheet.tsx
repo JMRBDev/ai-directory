@@ -69,12 +69,10 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
 
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Settings" description="Registry source, default harnesses, and appearance.">
-      <div className="space-y-6">
-        <section className="space-y-3">
+      <section className="flex flex-col gap-3">
           <h3 className="text-sm font-medium">Default harnesses</h3>
           <ToggleGroup
-            type="multiple"
-            segmented
+            multiple
             value={harnesses}
             onValueChange={(value) => setHarnesses(harnessOptions.map((option) => option.value).filter((item) => value.includes(item)))}
             aria-label="Default harnesses"
@@ -86,7 +84,7 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
           <FieldDescription>New staged resources use these harnesses.</FieldDescription>
         </section>
         <Separator />
-        <section className="space-y-4">
+        <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-medium">Registry source</h3>
             <Badge variant={sourceLabel === 'Not configured' || sourceLabel === 'Unavailable' ? 'muted' : 'secondary'}>{sourceLabel}</Badge>
@@ -109,13 +107,11 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
           </div>
         </section>
         <Separator />
-        <section className="space-y-3">
+        <section className="flex flex-col gap-3">
           <h3 className="text-sm font-medium">Appearance</h3>
           <ToggleGroup
-            type="single"
-            segmented
-            value={theme}
-            onValueChange={(value) => { if (value === 'system' || value === 'light' || value === 'dark') chooseTheme(value); }}
+            value={[theme]}
+            onValueChange={(value) => { const next = value[0]; if (next === 'system' || next === 'light' || next === 'dark') chooseTheme(next); }}
             aria-label="Color theme"
           >
             {(['system', 'light', 'dark'] as const).map((value) => (
@@ -123,7 +119,6 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
             ))}
           </ToggleGroup>
         </section>
-      </div>
     </SheetFrame>
   );
 }

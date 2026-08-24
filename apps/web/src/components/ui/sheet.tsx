@@ -1,47 +1,93 @@
-import * as Dialog from '@radix-ui/react-dialog';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps } from 'react';
+import { Dialog as SheetPrimitive } from '@base-ui/react/dialog';
 import { X } from '@phosphor-icons/react/dist/csr/X';
 import { cn } from '../../lib/utils';
-import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
+import { Button } from './button';
 
-export const Sheet = Dialog.Root;
-export const SheetTrigger = Dialog.Trigger;
-export const SheetClose = Dialog.Close;
+function Sheet({ ...props }: ComponentProps<typeof SheetPrimitive.Root>) {
+  return <SheetPrimitive.Root data-slot="sheet" {...props} />;
+}
 
-export function SheetContent({ className, side = 'right', children, ...props }: ComponentProps<typeof Dialog.Content> & { side?: 'left' | 'right'; children?: ReactNode }) {
+function SheetTrigger({ ...props }: ComponentProps<typeof SheetPrimitive.Trigger>) {
+  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
+}
+
+function SheetClose({ ...props }: ComponentProps<typeof SheetPrimitive.Close>) {
+  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
+}
+
+function SheetPortal({ ...props }: ComponentProps<typeof SheetPrimitive.Portal>) {
+  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />;
+}
+
+function SheetOverlay({ className, ...props }: ComponentProps<typeof SheetPrimitive.Backdrop>) {
   return (
-    <Dialog.Portal>
-      <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]" />
-      <Dialog.Content
+    <SheetPrimitive.Backdrop
+      data-slot="sheet-overlay"
+      className={cn(
+        'fixed inset-0 z-50 bg-black/80 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function SheetContent({
+  className,
+  children,
+  side = 'right',
+  showCloseButton = true,
+  ...props
+}: ComponentProps<typeof SheetPrimitive.Popup> & {
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  showCloseButton?: boolean;
+}) {
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetPrimitive.Popup
+        data-slot="sheet-content"
+        data-side={side}
         className={cn(
-          'fixed inset-y-0 z-50 flex w-full max-w-xl flex-col gap-4 overflow-y-auto border bg-background p-5 shadow-xl outline-none sm:p-8',
-          side === 'right' ? 'right-0 border-l' : 'left-0 border-r',
+          'fixed z-50 flex flex-col bg-popover bg-clip-padding text-xs/relaxed text-popover-foreground shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm',
           className,
         )}
         {...props}
       >
         {children}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Dialog.Close className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring" aria-label="Close">
-              <X size={18} aria-hidden="true" />
-            </Dialog.Close>
-          </TooltipTrigger>
-          <TooltipContent>Close</TooltipContent>
-        </Tooltip>
-      </Dialog.Content>
-    </Dialog.Portal>
+        {showCloseButton && (
+          <SheetPrimitive.Close
+            data-slot="sheet-close"
+            render={<Button variant="ghost" className="absolute top-4 right-4" size="icon-sm" />}
+          >
+            <X />
+            <span className="sr-only">Close</span>
+          </SheetPrimitive.Close>
+        )}
+      </SheetPrimitive.Popup>
+    </SheetPortal>
   );
 }
 
-export function SheetHeader({ className, ...props }: ComponentProps<'div'>) {
-  return <div className={cn('flex shrink-0 flex-col gap-1.5 border-b pb-4 pr-8', className)} {...props} />;
+function SheetHeader({ className, ...props }: ComponentProps<'div'>) {
+  return <div data-slot="sheet-header" className={cn('flex flex-col gap-1.5 p-6', className)} {...props} />;
 }
 
-export function SheetTitle({ className, ...props }: ComponentProps<typeof Dialog.Title>) {
-  return <Dialog.Title className={cn('text-xl font-semibold tracking-tight', className)} {...props} />;
+function SheetFooter({ className, ...props }: ComponentProps<'div'>) {
+  return <div data-slot="sheet-footer" className={cn('mt-auto flex flex-col gap-2 p-6', className)} {...props} />;
 }
 
-export function SheetDescription({ className, ...props }: ComponentProps<typeof Dialog.Description>) {
-  return <Dialog.Description className={cn('text-sm text-muted-foreground', className)} {...props} />;
+function SheetTitle({ className, ...props }: ComponentProps<typeof SheetPrimitive.Title>) {
+  return (
+    <SheetPrimitive.Title data-slot="sheet-title" className={cn('font-heading text-sm text-foreground', className)} {...props} />
+  );
 }
+
+function SheetDescription({ className, ...props }: ComponentProps<typeof SheetPrimitive.Description>) {
+  return (
+    <SheetPrimitive.Description data-slot="sheet-description" className={cn('text-xs/relaxed text-muted-foreground', className)} {...props} />
+  );
+}
+
+export { Sheet, SheetTrigger, SheetClose, SheetContent, SheetHeader, SheetFooter, SheetTitle, SheetDescription };

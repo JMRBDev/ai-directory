@@ -89,6 +89,15 @@ export function getServerSystemTheme() {
   return false;
 }
 
+export function isMarkdownPath(path: string) {
+  return /\.(md|markdown)$/i.test(path);
+}
+
+export function stripFrontmatter(content: string) {
+  const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(content);
+  return match ? content.slice(match[0].length) : content;
+}
+
 export function updatedLabel(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
