@@ -36,7 +36,7 @@ function EmptyMedia({ className, variant = 'default', ...props }: ComponentProps
 }
 
 function EmptyTitle({ className, ...props }: ComponentProps<'div'>) {
-  return <div data-slot="empty-title" className={cn('font-heading text-sm tracking-tight', className)} {...props} />;
+  return <div data-slot="empty-title" className={cn('text-sm font-medium tracking-tight', className)} {...props} />;
 }
 
 function EmptyDescription({ className, ...props }: ComponentProps<'p'>) {
