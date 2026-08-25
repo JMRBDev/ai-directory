@@ -64,8 +64,12 @@ const harnessAdapters = {
   codex: codexInstaller,
 } satisfies Record<Harness, HarnessAdapter>;
 
+function isAdapterKey(value: string): value is keyof typeof harnessAdapters {
+  return value in harnessAdapters;
+}
+
 export function getHarnessAdapter(value: string): HarnessAdapter {
-  if (value !== 'claude-code' && value !== 'opencode' && value !== 'codex') {
+  if (!isAdapterKey(value)) {
     throw new Error(`Unsupported harness: ${value}`);
   }
 

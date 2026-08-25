@@ -1,6 +1,6 @@
 import type { ConfigScope } from '@ai-directory/config';
 import { currentFile } from '../file-snapshots.js';
-import type { Harness } from '../harnesses.js';
+import { getHarnessDefinitions, type Harness } from '../harnesses.js';
 import type { InstallOptions } from '../install-types.js';
 import { mcpConfigPath } from './config-paths.js';
 import { containerKey, readJsonConfig } from './json-config.js';
@@ -17,7 +17,7 @@ export async function discoverMcpServers(
   options: InstallOptions = {},
   scopes: readonly ConfigScope[] = ['user', 'project'],
 ): Promise<DiscoveredMcpServer[]> {
-  const harnesses: Harness[] = ['claude-code', 'opencode', 'codex'];
+  const harnesses = getHarnessDefinitions().map((definition) => definition.harness);
   const results: DiscoveredMcpServer[] = [];
 
   for (const scope of scopes) {

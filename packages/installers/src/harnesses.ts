@@ -46,8 +46,8 @@ export type HarnessPathContext = {
   environment: NodeJS.ProcessEnv;
 };
 
-const definitions: readonly HarnessDefinition[] = [
-  {
+const definitionsById = {
+  'claude-code': {
     harness: 'claude-code',
     displayName: 'Claude Code',
     command: 'claude',
@@ -58,7 +58,7 @@ const definitions: readonly HarnessDefinition[] = [
     },
     markers: (location) => [location.config, location.skills],
   },
-  {
+  opencode: {
     harness: 'opencode',
     displayName: 'OpenCode',
     command: 'opencode',
@@ -71,7 +71,7 @@ const definitions: readonly HarnessDefinition[] = [
     },
     markers: (location) => [location.config, location.skills],
   },
-  {
+  codex: {
     harness: 'codex',
     displayName: 'Codex',
     command: 'codex',
@@ -88,20 +88,24 @@ const definitions: readonly HarnessDefinition[] = [
     },
     markers: (location) => [location.config, location.skills, location.agents],
   },
-];
+} satisfies Record<Harness, HarnessDefinition>;
+
+const definitions = Object.values(definitionsById);
 
 export function getHarnessDefinitions(): readonly HarnessDefinition[] {
   return definitions;
 }
 
-export function getHarnessDefinition(value: string): HarnessDefinition {
-  const definition = definitions.find(({ harness }) => harness === value);
+function isHarness(value: string): value is Harness {
+  return value in definitionsById;
+}
 
-  if (!definition) {
+export function getHarnessDefinition(value: string): HarnessDefinition {
+  if (!isHarness(value)) {
     throw new Error(`Unsupported harness: ${value}`);
   }
 
-  return definition;
+  return definitionsById[value];
 }
 
 export function resolveHarnessPaths(

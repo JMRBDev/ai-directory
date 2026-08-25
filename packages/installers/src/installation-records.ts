@@ -4,7 +4,7 @@ import {
   isMissingPathError,
   writeFileAtomic,
 } from '@ai-directory/config';
-import { resourceKey } from '@ai-directory/contracts';
+import { harnessSchema, resourceKey } from '@ai-directory/contracts';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { z } from 'zod';
 import {
@@ -26,7 +26,7 @@ const sharedOwnershipSchema = z.object({
 export const installationRecordSchema = z.object({
   resource: z.string().min(1),
   version: z.string().min(1),
-  harness: z.enum(['claude-code', 'opencode', 'codex']),
+  harness: harnessSchema,
   destination: z.string().min(1),
   files: z.array(z.string().min(1)),
   fileHashes: z.record(z.string(), z.string()).optional(),
@@ -45,7 +45,7 @@ const installationPackEntrySchema = z.object({
 export const installationPackRecordSchema = z.object({
   resource: z.string().min(1),
   version: z.string().min(1),
-  harness: z.enum(['claude-code', 'opencode', 'codex']),
+  harness: harnessSchema,
   resources: z.array(installationPackEntrySchema).min(1),
   installedAt: z.string().min(1),
 });
