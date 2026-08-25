@@ -30,7 +30,7 @@ import { ensureToolDependencies } from './shared';
 export const update = defineCommand({
   meta: {
     name: 'update',
-    description: 'Update an installed resource to its latest version',
+    description: 'Update an installed resource to the latest or a requested version',
   },
   args: {
     resource: {
@@ -48,6 +48,11 @@ export const update = defineCommand({
       type: 'string',
       alias: 'i',
       description: 'Local registry index path; overrides the configured Git repository',
+    },
+    version: {
+      type: 'string',
+      alias: 'v',
+      description: 'Version to update to; defaults to the latest version',
     },
     repository: {
       type: 'string',
@@ -116,7 +121,7 @@ export const update = defineCommand({
         async (force) => {
           const manifestPath = installManifestPath(isMcpResource(resource) ? scope : 'user');
           const manifest = await readInstallationManifest(manifestPath);
-          const loaded = await readRegistrySourceResource(source, resource);
+          const loaded = await readRegistrySourceResource(source, resource, args.version);
           const installDependencies = await ensureToolDependencies(
             loaded.resources,
             isInteractiveTerminal(),
@@ -142,7 +147,10 @@ export const update = defineCommand({
             if (loaded.resources.every((entry, resourceIndex) =>
               entry.version === installedRecords[resourceIndex]?.version,
             )) {
-              console.log(`${resource} is already at the latest version for ${harness} (${loaded.resource.version}).`);
+              const target = args.version === undefined
+                ? `the latest version (${loaded.resource.version})`
+                : `version ${loaded.resource.version}`;
+              console.log(`${resource} is already at ${target} for ${harness}.`);
               continue;
             }
             changed.push(harness);

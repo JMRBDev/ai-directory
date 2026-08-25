@@ -234,6 +234,8 @@ apps/cli/dist/aid update jose-rosendo/skills/typescript-api-review \
   --scope project
 ```
 
+Pass `--version` to update to a specific version instead of the latest; the command reports when the installation is already at the requested version.
+
 Template installations are expanded into their component resources. Use `installed` to see those components and update them individually.
 
 ## Checks

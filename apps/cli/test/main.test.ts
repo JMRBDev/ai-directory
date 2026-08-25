@@ -428,4 +428,55 @@ describe('CLI', () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  it('updates a resource to a requested version', () => {
+    const home = mkdtempSync(join(tmpdir(), 'ai-directory-cli-update-home-'));
+    const resource = 'john-doe/skills/typescript-review';
+
+    try {
+      const install = runAid(
+        ['install', resource, '--version', '1.1.0', '--harness', 'claude-code'],
+        undefined,
+        registryIndex,
+        home,
+      );
+      expect(install.code).toBe(0);
+      // SAFETY: The install command prints this exact manifest path and shape.
+      const tracked = install.stdout.match(/Tracked in: (.+)/)?.[1];
+      if (!tracked) throw new Error('The install output did not include a manifest path.');
+      expect(parseManifest(tracked).installations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ resource, harness: 'claude-code', version: '1.1.0' }),
+        ]),
+      );
+
+      const current = runAid(
+        ['update', resource, '--version', '1.1.0', '--harness', 'claude-code'],
+        undefined,
+        registryIndex,
+        home,
+      );
+      expect(current.code).toBe(0);
+      expect(current.stdout).toContain(`is already at version 1.1.0`);
+
+      const update = runAid(
+        ['update', resource, '--version', '1.2.0', '--harness', 'claude-code'],
+        undefined,
+        registryIndex,
+        home,
+      );
+      expect(update.code).toBe(0);
+      expect(update.stdout).toContain(`Updated ${resource} to 1.2.0`);
+      expect(parseManifest(tracked).installations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ resource, harness: 'claude-code', version: '1.2.0' }),
+        ]),
+      );
+      expect(
+        readFileSync(join(home, '.claude', 'skills', 'typescript-review', 'SKILL.md'), 'utf8'),
+      ).toContain('error handling, and tests');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
