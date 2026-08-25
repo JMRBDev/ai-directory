@@ -3,6 +3,7 @@ import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { ScrollArea } from '../../components/ui/scroll-area';
 import { harnessLabel, shortenHomePath, type ChangePlan } from '../../lib/types';
+import { badgeTone } from './shared';
 import { useDirectory } from './context';
 
 export function PlanSummary({ plan }: { plan: ChangePlan }) {
@@ -14,7 +15,7 @@ export function PlanSummary({ plan }: { plan: ChangePlan }) {
     <section aria-labelledby="changes-plan-title" className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <h3 id="changes-plan-title" className="text-sm font-medium">Preview</h3>
-        <Badge variant={plan.conflicts.length > 0 ? 'warning' : 'secondary'}>{plan.changes.length > 0 ? `${plan.changes.length} file change${plan.changes.length === 1 ? '' : 's'}` : `${plan.operations.length} operations`}</Badge>
+        <Badge {...badgeTone(plan.conflicts.length > 0 ? 'warning' : 'secondary')}>{plan.changes.length > 0 ? `${plan.changes.length} file change${plan.changes.length === 1 ? '' : 's'}` : `${plan.operations.length} operations`}</Badge>
       </div>
       {plan.conflicts.length > 0 && (
         <Alert variant="destructive">

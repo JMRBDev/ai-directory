@@ -66,14 +66,16 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
         )}
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium">CLI</p>
-          <InputGroup className="font-mono">
+          <InputGroup>
             <InputGroupInput value={command} placeholder="aid install …" readOnly aria-label="Install command" />
             <InputGroupAddon align="inline-end">
               <Tooltip>
-                <TooltipTrigger asChild>
-                  <InputGroupButton size="icon-sm" aria-label="Copy install command" disabled={!command} onClick={() => void copy()}>
-                    {copied ? <HugeiconsIcon icon={Tick02Icon} /> : <HugeiconsIcon icon={Copy01Icon} />}
-                  </InputGroupButton>
+                <TooltipTrigger
+                  render={
+                    <InputGroupButton size="icon-sm" aria-label="Copy install command" disabled={!command} onClick={() => void copy()} />
+                  }
+                >
+                  {copied ? <HugeiconsIcon icon={Tick02Icon} /> : <HugeiconsIcon icon={Copy01Icon} />}
                 </TooltipTrigger>
                 <TooltipContent>{copied ? 'Copied' : 'Copy install command'}</TooltipContent>
               </Tooltip>

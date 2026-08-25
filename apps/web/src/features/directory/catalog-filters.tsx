@@ -57,21 +57,21 @@ export function CatalogFilters({
         </Field>
         <Field>
           <FieldLabel htmlFor="resource-review">Review status</FieldLabel>
-          <Select value={review} onValueChange={(value) => onReviewChange(reviewFilter(value))}>
+          <Select value={review} onValueChange={(value) => { if (value !== null) onReviewChange(reviewFilter(value)); }}>
             <SelectTrigger id="resource-review"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="all">All resources</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="unreviewed">Unreviewed</SelectItem></SelectContent>
           </Select>
         </Field>
         <Field>
           <FieldLabel htmlFor="resource-installed">Installed</FieldLabel>
-          <Select value={installed} onValueChange={(value) => onInstalledChange(installedFilter(value))}>
+          <Select value={installed} onValueChange={(value) => { if (value !== null) onInstalledChange(installedFilter(value)); }}>
             <SelectTrigger id="resource-installed"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="installed">Installed</SelectItem><SelectItem value="not-installed">Not installed</SelectItem></SelectContent>
           </Select>
         </Field>
         <Field>
           <FieldLabel htmlFor="resource-sort">Sort by</FieldLabel>
-          <Select value={sort} onValueChange={(value) => onSortChange(sortOption(value))}>
+          <Select value={sort} onValueChange={(value) => { if (value !== null) onSortChange(sortOption(value)); }}>
             <SelectTrigger id="resource-sort"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="updated">Recently updated</SelectItem><SelectItem value="name">Name A-Z</SelectItem><SelectItem value="version">Newest version</SelectItem></SelectContent>
           </Select>

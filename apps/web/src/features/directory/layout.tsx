@@ -9,7 +9,7 @@ import { SiteHeader } from './site-header';
 export function RootLayout() {
   return (
     <DirectoryProvider>
-      <TooltipProvider delayDuration={300}>
+      <TooltipProvider delay={300}>
         <div className="flex min-h-screen flex-col bg-background text-foreground">
           <SiteHeader />
           <main className="mx-auto w-full max-w-6xl flex-1 px-5 py-8 sm:px-8">

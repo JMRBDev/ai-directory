@@ -1,25 +1,29 @@
-import * as CheckboxPrimitive from '@radix-ui/react-checkbox';
-import type { ComponentPropsWithoutRef, ElementRef } from 'react';
-import { forwardRef } from 'react';
-import { HugeiconsIcon } from '@hugeicons/react';
-import { Tick02Icon } from '@hugeicons/core-free-icons';
-import { cn } from '../../lib/utils';
+"use client"
 
-export const Checkbox = forwardRef<ElementRef<typeof CheckboxPrimitive.Root>, ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>>(
-  ({ className, ...props }, ref) => (
+import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
+
+import { cn } from "@/lib/utils"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { Tick02Icon } from "@hugeicons/core-free-icons"
+
+function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
+  return (
     <CheckboxPrimitive.Root
-      ref={ref}
+      data-slot="checkbox"
       className={cn(
-        'peer size-4 shrink-0 rounded-sm border border-primary shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground',
-        className,
+        "peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input transition-shadow outline-none group-has-disabled/field:opacity-50 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-input after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-primary dark:data-checked:bg-primary",
+        className
       )}
       {...props}
     >
-      <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
-        <HugeiconsIcon icon={Tick02Icon} size={14} />
+      <CheckboxPrimitive.Indicator
+        data-slot="checkbox-indicator"
+        className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
+      >
+        <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} />
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
-  ),
-);
+  )
+}
 
-Checkbox.displayName = CheckboxPrimitive.Root.displayName;
+export { Checkbox }

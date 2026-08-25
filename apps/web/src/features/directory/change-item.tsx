@@ -3,7 +3,7 @@ import { Delete02Icon } from '@hugeicons/core-free-icons';
 import { Badge } from '../../components/ui/badge';
 import type { StagedItem } from '../../lib/types';
 import { useDirectory } from './context';
-import { HarnessToggleGroup, ScopeToggleGroup, TooltipIconButton } from './shared';
+import { badgeTone, HarnessToggleGroup, ScopeToggleGroup, TooltipIconButton } from './shared';
 
 export function ChangeItem({ item, onRemove, onUpdate, disabled }: {
   item: StagedItem;
@@ -21,7 +21,7 @@ export function ChangeItem({ item, onRemove, onUpdate, disabled }: {
           <p className="truncate text-sm font-medium">{itemName(item.resource)}</p>
           <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{item.resource.split('/').slice(0, 2).join('/')}</p>
         </div>
-        <Badge variant={item.action === 'install' ? 'success' : 'destructive'}>
+        <Badge {...badgeTone(item.action === 'install' ? 'success' : 'destructive')}>
           {item.action === 'install' ? 'Install' : 'Remove'}
         </Badge>
         <TooltipIconButton label={`Remove ${itemName(item.resource)}`} onClick={onRemove}>

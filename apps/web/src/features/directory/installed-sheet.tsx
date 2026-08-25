@@ -46,11 +46,11 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Installed resources" description="Resources found in your local harness directories.">
       <div className="flex items-center gap-2">
-        <Select value={harnessFilter} onValueChange={(value) => setHarnessFilter(parseHarnessFilter(value))}>
+        <Select value={harnessFilter} onValueChange={(value) => { if (value !== null) setHarnessFilter(parseHarnessFilter(value)); }}>
           <SelectTrigger aria-label="Harness" className="flex-1"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="all">All harnesses</SelectItem><SelectItem value="claude-code">Claude Code</SelectItem><SelectItem value="opencode">OpenCode</SelectItem><SelectItem value="codex">Codex</SelectItem></SelectContent>
         </Select>
-        <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(parseSourceFilter(value))}>
+        <Select value={sourceFilter} onValueChange={(value) => { if (value !== null) setSourceFilter(parseSourceFilter(value)); }}>
           <SelectTrigger aria-label="Source" className="flex-1"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="all">All sources</SelectItem><SelectItem value="registry">From this registry</SelectItem><SelectItem value="local">Not from this registry</SelectItem></SelectContent>
         </Select>

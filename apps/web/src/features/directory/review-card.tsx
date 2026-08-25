@@ -3,6 +3,7 @@ import { Tick02Icon } from '@hugeicons/core-free-icons';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '../../components/ui/card';
+import { badgeTone } from './shared';
 import type { PublishReview } from './model';
 
 export function ReviewCard({ review, description, pullRequestUrl }: {
@@ -15,7 +16,7 @@ export function ReviewCard({ review, description, pullRequestUrl }: {
       <CardHeader>
         <CardTitle id="publish-review-title">Ready to submit</CardTitle>
         <CardAction>
-          <Badge variant="success"><HugeiconsIcon icon={Tick02Icon} /> Validated</Badge>
+          <Badge {...badgeTone('success')}><HugeiconsIcon icon={Tick02Icon} /> Validated</Badge>
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -29,8 +30,8 @@ export function ReviewCard({ review, description, pullRequestUrl }: {
       </CardContent>
       {pullRequestUrl && (
         <CardFooter>
-          <Button asChild variant="outline" size="sm">
-            <a href={pullRequestUrl} target="_blank" rel="noreferrer"><HugeiconsIcon icon={Tick02Icon} size={15} /> Open pull request</a>
+          <Button render={<a href={pullRequestUrl} target="_blank" rel="noreferrer" />} variant="outline" size="sm">
+            <HugeiconsIcon icon={Tick02Icon} size={15} /> Open pull request
           </Button>
         </CardFooter>
       )}

@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../components/ui/card';
 import { detailPath, type Action } from '../../lib/types';
 import { cn } from '../../lib/utils';
+import { badgeTone } from './shared';
 import { updatedLabel } from './model';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Tick02Icon } from '@hugeicons/core-free-icons';
@@ -39,7 +40,7 @@ export function CatalogCard({
         <CardDescription className="truncate font-mono">{resource.owner}/{resource.type}</CardDescription>
         {resource.reviewStatus !== 'reviewed' && (
           <CardAction>
-            <Badge variant="warning">Unreviewed</Badge>
+            <Badge {...badgeTone('warning')}>Unreviewed</Badge>
           </CardAction>
         )}
       </CardHeader>
@@ -50,7 +51,7 @@ export function CatalogCard({
             v{resource.latestVersion} · Updated {updatedLabel(resource.updatedAt)}
           </span>
           {installed && (
-            <Badge variant="success">
+            <Badge {...badgeTone('success')}>
               <HugeiconsIcon icon={Tick02Icon} /> Installed
             </Badge>
           )}

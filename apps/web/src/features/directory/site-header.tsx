@@ -32,13 +32,11 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-5 sm:px-8">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 font-semibold">
-          <Link to="/">
-            <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <HugeiconsIcon icon={PackageIcon} size={16} />
-            </span>
-            AI Directory
-          </Link>
+        <Button render={<Link to="/" />} variant="ghost" size="sm" className="-ml-2 font-semibold">
+          <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <HugeiconsIcon icon={PackageIcon} size={16} />
+          </span>
+          AI Directory
         </Button>
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
           <div className="hidden items-center gap-1 sm:flex">
@@ -61,10 +59,10 @@ export function SiteHeader() {
           </div>
           <div className="sm:hidden">
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Open workspace actions">
-                  <HugeiconsIcon icon={MoreVerticalIcon} size={20} />
-                </Button>
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="icon" aria-label="Open workspace actions" />}
+              >
+                <HugeiconsIcon icon={MoreVerticalIcon} size={20} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => void refresh()} disabled={refreshing}>

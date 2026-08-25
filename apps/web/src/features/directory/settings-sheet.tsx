@@ -12,7 +12,7 @@ import { api } from '../../lib/api';
 import type { InstallScope } from '../../lib/types';
 import { ErrorMessage, SheetFrame } from './common';
 import { useDirectory } from './context';
-import { HarnessToggleGroup } from './shared';
+import { badgeTone, HarnessToggleGroup } from './shared';
 import { installScope } from './model';
 import { getServerSystemTheme, getSystemTheme, readStorage, subscribeSystemTheme, writeStorage } from '../../lib/theme';
 
@@ -80,7 +80,7 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-medium">Registry source</h3>
-            <Badge variant={sourceLabel === 'Not configured' || sourceLabel === 'Unavailable' ? 'muted' : 'secondary'}>{sourceLabel}</Badge>
+            <Badge {...badgeTone(sourceLabel === 'Not configured' || sourceLabel === 'Unavailable' ? 'muted' : 'secondary')}>{sourceLabel}</Badge>
           </div>
           {configError && <ErrorMessage message={configError} />}
           <Field>
@@ -89,7 +89,7 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
           </Field>
           <Field>
             <FieldLabel htmlFor="settings-scope">Save scope</FieldLabel>
-            <Select value={configScope} onValueChange={(value) => setConfigScope(installScope(value))}>
+            <Select value={configScope} onValueChange={(value) => { if (value !== null) setConfigScope(installScope(value)); }}>
               <SelectTrigger id="settings-scope"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="user">User config</SelectItem><SelectItem value="project">Project config</SelectItem></SelectContent>
             </Select>
