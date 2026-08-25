@@ -747,6 +747,42 @@ describe('local control API', () => {
     await expect(readFile(skillPath, 'utf8')).resolves.toContain('error handling, and tests');
   });
 
+  it('rejects project scope for file resources', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: fixtureIndexPath });
+    const errorMessage = { error: 'Project scope is only supported for MCP servers.' };
+
+    const install = await app.request('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        resource: 'john-doe/skills/typescript-review',
+        harnesses: ['claude-code'],
+        scope: 'project',
+      }),
+    });
+
+    expect(install.status).toBe(400);
+    await expect(install.json()).resolves.toEqual(errorMessage);
+
+    const plan = await app.request('/api/plan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operations: [{
+          resource: 'john-doe/skills/typescript-review',
+          action: 'install',
+          harnesses: ['claude-code'],
+          scope: 'project',
+        }],
+      }),
+    });
+
+    expect(plan.status).toBe(400);
+    await expect(plan.json()).resolves.toEqual(errorMessage);
+  });
+
   it('installs and manages an MCP server at project scope', async () => {
     const cwd = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();

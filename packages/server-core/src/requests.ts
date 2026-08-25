@@ -2,6 +2,7 @@ import { harnessSchema } from '@ai-directory/contracts';
 import type { ConfigScope } from '@ai-directory/config';
 import type { Harness } from '@ai-directory/installers';
 import { z } from 'zod';
+import { isMcpResource } from './installations.js';
 import type { RequestBody } from './types.js';
 
 export const configScopeSchema = z.enum(['user', 'project']);
@@ -66,7 +67,14 @@ function requireHarnesses(data: { harnesses?: unknown }) {
   return data.harnesses !== undefined;
 }
 
+const projectScopeMessage = 'Project scope is only supported for MCP servers.';
+
+function projectScopeOnlyForMcp(data: { resource: string; scope?: ConfigScope | undefined }) {
+  return data.scope !== 'project' || isMcpResource(data.resource);
+}
+
 const resourceRequestSchema = resourceRequestWithDependenciesSchema
+  .refine(projectScopeOnlyForMcp, { message: projectScopeMessage })
   .refine(requireHarnesses, {
     message: 'harnesses must include one or more of claude-code, opencode, or codex.',
   })
@@ -78,6 +86,7 @@ const changeOperationSchema = resourceRequestObjectSchema
   .extend({
     action: z.enum(['install', 'uninstall']),
   })
+  .refine(projectScopeOnlyForMcp, { message: projectScopeMessage })
   .refine(requireHarnesses, {
     message: 'harnesses must include one or more of claude-code, opencode, or codex.',
   })
