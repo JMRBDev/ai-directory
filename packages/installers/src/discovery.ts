@@ -1,17 +1,13 @@
 import { readdir } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
-import { listFilesUnder } from '@ai-directory/config';
+import { isMissingPathError, listFilesUnder, pathExists } from '@ai-directory/config';
 import type { RegistryIndex } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/contracts';
 import { isResourceVersionOutdated } from '@ai-directory/registry';
-import {
-  hashFile,
-  isMissingPathError,
-  pathExists,
-  resourceType,
-  type InstallationRecord,
-  type ResourceKind,
-} from './index.js';
+import type { ResourceKind } from './adapters.js';
+import { hashFile } from './hashing.js';
+import type { InstallationRecord } from './installation-records.js';
+import { resourceType } from './resources.js';
 import { discoverMcpServers, resourceName } from './mcp.js';
 import {
   getHarnessDefinitions,
