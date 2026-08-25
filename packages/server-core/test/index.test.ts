@@ -700,6 +700,53 @@ describe('local control API', () => {
     ).rejects.toThrow();
   });
 
+  it('updates a file resource to a requested version', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({ cwd, homeDirectory, registryIndexPath: fixtureIndexPath });
+    const request = { resource: 'john-doe/skills/typescript-review', harnesses: ['claude-code'] };
+    const skillPath = join(homeDirectory, '.claude', 'skills', 'typescript-review', 'SKILL.md');
+
+    const install = await app.request('/api/install', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...request, version: '1.1.0' }),
+    });
+
+    expect(install.status).toBe(200);
+    await expect(install.json()).resolves.toMatchObject({
+      resource: { version: '1.1.0' },
+      records: [expect.objectContaining({ resource: request.resource, harness: 'claude-code', version: '1.1.0' })],
+    });
+    await expect(readFile(skillPath, 'utf8')).resolves.toContain('Review TypeScript changes for correctness.');
+
+    const current = await app.request('/api/update', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...request, version: '1.1.0' }),
+    });
+
+    expect(current.status).toBe(200);
+    await expect(current.json()).resolves.toMatchObject({
+      updated: false,
+      harnesses: request.harnesses,
+    });
+
+    const update = await app.request('/api/update', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...request, version: '1.2.0' }),
+    });
+
+    expect(update.status).toBe(200);
+    await expect(update.json()).resolves.toMatchObject({
+      updated: true,
+      harnesses: request.harnesses,
+      records: [expect.objectContaining({ resource: request.resource, harness: 'claude-code', version: '1.2.0' })],
+    });
+    await expect(readFile(skillPath, 'utf8')).resolves.toContain('error handling, and tests');
+  });
+
   it('installs and manages an MCP server at project scope', async () => {
     const cwd = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();

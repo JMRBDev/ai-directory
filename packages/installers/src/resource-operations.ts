@@ -358,6 +358,9 @@ export async function planResourceOperations(
           const otherInstallations = manifest.installations.filter(
             (record) => record.harness === harness && record.resource !== resourceId,
           );
+          const currentInstallation = manifest.installations.find(
+            (record) => record.harness === harness && record.resource === resourceId,
+          );
           const occupiedPaths = otherInstallations.flatMap((record) => [
             record.destination,
             ...record.files,
@@ -388,6 +391,10 @@ export async function planResourceOperations(
                 continue;
               }
               if ((await currentFile(path)) === null) continue;
+              const managedBySelf = currentInstallation !== undefined
+                && (pathsOverlap(currentInstallation.destination, path)
+                  || currentInstallation.files.includes(path));
+              if (managedBySelf) continue;
               conflicts.push(`Install destination is already occupied: ${path}. Use --force to overwrite.`);
             }
           }

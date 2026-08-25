@@ -218,6 +218,7 @@ export function registerChangeRoutes({ app, options, cwd }: RouteContext): void 
       const loaded = await readRegistrySourceResource(
         registrySource(options, cwd),
         request.resource,
+        request.version,
       );
       const existing = request.harnesses.map((harness) =>
         loaded.resources.map((resource) =>
