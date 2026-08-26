@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -783,17 +783,28 @@ describe('local control API', () => {
   it('installs and uninstalls a harness through package-manager commands', async () => {
     const cwd = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();
+    const npmRoot = await createTemporaryDirectory();
+    const binaryDirectory = join(npmRoot, 'bin');
+    await mkdir(binaryDirectory, { recursive: true });
+    await writeFile(join(binaryDirectory, 'claude'), '#!/bin/sh\nexit 0\n');
+    await chmod(join(binaryDirectory, 'claude'), 0o755);
     let claudeVersion: string | undefined;
     const runnerCalls: string[] = [];
     const app = createApp({
       cwd,
       homeDirectory,
+      environment: { PATH: binaryDirectory },
       dependencyCommandRunner: async (command, args) => {
         runnerCalls.push([command, ...args].join(' '));
         if (command === 'npm' && args[0] === '--version') return { stdout: '10.0.0', stderr: '' };
+        if (command === 'npm' && args[0] === 'prefix') return { stdout: npmRoot, stderr: '' };
         if (command === 'claude' && args[0] === '--version') {
           if (!claudeVersion) throw new Error('command not found: claude');
           return { stdout: `v${claudeVersion}`, stderr: '' };
+        }
+        if (command === 'claude' && args[0] === 'update') {
+          claudeVersion = '2.0.1';
+          return { stdout: 'Updated to 2.0.1', stderr: '' };
         }
         if (command === 'npm' && args[0] === 'install') {
           claudeVersion = '2.0.1';

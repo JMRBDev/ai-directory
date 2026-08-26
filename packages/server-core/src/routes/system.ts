@@ -44,6 +44,8 @@ export function registerSystemRoutes({ app, options, cwd }: RouteContext): void 
           upgradeCommand?: string;
           uninstallCommand?: string;
           version?: string;
+          origin?: string;
+          originPath?: string;
         } = {
           ...detection,
           installed: status?.installed ?? detection.detected,
@@ -53,6 +55,10 @@ export function registerSystemRoutes({ app, options, cwd }: RouteContext): void 
           merged.upgradeCommand = status.upgradeCommand;
           merged.uninstallCommand = status.uninstallCommand;
           if (status.version) merged.version = status.version;
+          if (status.origin) {
+            merged.origin = status.origin;
+            if (status.originPath) merged.originPath = status.originPath;
+          }
         }
         return merged;
       });

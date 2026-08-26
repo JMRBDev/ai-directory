@@ -11,12 +11,16 @@ import type {
 export type { Harness, ResourceSummary, ResourceType };
 export type { HarnessDetection, Installation, LocalResource, PlanChange, ChangePlan };
 
+export type HarnessOrigin = 'npm' | 'homebrew' | 'native';
+
 export type HarnessManagerStatus = HarnessDetection & {
   installed: boolean;
   installCommand: string;
   upgradeCommand: string;
   uninstallCommand: string;
   version?: string;
+  origin?: HarnessOrigin;
+  originPath?: string;
 };
 
 export type InstallScope = 'user' | 'project';

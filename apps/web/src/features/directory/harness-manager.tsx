@@ -12,8 +12,11 @@ import {
   AlertDialogTitle,
 } from '../../components/ui/alert-dialog';
 import { Button } from '../../components/ui/button';
+import { Checkbox } from '../../components/ui/checkbox';
+import { FieldDescription } from '../../components/ui/field';
+import { Label } from '../../components/ui/label';
 import { api } from '../../lib/api';
-import type { Harness, HarnessManagerStatus } from '../../lib/types';
+import type { Harness, HarnessManagerStatus, HarnessOrigin } from '../../lib/types';
 import { useDirectory } from './context';
 
 type HarnessAction = 'install' | 'update' | 'uninstall';
@@ -32,8 +35,20 @@ function commandFor(status: HarnessManagerStatus, action: HarnessAction): string
       : status.uninstallCommand;
 }
 
+const originLabels = {
+  npm: 'via npm',
+  homebrew: 'via Homebrew',
+  native: 'native install',
+} satisfies Record<HarnessOrigin, string>;
+
+function statusLine(harness: HarnessManagerStatus): string {
+  if (!harness.installed) return 'not installed';
+  const version = harness.version ? `v${harness.version}` : 'installed';
+  return harness.origin ? `${version} · ${originLabels[harness.origin]}` : version;
+}
+
 export function HarnessManagerSection() {
-  const { harnessDetection } = useDirectory();
+  const { harnessDetection, harnesses, setHarnesses } = useDirectory();
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState<{ harness: HarnessManagerStatus; action: HarnessAction } | null>(null);
 
@@ -47,33 +62,52 @@ export function HarnessManagerSection() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'The harness action failed.'),
   });
 
+  function toggleDefault(harness: Harness, checked: boolean) {
+    const next = checked
+      ? [...harnesses, harness]
+      : harnesses.filter((item) => item !== harness);
+    setHarnesses(next);
+  }
+
   return (
     <section className="flex flex-col gap-3">
       <h3 className="text-sm font-medium">Agent harnesses</h3>
       {harnessDetection === undefined && (
         <p className="text-xs text-muted-foreground">Scanning installed harnesses…</p>
       )}
-      {harnessDetection?.map((harness) => (
-        <div key={harness.harness} className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{harness.displayName}</p>
-            <p className="truncate font-mono text-xs text-muted-foreground">
-              {harness.installed ? (harness.version ? `v${harness.version}` : 'installed') : 'not installed'}
-            </p>
+      {harnessDetection?.map((harness) => {
+        const isDefault = harnesses.includes(harness.harness);
+        return (
+          <div key={harness.harness} className="flex items-center justify-between gap-3">
+            <Label htmlFor={`harness-default-${harness.harness}`} className="min-w-0 items-start gap-2.5">
+              <Checkbox
+                id={`harness-default-${harness.harness}`}
+                className="mt-0.5"
+                checked={isDefault}
+                onCheckedChange={(checked) => toggleDefault(harness.harness, checked === true)}
+              />
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">{harness.displayName}</span>
+                <span className="block truncate font-mono text-xs font-normal text-muted-foreground">
+                  {statusLine(harness)}
+                </span>
+              </span>
+            </Label>
+            <div className="flex shrink-0 gap-2">
+              {!harness.installed && (
+                <Button size="sm" onClick={() => setConfirm({ harness, action: 'install' })}>Install</Button>
+              )}
+              {harness.installed && (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => setConfirm({ harness, action: 'update' })}>Update</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setConfirm({ harness, action: 'uninstall' })}>Uninstall</Button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex shrink-0 gap-2">
-            {!harness.installed && (
-              <Button size="sm" onClick={() => setConfirm({ harness, action: 'install' })}>Install</Button>
-            )}
-            {harness.installed && (
-              <>
-                <Button size="sm" variant="outline" onClick={() => setConfirm({ harness, action: 'update' })}>Update</Button>
-                <Button size="sm" variant="ghost" onClick={() => setConfirm({ harness, action: 'uninstall' })}>Uninstall</Button>
-              </>
-            )}
-          </div>
-        </div>
-      ))}
+        );
+      })}
+      <FieldDescription>New staged resources use the checked harnesses.</FieldDescription>
       <AlertDialog open={confirm !== null} onOpenChange={(open) => { if (!open) setConfirm(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>

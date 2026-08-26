@@ -3,9 +3,13 @@ import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { configuredPath, pathExists } from '@ai-directory/config';
-import type { Harness, ToolInstaller } from '@ai-directory/contracts';
+import type { Harness, ToolPackageManager } from '@ai-directory/contracts';
 
 export type { Harness } from '@ai-directory/contracts';
+
+export type HarnessInstallChannel =
+  | { kind: 'script'; command: string; args: string[] }
+  | { kind: 'manager'; manager: ToolPackageManager; package: string };
 
 export type HarnessPathOptions = {
   cwd?: string;
@@ -26,7 +30,11 @@ export type HarnessDefinition = {
   harness: Harness;
   displayName: string;
   command: string;
-  installers: ToolInstaller[];
+  installers: HarnessInstallChannel[];
+  selfUpdate?: {
+    command: string;
+    args: string[];
+  };
   paths(options: HarnessPathContext): HarnessLocation;
   markers(location: HarnessLocation): string[];
 };
@@ -52,7 +60,11 @@ const definitionsById = {
     harness: 'claude-code',
     displayName: 'Claude Code',
     command: 'claude',
-    installers: [{ manager: 'npm', package: '@anthropic-ai/claude-code' }],
+    installers: [
+      { kind: 'script', command: 'bash', args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'] },
+      { kind: 'manager', manager: 'npm', package: '@anthropic-ai/claude-code' },
+    ],
+    selfUpdate: { command: 'claude', args: ['update'] },
     paths: ({ home, environment }) => {
       const globalConfig = configuredPath(environment, 'CLAUDE_CONFIG_DIR') ?? join(home, '.claude');
 
@@ -64,7 +76,11 @@ const definitionsById = {
     harness: 'opencode',
     displayName: 'OpenCode',
     command: 'opencode',
-    installers: [{ manager: 'npm', package: 'opencode-ai' }],
+    installers: [
+      { kind: 'script', command: 'bash', args: ['-c', 'curl -fsSL https://opencode.ai/install | bash'] },
+      { kind: 'manager', manager: 'npm', package: 'opencode-ai' },
+    ],
+    selfUpdate: { command: 'opencode', args: ['upgrade'] },
     paths: ({ home, environment }) => {
       const configHome = configuredPath(environment, 'XDG_CONFIG_HOME') ?? join(home, '.config');
       const globalConfig =
@@ -78,7 +94,7 @@ const definitionsById = {
     harness: 'codex',
     displayName: 'Codex',
     command: 'codex',
-    installers: [{ manager: 'npm', package: '@openai/codex' }],
+    installers: [{ kind: 'manager', manager: 'npm', package: '@openai/codex' }],
     paths: ({ home, environment }) => {
       const globalConfig = configuredPath(environment, 'CODEX_HOME') ?? join(home, '.codex');
 
@@ -190,7 +206,7 @@ async function existingPaths(paths: string[]): Promise<string[]> {
   return results.filter((path): path is string => path !== undefined);
 }
 
-async function findExecutable(
+export async function findExecutable(
   command: string,
   environment: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {

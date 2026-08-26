@@ -575,7 +575,7 @@ export async function defaultCommandRunner(
   };
 }
 
-function extractVersion(output: string): string | undefined {
+export function extractVersion(output: string): string | undefined {
   const candidates = output.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/gu) ?? [];
 
   for (const candidate of candidates) {

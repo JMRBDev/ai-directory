@@ -151,7 +151,7 @@ apps/cli/dist/aid harness update codex
 apps/cli/dist/aid harness uninstall codex
 ```
 
-Each action runs one allowlisted package-manager command (npm global packages today), verifies the installed version afterwards, and never touches harness configuration directories such as `~/.claude` or `~/.codex`. Interactive terminals ask for confirmation first; scripted runs pass `--yes`. The website Settings sheet shows the same detection with Install, Update, and Uninstall actions behind a confirmation dialog.
+Installs prefer the official installer channels published by each harness (`claude.ai/install.sh`, `opencode.ai/install`) and fall back to an allowlisted package-manager command (npm global packages). Updates use the harness's own official update command (`claude update`, `opencode upgrade`). Every action first detects how the harness was installed — npm, Homebrew, or a native installer — and only acts through the matching channel: installs verify the version afterwards, and uninstalls refuse with guidance when the binary was not installed through a supported package manager. Harness configuration directories such as `~/.claude` or `~/.codex` are never touched. Interactive terminals ask for confirmation first; scripted runs pass `--yes`. The website Settings sheet shows the same detection with Install, Update, and Uninstall actions behind a confirmation dialog.
 
 ## Run the local catalog
 
