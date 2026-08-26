@@ -19,11 +19,9 @@ export function ChangeItem({ item, onRemove, onUpdate, disabled }: {
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{itemName(item.resource)}</p>
-          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{item.resource.split('/').slice(0, 2).join('/')}</p>
+          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{item.resource}</p>
         </div>
-        <Badge {...badgeTone(item.action === 'install' ? 'success' : 'destructive')}>
-          {item.action === 'install' ? 'Install' : 'Remove'}
-        </Badge>
+        {item.action === 'uninstall' && <Badge {...badgeTone('destructive')}>Remove</Badge>}
         <TooltipIconButton label={`Remove ${itemName(item.resource)}`} onClick={onRemove}>
           <HugeiconsIcon icon={Delete02Icon} />
         </TooltipIconButton>
