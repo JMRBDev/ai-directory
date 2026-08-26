@@ -1,12 +1,13 @@
 import type {
   ChangePlan,
   ConfigResponse,
-  HarnessDetection,
+  HarnessManagerStatus,
   LocalResourcesResponse,
   RegistryResponse,
   ResourceResponse,
   Installation,
   ApplyResponse,
+  Harness,
 } from './types';
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -50,7 +51,8 @@ export const api = {
   ),
   installed: () => request<{ installations?: Installation[] }>(API_PATHS.installed),
   localResources: () => request<LocalResourcesResponse>(API_PATHS.localResources),
-  harnesses: () => request<{ harnesses: HarnessDetection[] }>(API_PATHS.harnesses),
+  harnesses: () => request<{ harnesses: HarnessManagerStatus[] }>(API_PATHS.harnesses),
+  harnessAction: (action: 'install' | 'update' | 'uninstall', harness: Harness) => jsonRequest<{ result: { harness: string; version?: string } }>(`${API_PATHS.harnesses}/${action}`, { harness }),
   config: () => request<ConfigResponse>(API_PATHS.config),
   configPut: (repository: string, scope: 'user' | 'project') => jsonRequest<ConfigResponse>(API_PATHS.config, { repository, scope }, 'PUT'),
   configDelete: (scope: 'user' | 'project') => request<ConfigResponse>(`${API_PATHS.config}?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' }),

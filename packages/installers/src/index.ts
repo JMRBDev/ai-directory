@@ -48,3 +48,16 @@ export { installCodexResources } from './plans/codex.js';
 export { removeStaleInstallationFiles, uninstallInstallation } from './install-cleanup.js';
 
 export { applyResourceOperations, planResourceOperations } from './resource-operations.js';
+
+export {
+  inspectHarness,
+  inspectHarnesses,
+  installHarness,
+  uninstallHarness,
+  updateHarness,
+} from './harness-management.js';
+export type {
+  HarnessActionResult,
+  HarnessManagementOptions,
+  HarnessStatus,
+} from './harness-management.js';

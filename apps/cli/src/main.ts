@@ -6,6 +6,7 @@ import { isInteractiveTerminal } from './helpers';
 import { check, list, show } from './commands/read';
 import { create, submit, validate } from './commands/create';
 import { install, installed, uninstall, update } from './commands/install';
+import { harness } from './commands/harness';
 import { doctor, setup } from './commands/setup';
 import { configClear, configGet, configList, configPath, configSet } from './commands/config';
 import { web } from './commands/web';
@@ -89,6 +90,7 @@ const main = defineCommand({
     installed,
     update,
     uninstall,
+    harness,
     web,
     setup,
     doctor,

@@ -1,28 +1,71 @@
+import type { Context } from 'hono';
 import {
   clearConfigFile,
   getConfigPath,
   readConfigFile,
   writeConfigFile,
 } from '@ai-directory/config';
-import { detectHarnesses, errorMessage } from '@ai-directory/installers';
+import { harnessSchema } from '@ai-directory/contracts';
+import {
+  detectHarnesses,
+  errorMessage,
+  inspectHarnesses,
+  installHarness,
+  uninstallHarness,
+  updateHarness,
+  type HarnessManagementOptions,
+} from '@ai-directory/installers';
 import { configResponse, githubUsername } from '../environment.js';
 import { jsonBody } from '../http.js';
 import { cachedRegistry } from '../planning.js';
 import { configRequestSchema, configScopeSchema } from '../requests.js';
-import type { RequestBody, RouteContext } from '../types.js';
+import type { RequestBody, RouteContext, ServerOptions } from '../types.js';
+
+const harnessManagementError = 'harness must be one of claude-code, opencode, or codex.';
 
 export function registerSystemRoutes({ app, options, cwd }: RouteContext): void {
   app.get('/api/harnesses', async (context) => {
     try {
-      const detectionOptions: Parameters<typeof detectHarnesses>[0] = { cwd };
+      const detectionOptions: NonNullable<Parameters<typeof detectHarnesses>[0]> = { cwd };
       if (options.homeDirectory) detectionOptions.homeDirectory = options.homeDirectory;
       if (options.environment) detectionOptions.environment = options.environment;
+      const managementOptions = harnessManagementOptions(options, cwd);
 
-      return context.json({ harnesses: await detectHarnesses(detectionOptions) });
+      const [detections, statuses] = await Promise.all([
+        detectHarnesses(detectionOptions),
+        inspectHarnesses(managementOptions),
+      ]);
+
+      const harnesses = detections.map((detection) => {
+        const status = statuses.find((candidate) => candidate.harness === detection.harness);
+        const merged: typeof detection & {
+          installed: boolean;
+          installCommand?: string;
+          upgradeCommand?: string;
+          uninstallCommand?: string;
+          version?: string;
+        } = {
+          ...detection,
+          installed: status?.installed ?? detection.detected,
+        };
+        if (status) {
+          merged.installCommand = status.installCommand;
+          merged.upgradeCommand = status.upgradeCommand;
+          merged.uninstallCommand = status.uninstallCommand;
+          if (status.version) merged.version = status.version;
+        }
+        return merged;
+      });
+
+      return context.json({ harnesses });
     } catch (caught) {
       return context.json({ error: errorMessage(caught) }, 500);
     }
   });
+
+  app.post('/api/harnesses/install', (context) => harnessAction(context, options, cwd, 'install'));
+  app.post('/api/harnesses/update', (context) => harnessAction(context, options, cwd, 'update'));
+  app.post('/api/harnesses/uninstall', (context) => harnessAction(context, options, cwd, 'uninstall'));
 
   app.post('/api/refresh', async (context) => {
     try {
@@ -84,3 +127,40 @@ export function registerSystemRoutes({ app, options, cwd }: RouteContext): void 
     return context.json({ ...configResponse(cwd), clearedScope: scope });
   });
 }
+
+function harnessManagementOptions(options: ServerOptions, cwd: string): HarnessManagementOptions {
+  const managementOptions: HarnessManagementOptions = { cwd };
+  if (options.environment) managementOptions.environment = options.environment;
+  if (options.dependencyCommandRunner) managementOptions.commandRunner = options.dependencyCommandRunner;
+  return managementOptions;
+}
+
+async function harnessAction(
+  context: Context,
+  options: ServerOptions,
+  cwd: string,
+  action: 'install' | 'update' | 'uninstall',
+): Promise<Response> {
+  let body: RequestBody;
+
+  try {
+    body = await jsonBody(context);
+  } catch {
+    return context.json({ error: 'Request body must be valid JSON.' }, 400);
+  }
+
+  const harness = harnessSchema.safeParse(body.harness);
+  if (!harness.success) return context.json({ error: harnessManagementError }, 400);
+
+  try {
+    const result = action === 'install'
+      ? await installHarness(harness.data, harnessManagementOptions(options, cwd))
+      : action === 'update'
+        ? await updateHarness(harness.data, harnessManagementOptions(options, cwd))
+        : await uninstallHarness(harness.data, harnessManagementOptions(options, cwd));
+    return context.json({ result });
+  } catch (caught) {
+    return context.json({ error: errorMessage(caught) }, 400);
+  }
+}
+

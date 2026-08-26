@@ -3,7 +3,7 @@ import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { configuredPath, pathExists } from '@ai-directory/config';
-import type { Harness } from '@ai-directory/contracts';
+import type { Harness, ToolInstaller } from '@ai-directory/contracts';
 
 export type { Harness } from '@ai-directory/contracts';
 
@@ -26,6 +26,7 @@ export type HarnessDefinition = {
   harness: Harness;
   displayName: string;
   command: string;
+  installers: ToolInstaller[];
   paths(options: HarnessPathContext): HarnessLocation;
   markers(location: HarnessLocation): string[];
 };
@@ -51,6 +52,7 @@ const definitionsById = {
     harness: 'claude-code',
     displayName: 'Claude Code',
     command: 'claude',
+    installers: [{ manager: 'npm', package: '@anthropic-ai/claude-code' }],
     paths: ({ home, environment }) => {
       const globalConfig = configuredPath(environment, 'CLAUDE_CONFIG_DIR') ?? join(home, '.claude');
 
@@ -62,6 +64,7 @@ const definitionsById = {
     harness: 'opencode',
     displayName: 'OpenCode',
     command: 'opencode',
+    installers: [{ manager: 'npm', package: 'opencode-ai' }],
     paths: ({ home, environment }) => {
       const configHome = configuredPath(environment, 'XDG_CONFIG_HOME') ?? join(home, '.config');
       const globalConfig =
@@ -75,6 +78,7 @@ const definitionsById = {
     harness: 'codex',
     displayName: 'Codex',
     command: 'codex',
+    installers: [{ manager: 'npm', package: '@openai/codex' }],
     paths: ({ home, environment }) => {
       const globalConfig = configuredPath(environment, 'CODEX_HOME') ?? join(home, '.codex');
 

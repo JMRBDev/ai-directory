@@ -429,6 +429,23 @@ describe('CLI', () => {
     }
   });
 
+  it('lists agent harnesses and refuses scripted changes without consent', () => {
+    const list = runAid(['harness', 'list'], undefined, registryIndex);
+
+    expect(list.code).toBe(0);
+    expect(list.stdout).toContain('Claude Code');
+    expect(list.stdout).toContain('OpenCode');
+    expect(list.stdout).toContain('Codex');
+
+    const guarded = runAid(['harness', 'install', 'claude-code'], undefined, registryIndex);
+    expect(guarded.code).toBe(1);
+    expect(guarded.stderr).toContain('Pass --yes');
+
+    const unknown = runAid(['harness', 'install', 'not-a-harness'], undefined, registryIndex);
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain('Unknown harness: not-a-harness');
+  });
+
   it('updates a resource to a requested version', () => {
     const home = mkdtempSync(join(tmpdir(), 'ai-directory-cli-update-home-'));
     const resource = 'john-doe/skills/typescript-review';

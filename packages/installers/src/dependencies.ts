@@ -85,6 +85,10 @@ type PackageManagerDefinition = {
   uninstallArgs(packageName: string): string[];
 };
 
+export function packageManagerDefinition(manager: ToolPackageManager): PackageManagerDefinition {
+  return packageManagers[manager];
+}
+
 const packageManagers = {
   homebrew: {
     command: 'brew',
@@ -456,7 +460,7 @@ export function dependencyStatusMessage(status: ToolDependencyStatus): string {
   return status.runtime.command + ' is not ready';
 }
 
-async function inspectToolDependency(
+export async function inspectToolDependency(
   resource: string,
   runtime: ToolDependency,
   options: ToolDependencyOptions,
@@ -552,7 +556,7 @@ function mergeToolDependencies(first: ToolDependency, second: ToolDependency): T
   return merged;
 }
 
-async function defaultCommandRunner(
+export async function defaultCommandRunner(
   command: string,
   args: string[],
   cwd: string,

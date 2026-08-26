@@ -140,6 +140,19 @@ apps/cli/dist/aid doctor --json
 
 The CLI uses the Git credentials already configured on the employee's machine. It does not store Git credentials in AI Directory configuration.
 
+## Manage agent harnesses
+
+Inspect, install, update, and remove the supported coding harnesses themselves:
+
+```sh
+apps/cli/dist/aid harness list
+apps/cli/dist/aid harness install codex
+apps/cli/dist/aid harness update codex
+apps/cli/dist/aid harness uninstall codex
+```
+
+Each action runs one allowlisted package-manager command (npm global packages today), verifies the installed version afterwards, and never touches harness configuration directories such as `~/.claude` or `~/.codex`. Interactive terminals ask for confirmation first; scripted runs pass `--yes`. The website Settings sheet shows the same detection with Install, Update, and Uninstall actions behind a confirmation dialog.
+
 ## Run the local catalog
 
 The website is local-first. It reads the same registry index as the CLI and starts a loopback Hono control API for local settings. It does not require a hosted service:

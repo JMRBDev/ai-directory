@@ -747,7 +747,7 @@ describe('local control API', () => {
     await expect(readFile(skillPath, 'utf8')).resolves.toContain('error handling, and tests');
   });
 
-  it('reports harness detection for the local machine', async () => {
+  it('reports harness detection and management status for the local machine', async () => {
     const cwd = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();
     const app = createApp({
@@ -759,20 +759,93 @@ describe('local control API', () => {
         OPENCODE_CONFIG_DIR: join(homeDirectory, '.config', 'opencode'),
         XDG_CONFIG_HOME: join(homeDirectory, '.config'),
       },
+      dependencyCommandRunner: async (command) => {
+        if (command === 'npm') return { stdout: '10.0.0', stderr: '' };
+        throw new Error(`command not found: ${command}`);
+      },
     });
 
     const response = await app.request('/api/harnesses');
     expect(response.status).toBe(200);
-    // SAFETY: The harnesses endpoint returns the DetectHarnesses contract shape.
+    // SAFETY: The harnesses endpoint merges the detection and management contracts.
     const body = await response.json() as {
-      harnesses: Array<{ harness: string; command: string; executable: string | null; configured: boolean; detected: boolean }>;
+      harnesses: Array<{ harness: string; configured: boolean; installed: boolean; installCommand: string; version?: string }>;
     };
     expect(body.harnesses.map((harness) => harness.harness)).toEqual(['claude-code', 'opencode', 'codex']);
     for (const harness of body.harnesses) {
-      expect(harness.command).toBeTypeOf('string');
       expect(harness.configured).toBe(false);
-      expect(harness.detected).toBeTypeOf('boolean');
+      expect(harness.installed).toBe(false);
+      expect(harness.installCommand).toContain('npm install --global');
+      expect(harness.version).toBeUndefined();
     }
+  });
+
+  it('installs and uninstalls a harness through package-manager commands', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    let claudeVersion: string | undefined;
+    const runnerCalls: string[] = [];
+    const app = createApp({
+      cwd,
+      homeDirectory,
+      dependencyCommandRunner: async (command, args) => {
+        runnerCalls.push([command, ...args].join(' '));
+        if (command === 'npm' && args[0] === '--version') return { stdout: '10.0.0', stderr: '' };
+        if (command === 'claude' && args[0] === '--version') {
+          if (!claudeVersion) throw new Error('command not found: claude');
+          return { stdout: `v${claudeVersion}`, stderr: '' };
+        }
+        if (command === 'npm' && args[0] === 'install') {
+          claudeVersion = '2.0.1';
+          return { stdout: '', stderr: '' };
+        }
+        if (command === 'npm' && args[0] === 'uninstall') {
+          claudeVersion = undefined;
+          return { stdout: '', stderr: '' };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      },
+    });
+    const request = { method: 'POST', headers: { 'content-type': 'application/json' } } as const;
+
+    const invalid = await app.request('/api/harnesses/install', {
+      ...request,
+      body: JSON.stringify({ harness: 'not-a-harness' }),
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({
+      error: 'harness must be one of claude-code, opencode, or codex.',
+    });
+
+    const install = await app.request('/api/harnesses/install', {
+      ...request,
+      body: JSON.stringify({ harness: 'claude-code' }),
+    });
+    expect(install.status).toBe(200);
+    await expect(install.json()).resolves.toMatchObject({
+      result: {
+        harness: 'claude-code',
+        manager: 'npm',
+        package: '@anthropic-ai/claude-code',
+        version: '2.0.1',
+      },
+    });
+
+    const update = await app.request('/api/harnesses/update', {
+      ...request,
+      body: JSON.stringify({ harness: 'claude-code' }),
+    });
+    expect(update.status).toBe(200);
+    await expect(update.json()).resolves.toMatchObject({ result: { harness: 'claude-code', version: '2.0.1' } });
+
+    const uninstall = await app.request('/api/harnesses/uninstall', {
+      ...request,
+      body: JSON.stringify({ harness: 'claude-code' }),
+    });
+    expect(uninstall.status).toBe(200);
+    await expect(uninstall.json()).resolves.toMatchObject({ result: { harness: 'claude-code' } });
+    expect(runnerCalls.some((call) => call.startsWith('npm install --global'))).toBe(true);
+    expect(runnerCalls.some((call) => call.startsWith('npm uninstall --global'))).toBe(true);
   });
 
   it('rejects project scope for file resources', async () => {

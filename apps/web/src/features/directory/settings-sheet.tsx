@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import type { InstallScope } from '../../lib/types';
 import { ErrorMessage, SheetFrame } from './common';
 import { useDirectory } from './context';
+import { HarnessManagerSection } from './harness-manager';
 import { badgeTone, HarnessToggleGroup } from './shared';
 import { installScope } from './model';
 import { getServerSystemTheme, getSystemTheme, readStorage, subscribeSystemTheme, writeStorage } from '../../lib/theme';
@@ -99,6 +100,8 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
             <Button variant="ghost" size="sm" onClick={() => void clearMutation.mutateAsync()} disabled={clearMutation.isPending}>Clear</Button>
           </div>
         </section>
+        <Separator />
+        <HarnessManagerSection />
         <Separator />
         <section className="flex flex-col gap-3">
           <h3 className="text-sm font-medium">Appearance</h3>
