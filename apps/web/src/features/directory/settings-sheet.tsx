@@ -16,6 +16,11 @@ import { badgeTone } from './shared';
 import { installScope } from './model';
 import { getServerSystemTheme, getSystemTheme, readStorage, subscribeSystemTheme, writeStorage } from '../../lib/theme';
 
+const scopeOptions = [
+  { value: 'user', label: 'User config' },
+  { value: 'project', label: 'Project config' },
+] as const;
+
 export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const queryClient = useQueryClient();
   const config = useQuery({ queryKey: ['config'], queryFn: api.config, enabled: open });
@@ -85,8 +90,8 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
         <Field>
           <FieldLabel htmlFor="settings-scope">Save scope</FieldLabel>
           <Select value={configScope} onValueChange={(value) => { if (value !== null) setConfigScope(installScope(value)); }}>
-            <SelectTrigger id="settings-scope"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="user">User config</SelectItem><SelectItem value="project">Project config</SelectItem></SelectContent>
+            <SelectTrigger id="settings-scope"><SelectValue>{scopeOptions.find((option) => option.value === configScope)?.label}</SelectValue></SelectTrigger>
+            <SelectContent>{scopeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
           </Select>
         </Field>
         <div className="flex gap-2">

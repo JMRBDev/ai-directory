@@ -14,6 +14,28 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Search01Icon } from '@hugeicons/core-free-icons';
 
+const reviewOptions = [
+  { value: 'all', label: 'All resources' },
+  { value: 'reviewed', label: 'Reviewed' },
+  { value: 'unreviewed', label: 'Unreviewed' },
+] as const;
+
+const installedOptions = [
+  { value: 'all', label: 'All' },
+  { value: 'installed', label: 'Installed' },
+  { value: 'not-installed', label: 'Not installed' },
+] as const;
+
+const sortOptions = [
+  { value: 'updated', label: 'Recently updated' },
+  { value: 'name', label: 'Name A-Z' },
+  { value: 'version', label: 'Newest version' },
+] as const;
+
+function selectedLabel<T extends string>(options: ReadonlyArray<{ value: T; label: string }>, value: T): string {
+  return options.find((option) => option.value === value)?.label ?? value;
+}
+
 export function CatalogFilters({
   activeType,
   query,
@@ -58,22 +80,22 @@ export function CatalogFilters({
         <Field>
           <FieldLabel htmlFor="resource-review">Review status</FieldLabel>
           <Select value={review} onValueChange={(value) => { if (value !== null) onReviewChange(reviewFilter(value)); }}>
-            <SelectTrigger id="resource-review"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="all">All resources</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="unreviewed">Unreviewed</SelectItem></SelectContent>
+            <SelectTrigger id="resource-review"><SelectValue>{selectedLabel(reviewOptions, review)}</SelectValue></SelectTrigger>
+            <SelectContent>{reviewOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
           </Select>
         </Field>
         <Field>
           <FieldLabel htmlFor="resource-installed">Installed</FieldLabel>
           <Select value={installed} onValueChange={(value) => { if (value !== null) onInstalledChange(installedFilter(value)); }}>
-            <SelectTrigger id="resource-installed"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="installed">Installed</SelectItem><SelectItem value="not-installed">Not installed</SelectItem></SelectContent>
+            <SelectTrigger id="resource-installed"><SelectValue>{selectedLabel(installedOptions, installed)}</SelectValue></SelectTrigger>
+            <SelectContent>{installedOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
           </Select>
         </Field>
         <Field>
           <FieldLabel htmlFor="resource-sort">Sort by</FieldLabel>
           <Select value={sort} onValueChange={(value) => { if (value !== null) onSortChange(sortOption(value)); }}>
-            <SelectTrigger id="resource-sort"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="updated">Recently updated</SelectItem><SelectItem value="name">Name A-Z</SelectItem><SelectItem value="version">Newest version</SelectItem></SelectContent>
+            <SelectTrigger id="resource-sort"><SelectValue>{selectedLabel(sortOptions, sort)}</SelectValue></SelectTrigger>
+            <SelectContent>{sortOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
           </Select>
         </Field>
       </div>

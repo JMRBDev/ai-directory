@@ -34,7 +34,7 @@ export function SiteHeader() {
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-5 sm:px-8">
         <Button render={<Link to="/" />} variant="ghost" size="sm" className="-ml-2 font-semibold">
           <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <HugeiconsIcon icon={PackageIcon} size={16} />
+            <HugeiconsIcon icon={PackageIcon} />
           </span>
           AI Directory
         </Button>
@@ -65,19 +65,19 @@ export function SiteHeader() {
                 <HugeiconsIcon icon={MoreVerticalIcon} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => void refresh()} disabled={refreshing}>
+                <DropdownMenuItem onClick={() => void refresh()} disabled={refreshing}>
                   <HugeiconsIcon icon={RefreshIcon} /> Refresh registry
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSheet('installed')}>
+                <DropdownMenuItem onClick={() => setSheet('installed')}>
                   <HugeiconsIcon icon={HardDriveIcon} /> Installed resources
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSheet('publish')}>
+                <DropdownMenuItem onClick={() => setSheet('publish')}>
                   <HugeiconsIcon icon={Upload04Icon} /> Publish resource
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSheet('changes')}>
+                <DropdownMenuItem onClick={() => setSheet('changes')}>
                   <HugeiconsIcon icon={PlayListAddIcon} /> Changes{changeCount > 0 ? ` · ${changeCount}` : ''}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSheet('settings')}>
+                <DropdownMenuItem onClick={() => setSheet('settings')}>
                   <HugeiconsIcon icon={Settings01Icon} /> Settings
                 </DropdownMenuItem>
               </DropdownMenuContent>

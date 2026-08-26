@@ -13,6 +13,23 @@ import { DirectoryEmpty } from './shared';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { InfoIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 
+const harnessOptions = [
+  { value: 'all', label: 'All harnesses' },
+  { value: 'claude-code', label: 'Claude Code' },
+  { value: 'opencode', label: 'OpenCode' },
+  { value: 'codex', label: 'Codex' },
+] as const;
+
+const sourceOptions = [
+  { value: 'all', label: 'All sources' },
+  { value: 'registry', label: 'From this registry' },
+  { value: 'local', label: 'Not from this registry' },
+] as const;
+
+function selectedLabel<T extends string>(options: ReadonlyArray<{ value: T; label: string }>, value: T): string {
+  return options.find((option) => option.value === value)?.label ?? value;
+}
+
 export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { localResources, localError, localLoading, localRegistryError, homeDirectory, staged, harnesses, stage, unstage } = useDirectory();
   const queryClient = useQueryClient();
@@ -47,12 +64,12 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Installed resources" description="Resources found in your local harness directories.">
       <div className="flex items-center gap-2">
         <Select value={harnessFilter} onValueChange={(value) => { if (value !== null) setHarnessFilter(parseHarnessFilter(value)); }}>
-          <SelectTrigger aria-label="Harness" className="flex-1"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="all">All harnesses</SelectItem><SelectItem value="claude-code">Claude Code</SelectItem><SelectItem value="opencode">OpenCode</SelectItem><SelectItem value="codex">Codex</SelectItem></SelectContent>
+          <SelectTrigger aria-label="Harness" className="flex-1"><SelectValue>{selectedLabel(harnessOptions, harnessFilter)}</SelectValue></SelectTrigger>
+          <SelectContent>{harnessOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
         </Select>
         <Select value={sourceFilter} onValueChange={(value) => { if (value !== null) setSourceFilter(parseSourceFilter(value)); }}>
-          <SelectTrigger aria-label="Source" className="flex-1"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="all">All sources</SelectItem><SelectItem value="registry">From this registry</SelectItem><SelectItem value="local">Not from this registry</SelectItem></SelectContent>
+          <SelectTrigger aria-label="Source" className="flex-1"><SelectValue>{selectedLabel(sourceOptions, sourceFilter)}</SelectValue></SelectTrigger>
+          <SelectContent>{sourceOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
         </Select>
         <Button
           variant="outline"
@@ -61,7 +78,7 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
           onClick={() => void queryClient.invalidateQueries({ queryKey: ['local-resources'] })}
           disabled={localLoading}
         >
-          <HugeiconsIcon icon={RefreshIcon} size={16} className={cn(localLoading && 'animate-spin')} />
+          <HugeiconsIcon icon={RefreshIcon} className={cn(localLoading && 'animate-spin')} />
         </Button>
       </div>
       {localError && <ErrorMessage message={localError} />}

@@ -27,7 +27,7 @@ export function FolderPicker({ files, onFiles, busy }: {
         <FieldLabel>Resource folder</FieldLabel>
         <div className="flex flex-wrap items-center gap-3">
           <Button type="button" variant="outline" disabled={busy} onClick={() => inputRef.current?.click()}>
-            <HugeiconsIcon icon={FolderOpenIcon} size={16} /> Choose folder
+            <HugeiconsIcon icon={FolderOpenIcon} /> Choose folder
           </Button>
           <p className="min-w-0 truncate text-sm text-muted-foreground" aria-live="polite">
             {files.length === 0 ? 'No folder chosen' : `${folder ?? 'Selection'} · ${files.length} file${files.length === 1 ? '' : 's'}`}

@@ -25,7 +25,7 @@ export function ChangeItem({ item, onRemove, onUpdate, disabled }: {
           {item.action === 'install' ? 'Install' : 'Remove'}
         </Badge>
         <TooltipIconButton label={`Remove ${itemName(item.resource)}`} onClick={onRemove}>
-          <HugeiconsIcon icon={Delete02Icon} size={15} />
+          <HugeiconsIcon icon={Delete02Icon} />
         </TooltipIconButton>
       </div>
       <HarnessToggleGroup
