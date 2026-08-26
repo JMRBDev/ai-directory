@@ -71,7 +71,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     const normalized: StagedItem = { ...item, harnesses: [...new Set(item.harnesses)] };
     if (normalized.type === 'mcp-servers' && !normalized.scope) normalized.scope = scope;
     saveStaged({ ...staged, [normalized.key]: normalized });
-    setSheet('changes');
+    toast.success(`Added ${normalized.resource.split('/').at(-1)} to Changes.`);
   }
 
   function updateStage(item: StagedItem) {
