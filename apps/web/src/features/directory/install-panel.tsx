@@ -12,10 +12,20 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { ArrowUpRight01Icon, Copy01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 
 export function InstallPanel({ resource }: { resource: ResourceSummary }) {
-  const { staged, harnesses, scope, setScope, stage, unstage } = useDirectory();
+  const { staged, harnesses, scope, setScope, stage, unstage, harnessDetection } = useDirectory();
   const id = resourceKey(resource);
   const stagedItem = staged[id];
-  const [selectedHarnesses, setSelectedHarnesses] = useState<Harness[]>(stagedItem?.harnesses ?? harnesses);
+  const detected = harnessDetection?.filter((item) => item.detected).map((item) => item.harness) ?? [];
+  const undetected = harnessDetection?.filter((item) => !item.detected).map((item) => item.harness);
+  const detectedSaved = harnesses.filter((item) => detected.includes(item));
+  const detectedDefaults = detected.length === 0
+    ? harnesses
+    : detectedSaved.length > 0
+      ? detectedSaved
+      : detected;
+  const [manualHarnesses, setManualHarnesses] = useState<Harness[]>(stagedItem?.harnesses ?? harnesses);
+  const [touched, setTouched] = useState(false);
+  const selectedHarnesses = stagedItem?.harnesses ?? (touched ? manualHarnesses : detectedDefaults);
   const [selectedScope, setSelectedScope] = useState<InstallScope>(stagedItem?.scope ?? scope);
   const [copied, setCopied] = useState(false);
   const isServer = resource.type === 'mcp-servers';
@@ -52,7 +62,11 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium">Install in</p>
-          <HarnessToggleGroup value={selectedHarnesses} onValueChange={setSelectedHarnesses} />
+          <HarnessToggleGroup
+            value={selectedHarnesses}
+            onValueChange={(next) => { setTouched(true); setManualHarnesses(next); }}
+            undetected={undetected}
+          />
         </div>
         {isServer && (
           <div className="flex flex-col gap-2">

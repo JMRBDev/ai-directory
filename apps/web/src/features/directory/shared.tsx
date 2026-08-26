@@ -41,11 +41,12 @@ function toHarnesses(values: string[]): Harness[] {
   });
 }
 
-export function HarnessToggleGroup({ value, onValueChange, disabled, ariaLabel = 'Target harnesses' }: {
+export function HarnessToggleGroup({ value, onValueChange, disabled, ariaLabel = 'Target harnesses', undetected }: {
   value: Harness[];
   onValueChange: (harnesses: Harness[]) => void;
   disabled?: boolean;
   ariaLabel?: string;
+  undetected?: Harness[] | undefined;
 }) {
   return (
     <ToggleGroup
@@ -56,7 +57,12 @@ export function HarnessToggleGroup({ value, onValueChange, disabled, ariaLabel =
       aria-label={ariaLabel}
     >
       {harnessOptions.map((option) => (
-        <ToggleGroupItem value={option.value} key={option.value}>{option.label}</ToggleGroupItem>
+        <ToggleGroupItem value={option.value} key={option.value}>
+          {option.label}
+          {undetected?.includes(option.value) && (
+            <span className="font-normal text-[0.625rem] text-muted-foreground">not detected</span>
+          )}
+        </ToggleGroupItem>
       ))}
     </ToggleGroup>
   );

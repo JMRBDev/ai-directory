@@ -1,6 +1,7 @@
 import type {
   ChangePlan,
   ConfigResponse,
+  HarnessDetection,
   LocalResourcesResponse,
   RegistryResponse,
   ResourceResponse,
@@ -16,6 +17,7 @@ export const API_PATHS = {
   resource: '/api/registry/resource',
   installed: '/api/installed',
   localResources: '/api/local-resources',
+  harnesses: '/api/harnesses',
   plan: '/api/plan',
   apply: '/api/apply',
   config: '/api/config',
@@ -48,6 +50,7 @@ export const api = {
   ),
   installed: () => request<{ installations?: Installation[] }>(API_PATHS.installed),
   localResources: () => request<LocalResourcesResponse>(API_PATHS.localResources),
+  harnesses: () => request<{ harnesses: HarnessDetection[] }>(API_PATHS.harnesses),
   config: () => request<ConfigResponse>(API_PATHS.config),
   configPut: (repository: string, scope: 'user' | 'project') => jsonRequest<ConfigResponse>(API_PATHS.config, { repository, scope }, 'PUT'),
   configDelete: (scope: 'user' | 'project') => request<ConfigResponse>(`${API_PATHS.config}?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' }),

@@ -4,7 +4,7 @@ import {
   readConfigFile,
   writeConfigFile,
 } from '@ai-directory/config';
-import { errorMessage } from '@ai-directory/installers';
+import { detectHarnesses, errorMessage } from '@ai-directory/installers';
 import { configResponse, githubUsername } from '../environment.js';
 import { jsonBody } from '../http.js';
 import { cachedRegistry } from '../planning.js';
@@ -12,6 +12,18 @@ import { configRequestSchema, configScopeSchema } from '../requests.js';
 import type { RequestBody, RouteContext } from '../types.js';
 
 export function registerSystemRoutes({ app, options, cwd }: RouteContext): void {
+  app.get('/api/harnesses', async (context) => {
+    try {
+      const detectionOptions: Parameters<typeof detectHarnesses>[0] = { cwd };
+      if (options.homeDirectory) detectionOptions.homeDirectory = options.homeDirectory;
+      if (options.environment) detectionOptions.environment = options.environment;
+
+      return context.json({ harnesses: await detectHarnesses(detectionOptions) });
+    } catch (caught) {
+      return context.json({ error: errorMessage(caught) }, 500);
+    }
+  });
+
   app.post('/api/refresh', async (context) => {
     try {
       await cachedRegistry.refresh();

@@ -21,6 +21,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
 
   const installationsQuery = useQuery({ queryKey: ['installed'], queryFn: api.installed });
   const localResourcesQuery = useQuery({ queryKey: ['local-resources'], queryFn: api.localResources });
+  const harnessQuery = useQuery({ queryKey: ['harness-detection'], queryFn: api.harnesses });
   const stagedItems = Object.values(staged);
   const groups = groupStaged(stagedItems);
   const planQuery = useQuery<PlanData>({
@@ -107,6 +108,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     localRegistryError: localResourcesQuery.data?.registryError,
     homeDirectory: localResourcesQuery.data?.homeDirectory,
     localLoading: localResourcesQuery.isFetching,
+    harnessDetection: harnessQuery.data?.harnesses,
     staged,
     harnesses,
     scope,

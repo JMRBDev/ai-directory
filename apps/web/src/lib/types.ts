@@ -1,6 +1,7 @@
 import type { Harness, RegistryIndex, ResourceSummary, ResourceType } from '@ai-directory/contracts';
 import type { ResourceVersion } from '@ai-directory/registry';
 import type {
+  HarnessDetection,
   InstallationRecord as Installation,
   LocalResource,
   PlannedResourceChange as PlanChange,
@@ -8,7 +9,7 @@ import type {
 } from '@ai-directory/installers';
 
 export type { Harness, ResourceSummary, ResourceType };
-export type { Installation, LocalResource, PlanChange, ChangePlan };
+export type { HarnessDetection, Installation, LocalResource, PlanChange, ChangePlan };
 
 export type InstallScope = 'user' | 'project';
 export type Action = 'install' | 'uninstall';

@@ -747,6 +747,34 @@ describe('local control API', () => {
     await expect(readFile(skillPath, 'utf8')).resolves.toContain('error handling, and tests');
   });
 
+  it('reports harness detection for the local machine', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const app = createApp({
+      cwd,
+      homeDirectory,
+      environment: {
+        CLAUDE_CONFIG_DIR: join(homeDirectory, '.claude'),
+        CODEX_HOME: join(homeDirectory, '.codex'),
+        OPENCODE_CONFIG_DIR: join(homeDirectory, '.config', 'opencode'),
+        XDG_CONFIG_HOME: join(homeDirectory, '.config'),
+      },
+    });
+
+    const response = await app.request('/api/harnesses');
+    expect(response.status).toBe(200);
+    // SAFETY: The harnesses endpoint returns the DetectHarnesses contract shape.
+    const body = await response.json() as {
+      harnesses: Array<{ harness: string; command: string; executable: string | null; configured: boolean; detected: boolean }>;
+    };
+    expect(body.harnesses.map((harness) => harness.harness)).toEqual(['claude-code', 'opencode', 'codex']);
+    for (const harness of body.harnesses) {
+      expect(harness.command).toBeTypeOf('string');
+      expect(harness.configured).toBe(false);
+      expect(harness.detected).toBeTypeOf('boolean');
+    }
+  });
+
   it('rejects project scope for file resources', async () => {
     const cwd = await createTemporaryDirectory();
     const homeDirectory = await createTemporaryDirectory();

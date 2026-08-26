@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import { api } from '../../lib/api';
-import type { Harness, InstallScope, LocalResource, StagedItem, StagedMap } from '../../lib/types';
+import type { Harness, HarnessDetection, InstallScope, LocalResource, StagedItem, StagedMap } from '../../lib/types';
 import type { PlanData, SheetName } from './model';
 
 export type DirectoryContextValue = {
@@ -10,6 +10,7 @@ export type DirectoryContextValue = {
   localRegistryError: string | undefined;
   homeDirectory: string | undefined;
   localLoading: boolean;
+  harnessDetection: HarnessDetection[] | undefined;
   staged: StagedMap;
   harnesses: Harness[];
   scope: InstallScope;
