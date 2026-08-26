@@ -52,7 +52,7 @@ export function CatalogCard({
           </span>
           {installed && (
             <Badge {...badgeTone('success')}>
-              <HugeiconsIcon icon={Tick02Icon} /> Installed
+              <HugeiconsIcon icon={Tick02Icon} data-icon="inline-start" /> Installed
             </Badge>
           )}
           {!installed && presentLocally && <span className="shrink-0">· Local</span>}

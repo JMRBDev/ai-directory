@@ -7,7 +7,7 @@ import { AlertCircleIcon } from '@hugeicons/core-free-icons';
 export function ErrorMessage({ message }: { message: string }) {
   return (
     <Alert variant="destructive">
-      <HugeiconsIcon icon={AlertCircleIcon} size={17} />
+      <HugeiconsIcon icon={AlertCircleIcon} />
       <AlertDescription>{message}</AlertDescription>
     </Alert>
   );

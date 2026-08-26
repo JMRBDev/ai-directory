@@ -1,9 +1,8 @@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../../components/ui/accordion';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
-import { ScrollArea } from '../../components/ui/scroll-area';
 import { harnessLabel, shortenHomePath, type ChangePlan } from '../../lib/types';
-import { badgeTone } from './shared';
+import { accordionContentClass, accordionTriggerClass, badgeTone } from './shared';
 import { useDirectory } from './context';
 
 export function PlanSummary({ plan }: { plan: ChangePlan }) {
@@ -37,23 +36,21 @@ export function PlanSummary({ plan }: { plan: ChangePlan }) {
         </Alert>
       )}
       {plan.changes.length > 0 && (
-        <ScrollArea className="max-h-80 rounded-lg border" tabIndex={0}>
-          <Accordion multiple className="rounded-none border-none">
-            {plan.changes.map((change) => (
-              <AccordionItem className="px-3" key={`${change.path}-${change.harness}-${change.action}`} value={`${change.path}-${change.harness}-${change.action}`}>
-                <AccordionTrigger className="gap-2 py-2.5 text-xs hover:no-underline">
-                  <span className="min-w-0 flex-1 truncate text-left"><code className="font-mono">{shortenHomePath(change.path, homeDirectory)}</code></span>
-                  <span className="shrink-0 text-muted-foreground">{harnessLabel(change.harness)} · {change.action}</span>
-                </AccordionTrigger>
-                {(change.before || change.after) && (
-                  <AccordionContent className="pb-3 pt-1">
-                    <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/60 p-3 font-mono text-xs leading-5"><code>{change.action === 'modified' ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}` : change.after ?? change.before}</code></pre>
-                  </AccordionContent>
-                )}
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </ScrollArea>
+        <Accordion multiple className="mt-3 max-h-80 overflow-y-auto">
+          {plan.changes.map((change) => (
+            <AccordionItem key={`${change.path}-${change.harness}-${change.action}`} value={`${change.path}-${change.harness}-${change.action}`}>
+              <AccordionTrigger className={accordionTriggerClass}>
+                <span className="min-w-0 flex-1 truncate text-left"><code className="font-mono">{shortenHomePath(change.path, homeDirectory)}</code></span>
+                <span className="shrink-0 text-muted-foreground">{harnessLabel(change.harness)} · {change.action}</span>
+              </AccordionTrigger>
+              {(change.before || change.after) && (
+                <AccordionContent className={accordionContentClass}>
+                  <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/60 p-3 font-mono text-xs leading-5"><code>{change.action === 'modified' ? `Before:\n${change.before ?? '(file did not exist)'}\n\nAfter:\n${change.after ?? '(file will be removed)'}` : change.after ?? change.before}</code></pre>
+                </AccordionContent>
+              )}
+            </AccordionItem>
+          ))}
+        </Accordion>
       )}
     </section>
   );

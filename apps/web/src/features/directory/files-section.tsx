@@ -6,7 +6,7 @@ import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { MarkdownView } from '../../components/markdown-view';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { isMarkdownPath } from './model';
-import { DirectoryEmpty } from './shared';
+import { accordionContentClass, accordionTriggerClass, DirectoryEmpty } from './shared';
 
 export function FilesSection({ version, hasError }: {
   version: ResourceVersion | null | undefined;
@@ -36,11 +36,11 @@ export function FilesSection({ version, hasError }: {
         <Accordion multiple defaultValue={files[0] ? [files[0].path] : []} className="mt-3">
           {files.map((file) => (
             <AccordionItem key={file.path} value={file.path}>
-              <AccordionTrigger className="gap-2 px-3 py-2.5 hover:no-underline">
+              <AccordionTrigger className={accordionTriggerClass}>
                 <HugeiconsIcon icon={File02Icon} size={15} className="text-muted-foreground" />
                 <code className="min-w-0 flex-1 truncate text-left font-mono">{file.path}</code>
               </AccordionTrigger>
-              <AccordionContent className="px-4 pb-3 pt-1">
+              <AccordionContent className={accordionContentClass}>
                 {isMarkdownPath(file.path) && view === 'rendered' ? (
                   <div className="max-h-80 overflow-y-auto">
                     <MarkdownView content={file.content} />

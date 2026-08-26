@@ -29,6 +29,9 @@ export function badgeTone(tone: BadgeTone): ComponentProps<typeof Badge> {
   }
 }
 
+export const accordionTriggerClass = 'gap-2 px-3 py-2.5 hover:no-underline';
+export const accordionContentClass = 'px-3 pb-3 pt-1';
+
 // Base UI toggle groups emit raw string values; convert them back to domain types here
 // so every consumer can stay fully typed.
 function toHarnesses(values: string[]): Harness[] {

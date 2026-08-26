@@ -16,7 +16,7 @@ export function ReviewCard({ review, description, pullRequestUrl }: {
       <CardHeader>
         <CardTitle id="publish-review-title">Ready to submit</CardTitle>
         <CardAction>
-          <Badge {...badgeTone('success')}><HugeiconsIcon icon={Tick02Icon} /> Validated</Badge>
+          <Badge {...badgeTone('success')}><HugeiconsIcon icon={Tick02Icon} data-icon="inline-start" /> Validated</Badge>
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -31,7 +31,7 @@ export function ReviewCard({ review, description, pullRequestUrl }: {
       {pullRequestUrl && (
         <CardFooter>
           <Button render={<a href={pullRequestUrl} target="_blank" rel="noreferrer" />} variant="outline" size="sm">
-            <HugeiconsIcon icon={Tick02Icon} size={15} /> Open pull request
+            <HugeiconsIcon icon={Tick02Icon} data-icon="inline-start" /> Open pull request
           </Button>
         </CardFooter>
       )}

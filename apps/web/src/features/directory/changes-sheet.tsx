@@ -65,7 +65,7 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             </Label>
           ) : null}
           <Button className="w-full" onClick={applyChanges} disabled={!canApply}>
-            {busy && <HugeiconsIcon icon={RefreshIcon} size={15} className="animate-spin" />}
+            {busy && <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" className="animate-spin" />}
             {busy ? 'Applying…' : plan && plan.plan.changes.length > 0 ? `Apply ${plan.plan.changes.length} file change${plan.plan.changes.length === 1 ? '' : 's'}` : `Apply ${operationCount} operation${operationCount === 1 ? '' : 's'}`}
           </Button>
         </>

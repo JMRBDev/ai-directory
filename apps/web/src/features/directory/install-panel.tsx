@@ -85,12 +85,12 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2 border-t">
         <Button className="w-full" onClick={save} disabled={selectedHarnesses.length === 0}>
-          {stagedItem ? 'Update changes' : 'Add to changes'} <HugeiconsIcon icon={ArrowUpRight01Icon} data-icon="inline-end" size={15} />
+          {stagedItem ? 'Update changes' : 'Add to changes'} <HugeiconsIcon icon={ArrowUpRight01Icon} data-icon="inline-end" />
         </Button>
         {stagedItem && (
           <Button className="w-full" variant="ghost" size="sm" onClick={() => unstage(id)}>Remove from changes</Button>
         )}
-        <p className="text-center text-muted-foreground">
+        <p className="text-center text-xs text-muted-foreground">
           {selectedHarnesses.length === 0 ? 'Select at least one harness.' : stagedItem ? 'Saved in Changes.' : 'Reviewed together in Changes before applying.'}
         </p>
       </CardFooter>

@@ -25,7 +25,7 @@ export function ResourcePage() {
   return (
     <div className="flex flex-col gap-6">
       <Button render={<Link to="/" />} variant="ghost" size="sm" className="self-start text-muted-foreground">
-        <HugeiconsIcon icon={ArrowLeft01Icon} size={15} /> Catalog
+        <HugeiconsIcon icon={ArrowLeft01Icon} data-icon="inline-start" /> Catalog
       </Button>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">

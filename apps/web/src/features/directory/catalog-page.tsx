@@ -70,7 +70,8 @@ export function CatalogPage() {
       {resources.length === 0 ? (
         <NoResourcesEmpty />
       ) : (
-        <section aria-labelledby="catalog-title">          <Tabs value={activeType} onValueChange={(value) => { setSelectedType(resourceType(value)); setPage(1); }}>
+        <section aria-labelledby="catalog-title">
+          <Tabs value={activeType} onValueChange={(value) => { setSelectedType(resourceType(value)); setPage(1); }}>
             <TabsList className="max-w-full justify-start overflow-x-auto" aria-label="Resource types">
               {RESOURCE_TYPES.map((option) => (
                 <TabsTrigger className="shrink-0" value={option.value} key={option.value}>
@@ -94,42 +95,44 @@ export function CatalogPage() {
                 onSortChange={(value) => { setSort(value); setPage(1); }}
                 onClear={clearFilters}
               />
-            </TabsContent>
-          </Tabs>
-          {visible.length > 0 ? (
-            <>
-              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {visible.map((resource) => {
-                  const id = resourceKey(resource);
-                  return (
-                    <CatalogCard
-                      key={id}
-                      resource={resource}
-                      stagedAction={staged[id]?.action}
-                      installed={installedIds.has(id)}
-                      presentLocally={localIds.has(`${resource.type}/${resource.name}`)}
-                      onStage={() => select(resource)}
-                    />
-                  );
-                })}
-              </div>
-              {pageCount > 1 && (
-                <div className="mt-6 flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground tabular-nums">Page {currentPage} of {pageCount}</p>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setPage(Math.max(1, currentPage - 1))}>Previous</Button>
-                    <Button variant="outline" size="sm" disabled={currentPage === pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))}>Next</Button>
+              {visible.length > 0 ? (
+                <>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {visible.map((resource) => {
+                      const id = resourceKey(resource);
+                      return (
+                        <CatalogCard
+                          key={id}
+                          resource={resource}
+                          stagedAction={staged[id]?.action}
+                          installed={installedIds.has(id)}
+                          presentLocally={localIds.has(`${resource.type}/${resource.name}`)}
+                          onStage={() => select(resource)}
+                        />
+                      );
+                    })}
                   </div>
+                  {pageCount > 1 && (
+                    <div className="mt-6 flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground tabular-nums">Page {currentPage} of {pageCount}</p>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setPage(Math.max(1, currentPage - 1))}>Previous</Button>
+                        <Button variant="outline" size="sm" disabled={currentPage === pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))}>Next</Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="mt-4">
+                  <DirectoryEmpty
+                    icon={<HugeiconsIcon icon={Search01Icon} />}
+                    title={typeResources.length === 0 ? `No ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s yet` : 'No matching resources'}
+                    description={typeResources.length === 0 ? 'Publish a resource to add it to this registry.' : 'Try a different search or filter.'}
+                  />
                 </div>
               )}
-            </>
-          ) : (
-            <DirectoryEmpty
-              icon={<HugeiconsIcon icon={Search01Icon} />}
-              title={typeResources.length === 0 ? `No ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s yet` : 'No matching resources'}
-              description={typeResources.length === 0 ? 'Publish a resource to add it to this registry.' : 'Try a different search or filter.'}
-            />
-          )}
+            </TabsContent>
+          </Tabs>
         </section>
       )}
     </div>

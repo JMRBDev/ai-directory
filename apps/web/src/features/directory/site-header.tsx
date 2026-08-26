@@ -41,20 +41,20 @@ export function SiteHeader() {
         <nav className="flex items-center gap-1" aria-label="Workspace actions">
           <div className="hidden items-center gap-1 sm:flex">
             <TooltipIconButton label="Refresh registry" onClick={() => void refresh()} disabled={refreshing}>
-              <HugeiconsIcon icon={RefreshIcon} size={17} className={cn(refreshing && 'animate-spin')} />
+              <HugeiconsIcon icon={RefreshIcon} className={cn(refreshing && 'animate-spin')} />
             </TooltipIconButton>
             <TooltipIconButton label="Installed resources" onClick={() => setSheet('installed')}>
-              <HugeiconsIcon icon={HardDriveIcon} size={17} />
+              <HugeiconsIcon icon={HardDriveIcon} />
             </TooltipIconButton>
             <TooltipIconButton label="Settings" onClick={() => setSheet('settings')}>
-              <HugeiconsIcon icon={Settings01Icon} size={17} />
+              <HugeiconsIcon icon={Settings01Icon} />
             </TooltipIconButton>
             <Separator orientation="vertical" className="mx-1 h-5" />
             <Button variant="outline" size="sm" onClick={() => setSheet('publish')}>
-              <HugeiconsIcon icon={Upload04Icon} size={15} /> Publish
+              <HugeiconsIcon icon={Upload04Icon} data-icon="inline-start" /> Publish
             </Button>
             <Button variant={changeCount > 0 ? 'default' : 'outline'} size="sm" onClick={() => setSheet('changes')}>
-              <HugeiconsIcon icon={PlayListAddIcon} size={15} /> Changes{changeCount > 0 && <span className="tabular-nums">· {changeCount}</span>}
+              <HugeiconsIcon icon={PlayListAddIcon} data-icon="inline-start" /> Changes{changeCount > 0 && <span className="tabular-nums">· {changeCount}</span>}
             </Button>
           </div>
           <div className="sm:hidden">
@@ -62,23 +62,23 @@ export function SiteHeader() {
               <DropdownMenuTrigger
                 render={<Button variant="ghost" size="icon" aria-label="Open workspace actions" />}
               >
-                <HugeiconsIcon icon={MoreVerticalIcon} size={20} />
+                <HugeiconsIcon icon={MoreVerticalIcon} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => void refresh()} disabled={refreshing}>
-                  <HugeiconsIcon icon={RefreshIcon} size={16} /> Refresh registry
+                  <HugeiconsIcon icon={RefreshIcon} /> Refresh registry
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('installed')}>
-                  <HugeiconsIcon icon={HardDriveIcon} size={16} /> Installed resources
+                  <HugeiconsIcon icon={HardDriveIcon} /> Installed resources
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('publish')}>
-                  <HugeiconsIcon icon={Upload04Icon} size={16} /> Publish resource
+                  <HugeiconsIcon icon={Upload04Icon} /> Publish resource
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('changes')}>
-                  <HugeiconsIcon icon={PlayListAddIcon} size={16} /> Changes{changeCount > 0 ? ` · ${changeCount}` : ''}
+                  <HugeiconsIcon icon={PlayListAddIcon} /> Changes{changeCount > 0 ? ` · ${changeCount}` : ''}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setSheet('settings')}>
-                  <HugeiconsIcon icon={Settings01Icon} size={16} /> Settings
+                  <HugeiconsIcon icon={Settings01Icon} /> Settings
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
