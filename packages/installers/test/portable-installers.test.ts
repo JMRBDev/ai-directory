@@ -218,6 +218,36 @@ describe('portable harness installers', () => {
     expect(updatedConfig.split('rules/typescript-quality.md')).toHaveLength(2);
   });
 
+  it('accepts an OpenCode config that uses trailing commas', async () => {
+    const homeDirectory = await createTemporaryDirectory();
+    const configPath = join(homeDirectory, '.config', 'opencode', 'opencode.jsonc');
+    await mkdir(join(homeDirectory, '.config', 'opencode'), { recursive: true });
+    await writeFile(
+      configPath,
+      [
+        '{',
+        '  // Keep this setting.',
+        '  "instructions": ["README.md"],',
+        '  "other": { "nested": true, },',
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const [result] = await installOpenCodeResources([ruleResource], {
+      homeDirectory,
+    });
+
+    expect(result.destination).toBe(
+      join(homeDirectory, '.config', 'opencode', 'rules', 'typescript-quality.md'),
+    );
+    const config = await readFile(configPath, 'utf8');
+    expect(config).toContain('rules/typescript-quality.md');
+    expect(config).toContain('"README.md"');
+    expect(config).toContain('"nested": true');
+  });
+
   it('installs Codex rules in managed AGENTS blocks', async () => {
     const homeDirectory = await createTemporaryDirectory();
     const agentsPath = join(homeDirectory, '.codex', 'AGENTS.md');

@@ -17,7 +17,7 @@ export function readJsonConfig(content: string, path: string): JsonConfig {
   if (!content.trim()) return {};
 
   const errors: Array<{ error: number; offset: number; length: number }> = [];
-  const data = parse(content, errors);
+  const data = parse(content, errors, { allowTrailingComma: true });
 
   if (errors.length > 0) {
     throw new Error(`MCP config is not valid JSON: ${path}`);

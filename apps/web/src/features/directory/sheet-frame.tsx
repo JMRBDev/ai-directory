@@ -26,7 +26,7 @@ export function SheetFrame({
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-6">{children}</div>
         {footer && (
           <div className="shrink-0 border-t bg-popover px-6 py-4">{footer}</div>
         )}

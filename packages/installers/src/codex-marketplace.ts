@@ -108,7 +108,7 @@ export async function prepareCodexMarketplace(
 export function parseMarketplace(content: string, path: string): MarketplaceData {
   if (!content.trim()) return {};
   const errors: Array<{ error: number; offset: number; length: number }> = [];
-  const result = marketplaceSchema.safeParse(parse(content, errors));
+  const result = marketplaceSchema.safeParse(parse(content, errors, { allowTrailingComma: true }));
 
   if (errors.length > 0 || !result.success) {
     throw new Error(`Codex marketplace is not a valid object: ${path}`);

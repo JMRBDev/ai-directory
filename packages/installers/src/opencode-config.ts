@@ -13,7 +13,7 @@ const openCodeConfigDataSchema = z.record(z.string(), z.unknown());
 
 export function readOpenCodeInstructions(current: string, path: string): string[] | undefined {
   const errors: Array<{ error: number; offset: number; length: number }> = [];
-  const data = parse(current, errors);
+  const data = parse(current, errors, { allowTrailingComma: true });
 
   if (errors.length > 0) {
     throw new Error(`OpenCode config is not a valid object: ${path}`);
@@ -34,7 +34,7 @@ export function readOpenCodeInstructions(current: string, path: string): string[
 
 export function isEmptyOpenCodeConfig(current: string): boolean {
   const errors: Array<{ error: number; offset: number; length: number }> = [];
-  const data = parse(current, errors);
+  const data = parse(current, errors, { allowTrailingComma: true });
   if (errors.length > 0) {
     return false;
   }
