@@ -8,6 +8,7 @@ export function SheetFrame({
   title,
   description,
   children,
+  footer,
   className,
 }: {
   open: boolean;
@@ -15,16 +16,20 @@ export function SheetFrame({
   title: string;
   description: string;
   children: ReactNode;
+  footer?: ReactNode;
   className?: string;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className={cn('overflow-y-auto data-[side=right]:sm:max-w-md', className)}>
+      <SheetContent className={cn('gap-0 data-[side=right]:sm:max-w-md', className)}>
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
-        <div className="flex flex-col gap-5 px-6 pb-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">{children}</div>
+        {footer && (
+          <div className="shrink-0 border-t bg-popover px-6 py-4">{footer}</div>
+        )}
       </SheetContent>
     </Sheet>
   );

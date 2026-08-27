@@ -14,7 +14,7 @@ import { cn } from '../../lib/utils';
 import { ErrorMessage, SheetFrame } from './common';
 import { useDirectory } from './context';
 import { hasApplyableOperation } from './model';
-import { accordionContentClass, accordionTriggerClass, badgeTone, DirectoryEmpty, HarnessToggleGroup, ScopeToggleGroup } from './shared';
+import { accordionTriggerClass, badgeTone, DirectoryEmpty, HarnessToggleGroup, ScopeToggleGroup } from './shared';
 
 type StagedGroup = { key: string; name: string; item?: StagedItem; changes: PlanChange[] };
 
@@ -42,10 +42,6 @@ function countsLabel(counts: { added: number; modified: number; removed: number 
   ].filter(Boolean).join(' ');
 }
 
-function compactWarnings(warnings: string[]) {
-  return [...new Set(warnings.map((warning) => warning.split('@')[0]?.split('/')[2] ?? warning))];
-}
-
 function groupByHarness(changes: PlanChange[]) {
   const byHarness = new Map<Harness, PlanChange[]>();
   for (const change of changes) {
@@ -56,39 +52,51 @@ function groupByHarness(changes: PlanChange[]) {
 
 function FileRow({ change, homeDirectory }: { change: PlanChange; homeDirectory: string | undefined }) {
   const [expanded, setExpanded] = useState(false);
+  const file = change.path.split('/').at(-1) ?? change.path;
+  const directory = change.path.slice(0, change.path.length - file.length);
   const hasContent = Boolean(change.before || change.after);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1">
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
-        className="flex w-full items-center justify-between gap-2 rounded-md text-left"
+        className="flex w-full items-center gap-2 rounded-md py-0.5 text-left"
       >
-        <code className="min-w-0 flex-1 truncate font-mono text-xs" title={change.path}>
-          {shortenHomePath(change.path, homeDirectory)}
-        </code>
-        {hasContent && (
-          <HugeiconsIcon
-            icon={ArrowDown01Icon}
-            size={14}
-            className={cn('shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')}
-          />
-        )}
+        <HugeiconsIcon
+          icon={ArrowDown01Icon}
+          size={14}
+          className={cn('shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180', !hasContent && 'invisible')}
+        />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{file}</span>
         <Badge {...badgeTone(actionTones[change.action])}>{change.action}</Badge>
       </button>
-      {expanded && hasContent && (
-        <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-2 font-mono text-xs leading-5">
-          <code>
-            {change.action === 'modified'
-              ? `− ${change.before ?? '(did not exist)'}\n+ ${change.after ?? '(removed)'}`
-              : change.after ?? change.before}
-          </code>
-        </pre>
+      {expanded && (
+        <>
+          <p className="truncate pl-6 font-mono text-[0.6875rem] text-muted-foreground" title={change.path}>
+            {shortenHomePath(directory || change.path, homeDirectory)}
+          </p>
+          {(change.before || change.after) && (
+            <pre className="max-h-40 ml-6 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-2 font-mono text-xs leading-5">
+              <code>
+                {change.action === 'modified'
+                  ? `− ${change.before ?? '(did not exist)'}\n+ ${change.after ?? '(removed)'}`
+                  : change.after ?? change.before}
+              </code>
+            </pre>
+          )}
+        </>
       )}
     </div>
   );
+}
+
+function harnessSectionLabel(action: StagedItem['action'] | undefined, harness: Harness, count: number) {
+  const noun = `${count} file${count === 1 ? '' : 's'}`;
+  if (action === 'uninstall') return `Removes ${noun} from ${harnessLabel(harness)}`;
+  if (action === 'install') return `Adds ${noun} to ${harnessLabel(harness)}`;
+  return `Changes ${noun} in ${harnessLabel(harness)}`;
 }
 
 function groupChanges(items: StagedItem[], changes: PlanChange[]): StagedGroup[] {
@@ -140,56 +148,65 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const items = Object.values(staged);
   const canApply = Boolean(plan && hasApplyableOperation(plan.plan) && (plan.plan.conflicts.length === 0 || force) && !busy);
   const groups = plan ? groupChanges(items, plan.plan.changes) : [];
+  const unreviewed = new Set((plan?.plan.warnings ?? []).map((warning) => warning.split('@')[0]));
 
   function renderGroup({ group, defaultHarnesses }: { group: StagedGroup; defaultHarnesses: Harness[] }) {
     const item = group.item;
+    const isUnreviewed = (item !== undefined && unreviewed.has(item.resource))
+      || group.changes.some((change) => unreviewed.has(change.resource));
     return (
-      <AccordionItem key={group.key} value={group.key}>
+      <AccordionItem
+        key={group.key}
+        value={group.key}
+        className="rounded-lg border bg-card shadow-none last:border-b"
+      >
         <AccordionTrigger className={accordionTriggerClass}>
           <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{group.name}</span>
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+          {isUnreviewed && <Badge {...badgeTone('warning')}>Unreviewed</Badge>}
+          <Badge variant="secondary" className="font-mono tabular-nums">
             {group.changes.length > 0 ? countsLabel(changeCounts(group.changes)) : 'no file changes'}
-          </span>
+          </Badge>
         </AccordionTrigger>
-        <AccordionContent className={accordionContentClass}>
-          <div className="flex flex-col gap-4">
+        <AccordionContent className="px-3 pb-3">
+          <div className="flex flex-col divide-y divide-border/60">
             {item && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-xs text-muted-foreground">Install for</p>
+              <div className="flex flex-col gap-1.5 pb-3">
                 <HarnessToggleGroup
                   ariaLabel={`Harnesses for ${group.name}`}
                   value={item.harnesses.length > 0 ? item.harnesses : defaultHarnesses}
                   onValueChange={(next) => updateStage({ ...item, harnesses: next })}
                   disabled={busy}
                 />
+                {item.type === 'mcp-servers' && (
+                  <ScopeToggleGroup
+                    ariaLabel={`Scope for ${group.name}`}
+                    value={item.scope ?? 'user'}
+                    onValueChange={(scope) => updateStage({ ...item, scope })}
+                    disabled={busy}
+                  />
+                )}
               </div>
             )}
-            {item?.type === 'mcp-servers' && (
-              <ScopeToggleGroup
-                ariaLabel={`Scope for ${group.name}`}
-                value={item.scope ?? 'user'}
-                onValueChange={(scope) => updateStage({ ...item, scope })}
-                disabled={busy}
-              />
-            )}
-            {groupByHarness(group.changes).map(([harness, harnessChanges]) => (
-              <div key={harness} className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {harnessLabel(harness)} · {harnessChanges.length} file{harnessChanges.length === 1 ? '' : 's'}
+            <div className="flex flex-col gap-3 py-3">
+              {groupByHarness(group.changes).map(([harness, harnessChanges]) => (
+                <div key={harness} className="flex flex-col gap-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {harnessSectionLabel(item?.action, harness, harnessChanges.length)}
+                  </p>
+                  {harnessChanges.map((change) => (
+                    <FileRow key={`${change.harness}:${change.path}`} change={change} homeDirectory={homeDirectory} />
+                  ))}
+                </div>
+              ))}
+              {group.changes.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No file changes · updates registry records only.
                 </p>
-                {harnessChanges.map((change) => (
-                  <FileRow key={`${change.harness}:${change.path}`} change={change} homeDirectory={homeDirectory} />
-                ))}
-              </div>
-            ))}
-            {group.changes.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                No file changes · updates registry records only.
-              </p>
-            )}
+              )}
+            </div>
             {item && (
-              <div>
-                <Button variant="ghost" size="sm" onClick={() => unstage(item.key)} disabled={busy}>
+              <div className="flex justify-end pt-2">
+                <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => unstage(item.key)} disabled={busy}>
                   Remove from changes
                 </Button>
               </div>
@@ -200,8 +217,30 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
     );
   }
 
+  const controls = items.length === 0 ? null : (
+    <div className="flex flex-col gap-3">
+      {plan?.plan.conflicts.length ? (
+        <Label className="text-sm" htmlFor="changes-force">
+          <Checkbox id="changes-force" checked={force} onCheckedChange={(checked) => setForce(checked === true)} /> Apply despite conflicts
+        </Label>
+      ) : null}
+      {plan?.plan.dependencyRemovals.length ? (
+        <Label className="text-sm" htmlFor="changes-remove-dependencies">
+          <Checkbox id="changes-remove-dependencies" checked={removeDependencies} onCheckedChange={(checked) => setRemoveDependencies(checked === true)} /> Remove unused dependencies
+        </Label>
+      ) : null}
+      <div className="flex items-center justify-between gap-3">
+        <Button variant="ghost" size="sm" onClick={clear} disabled={busy}>Discard all</Button>
+        <Button onClick={applyChanges} disabled={!canApply}>
+          {busy && <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" className="animate-spin" />}
+          {busy ? 'Applying…' : 'Apply changes'}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
-    <SheetFrame open={open} onOpenChange={onOpenChange} title="Changes" description="Review staged resources, then apply them to your machine.">
+    <SheetFrame open={open} onOpenChange={onOpenChange} title="Changes" description="Review staged resources, then apply them to your machine." footer={controls}>
       {items.length === 0 ? (
         <DirectoryEmpty
           icon={<HugeiconsIcon icon={InfoIcon} />}
@@ -215,11 +254,6 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               <AlertDescription>{plan.plan.conflicts.join(' ')}</AlertDescription>
             </Alert>
           ) : null}
-          {plan && plan.plan.warnings.length > 0 && (
-            <p className="truncate text-xs text-muted-foreground" title={plan.plan.warnings.join(', ')}>
-              Unreviewed: {compactWarnings(plan.plan.warnings).join(', ')}
-            </p>
-          )}
           {planLoading && (
             <div className="flex flex-col gap-2" aria-hidden>
               <Skeleton className="h-4 w-2/5" />
@@ -228,29 +262,13 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           )}
           {planError && <ErrorMessage message={planError} />}
           {plan && groups.length > 0 && (
-            <Accordion multiple>
-              {groups.map((group) => renderGroup({ group, defaultHarnesses: harnesses }))}
-            </Accordion>
+            <>
+              <p className="text-xs font-medium text-muted-foreground">Staged resources</p>
+              <Accordion multiple className="gap-2 border-none bg-transparent">
+                {groups.map((group) => renderGroup({ group, defaultHarnesses: harnesses }))}
+              </Accordion>
+            </>
           )}
-          <div className="sticky bottom-0 -mx-6 -mb-6 flex flex-col gap-3 border-t bg-background/95 px-6 pb-6 pt-4 backdrop-blur">
-            {plan?.plan.conflicts.length ? (
-              <Label className="text-sm" htmlFor="changes-force">
-                <Checkbox id="changes-force" checked={force} onCheckedChange={(checked) => setForce(checked === true)} /> Apply despite conflicts
-              </Label>
-            ) : null}
-            {plan?.plan.dependencyRemovals.length ? (
-              <Label className="text-sm" htmlFor="changes-remove-dependencies">
-                <Checkbox id="changes-remove-dependencies" checked={removeDependencies} onCheckedChange={(checked) => setRemoveDependencies(checked === true)} /> Remove unused dependencies
-              </Label>
-            ) : null}
-            <div className="flex items-center justify-between gap-3">
-              <Button variant="ghost" size="sm" onClick={clear} disabled={busy}>Discard all</Button>
-              <Button onClick={applyChanges} disabled={!canApply}>
-                {busy && <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" className="animate-spin" />}
-                {busy ? 'Applying…' : 'Apply changes'}
-              </Button>
-            </div>
-          </div>
         </>
       )}
     </SheetFrame>

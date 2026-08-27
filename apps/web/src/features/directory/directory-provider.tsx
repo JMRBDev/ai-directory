@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { harnessOptions, type ApplyResponse, type Harness, type InstallScope, type StagedItem, type StagedMap } from '../../lib/types';
@@ -26,6 +26,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const groups = groupStaged(stagedItems);
   const planQuery = useQuery<PlanData>({
     queryKey: ['plan', stagedItems, harnesses, scope],
+    placeholderData: keepPreviousData,
     enabled: stagedItems.length > 0 && harnesses.length > 0,
     queryFn: async () => {
       const groupPlans = await Promise.all(groups.map(async (group) => ({ ...group, plan: await api.plan(operationsFor(group.items, harnesses, scope)) })));

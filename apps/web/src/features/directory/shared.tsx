@@ -51,6 +51,7 @@ export function HarnessToggleGroup({ value, onValueChange, disabled, ariaLabel =
   return (
     <ToggleGroup
       multiple
+      variant="outline"
       value={value}
       onValueChange={(values) => onValueChange(toHarnesses(values))}
       disabled={disabled}
@@ -76,6 +77,7 @@ export function ScopeToggleGroup({ value, onValueChange, disabled, ariaLabel = '
 }) {
   return (
     <ToggleGroup
+      variant="outline"
       value={[value]}
       onValueChange={(values) => { const next = values[0]; if (next) onValueChange(installScope(next)); }}
       disabled={disabled}
