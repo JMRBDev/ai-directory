@@ -6,11 +6,12 @@
     "aid": "dist/aid"
   },
   "scripts": {
-    "build": "bun build src/main.ts --compile --outfile dist/aid",
+    "build": "bun build src/main.ts --compile --asset ../web/dist --outfile dist/aid",
     "clean": "rm -rf dist",
     "dev": "bun run src/main.ts",
     "test": "vitest run --passWithNoTests --exclude 'dist/**'",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prebuild": "pnpm --filter @ai-directory/server-core build && pnpm --filter @ai-directory/web build"
   },
   "dependencies": {
     "@ai-directory/config": "workspace:*",

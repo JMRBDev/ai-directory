@@ -44,7 +44,7 @@ describe('CLI web server', () => {
       expect(deepLink.status).toBe(200);
       await expect(deepLink.text()).resolves.toContain('<div id="root"></div>');
 
-      const asset = await fetch(`${baseUrl}${assetPath}`);
+      const asset = await fetch(new URL(assetPath, `${baseUrl}/`).href);
       expect(asset.status).toBe(200);
       expect(asset.headers.get('content-type')).toContain('text/javascript');
 

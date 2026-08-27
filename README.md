@@ -166,7 +166,33 @@ Use the Settings control in the catalog to configure the registry repository fro
 
 Use `Publish` in the catalog to submit a resource. The local API keeps uploaded files in a temporary directory and removes them after validation or submission. Website publishing requires the configured source to be a Git repository and uses the employee's existing Git and GitHub CLI credentials. Use `Refresh registry` on the catalog after a pull request is merged to fetch the latest production branch.
 
-For a release, ship the compiled `aid` binary with the contents of `apps/web/dist` in a sibling `web` directory. The CLI also accepts `AI_DIRECTORY_WEB_DIST` when the assets use another location. This keeps the website static and avoids a second runtime process.
+For a release, ship the compiled `aid` binary. The CLI build embeds the built website into the binary itself (`--asset`), so `aid web` serves the SPA from the single executable with no extra files. During development the CLI still prefers a `apps/web/dist` on disk, or `AI_DIRECTORY_WEB_DIST` when the assets use another location.
+
+## Host the website and pair it with your local CLI
+
+The website is a static SPA. The same build you run locally can be hosted on a static host (for example Vercel) so others can browse the public catalog without running anything.
+
+```sh
+# Deploy apps/web/dist as a static site on Vercel (or any static host).
+# The SPA uses relative asset paths, so it works from a subpath too.
+```
+
+A hosted site is read-only until it connects to a running local CLI. To control a machine from the hosted site:
+
+1. On that machine, start the local server: `aid web --open` (or `--host 0.0.0.0 --port 4321` to accept connections from your browser).
+2. `aid web` prints a **pairing token** and the local URL (`http://127.0.0.1:4321`).
+3. In the hosted website, open **Settings → Local connection**, enter the URL and token, then **Test connection**.
+
+The browser calls your local API directly (client-side). Cross-origin requests require the pairing token, so a random website cannot silently install or uninstall resources on your machine. Same-origin requests (when you open `http://127.0.0.1:4321` directly) do not need the token. Pass `--no-token` to `aid web` to allow cross-origin access without a token — use it only on a trusted LAN or localhost.
+
+```sh
+apps/cli/dist/aid web --host 0.0.0.0 --port 4321
+# Pairing token: 1f2e... ; enter http://<machine-ip>:4321 and the token in Settings.
+```
+
+Note: browsers allow a page served over HTTPS to call `http://127.0.0.1` and `http://localhost` (treated as trustworthy origins). A hosted page calling `http://<LAN-IP>` may be blocked as mixed content; prefer the loopback address and a tunnel if the CLI runs elsewhere.
+
+## Run the local catalog
 
 Inspect a version from the configured registry:
 

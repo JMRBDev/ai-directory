@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { defineCommand } from 'citty';
-import { createApp, type ServerOptions } from '@ai-directory/server-core';
+import { createApp, generatePairingToken, type ServerOptions } from '@ai-directory/server-core';
 import { DEFAULT_API_HOST, findWorkspaceRoot } from '@ai-directory/config';
 
 const CONTENT_TYPES = {
@@ -18,6 +18,8 @@ const CONTENT_TYPES = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
 } satisfies Record<string, string>;
+
+const EMBEDDED_ROOT = join(import.meta.dir, 'dist');
 
 export const web = defineCommand({
   meta: {
@@ -44,6 +46,10 @@ export const web = defineCommand({
       type: 'boolean',
       description: 'Open the website in the default browser',
     },
+    'no-token': {
+      type: 'boolean',
+      description: 'Allow cross-origin API access without a pairing token (unsafe for LAN)',
+    },
   },
   async run({ args }) {
     const workspaceRoot = findWorkspaceRoot(process.cwd());
@@ -51,8 +57,9 @@ export const web = defineCommand({
       ? resolve(workspaceRoot ?? process.cwd(), args.index)
       : undefined;
     const webDist = findWebDist(workspaceRoot);
+    const embedded = await hasEmbeddedWeb();
 
-    if (!webDist) {
+    if (!webDist && !embedded) {
       console.error('Built website assets were not found. Run `pnpm --filter @ai-directory/web build` first.');
       process.exitCode = 1;
       return;
@@ -61,8 +68,10 @@ export const web = defineCommand({
     const host = args.host ?? DEFAULT_API_HOST;
     const port = Number(args.port ?? '4321');
     const cwd = resolve(process.cwd());
+    const pairingToken = args['no-token'] ? undefined : generatePairingToken();
     const serverOptions: ServerOptions = { cwd, homeDirectory: homedir(), prewarm: true };
     if (indexPath) serverOptions.registryIndexPath = indexPath;
+    if (pairingToken) serverOptions.pairingToken = pairingToken;
     const app = createApp(serverOptions);
     const server = Bun.serve({
       hostname: host,
@@ -70,14 +79,21 @@ export const web = defineCommand({
       fetch: async (request) => {
         const pathname = new URL(request.url).pathname;
         if (pathname === '/health' || pathname.startsWith('/api/')) return app.fetch(request);
-        return serveStatic(request, webDist);
+        if (webDist) return serveStatic(request, webDist);
+        return serveEmbedded(request);
       },
     });
     const url = `http://${host}:${server.port}`;
 
     console.log(`AI Directory website listening on ${url}`);
-    console.log(`Serving static assets from ${webDist}`);
+    console.log(webDist ? `Serving static assets from ${webDist}` : 'Serving embedded website assets from the binary.');
     console.log(`Registry source: ${indexPath ?? 'configured Git repository'}`);
+    if (pairingToken) {
+      console.log(`Pairing token: ${pairingToken}`);
+      console.log('Enter this URL and token in Settings → Local connection to control this setup from the hosted website.');
+    } else {
+      console.log('Cross-origin API access is open (--no-token).');
+    }
 
     if (args.open) openBrowser(url);
     await new Promise<void>((resolvePromise) => {
@@ -98,6 +114,53 @@ function findWebDist(workspaceRoot: string | null): string | undefined {
   ].filter((candidate): candidate is string => Boolean(candidate));
 
   return candidates.find((candidate) => existsSync(join(candidate, 'index.html')));
+}
+
+function embeddedPath(pathname: string): string {
+  const normalized = pathname.replace(/\/+/u, '/');
+  const relative = normalized === '/' || normalized === ''
+    ? 'index.html'
+    : normalized.startsWith('/')
+      ? normalized.slice(1)
+      : normalized;
+  return join(EMBEDDED_ROOT, relative);
+}
+
+async function hasEmbeddedWeb(): Promise<boolean> {
+  return Bun.file(embeddedPath('index.html')).exists();
+}
+
+async function serveEmbedded(request: Request): Promise<Response> {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return new Response('Method not allowed', { status: 405 });
+  }
+
+  const url = new URL(request.url);
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    return new Response('Bad request', { status: 400 });
+  }
+
+  const requested = embeddedPath(pathname);
+  const directFile = Bun.file(requested);
+  const isDirect = await directFile.exists();
+
+  const fallbackFile = Bun.file(embeddedPath('index.html'));
+  const file = isDirect || pathname.includes('.') ? directFile : fallbackFile;
+
+  if (!await file.exists()) return new Response('Not found', { status: 404 });
+
+  const headers = new Headers({
+    'cache-control': pathname === '/' || pathname.startsWith('/resources/')
+      ? 'no-cache'
+      : 'public, max-age=31536000, immutable',
+  });
+  const extension = (file.name ?? requested).slice((file.name ?? requested).lastIndexOf('.')).toLowerCase();
+  const contentType = Object.entries(CONTENT_TYPES).find(([suffix]) => suffix === extension)?.[1];
+  if (contentType) headers.set('content-type', contentType);
+  return new Response(request.method === 'HEAD' ? null : file, { headers });
 }
 
 async function serveStatic(request: Request, root: string): Promise<Response> {

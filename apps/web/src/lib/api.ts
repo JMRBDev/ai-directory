@@ -28,12 +28,70 @@ export const API_PATHS = {
   refresh: '/api/refresh',
 } as const;
 
+export const LOCAL_API_KEY = 'ai-directory-local-api';
+export const LOCAL_API_TOKEN_KEY = 'ai-directory-local-api-token';
+
+export function readLocalApi(): string {
+  try {
+    const value = globalThis.localStorage?.getItem(LOCAL_API_KEY);
+    return value ? value.trim().replace(/\/+$/u, '') : '';
+  } catch {
+    return '';
+  }
+}
+
+export function writeLocalApi(value: string) {
+  try {
+    const normalized = value.trim().replace(/\/+$/u, '');
+    if (normalized) globalThis.localStorage?.setItem(LOCAL_API_KEY, normalized);
+    else globalThis.localStorage?.removeItem(LOCAL_API_KEY);
+  } catch {
+    // A private browsing session can reject localStorage. Same-origin /api still works.
+  }
+}
+
+export function readLocalApiToken(): string {
+  try {
+    return globalThis.localStorage?.getItem(LOCAL_API_TOKEN_KEY)?.trim() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function writeLocalApiToken(value: string) {
+  try {
+    const normalized = value.trim();
+    if (normalized) globalThis.localStorage?.setItem(LOCAL_API_TOKEN_KEY, normalized);
+    else globalThis.localStorage?.removeItem(LOCAL_API_TOKEN_KEY);
+  } catch {
+    // A private browsing session can reject localStorage. Same-origin /api still works.
+  }
+}
+
+function apiPath(path: string): string {
+  const base = readLocalApi();
+  return base ? `${base}${path}` : path;
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+  const headers = new Headers(init?.headers);
+  const token = readLocalApiToken();
+  if (token) headers.set('authorization', `Bearer ${token}`);
+
+  const response = await fetch(apiPath(path), { ...init, headers });
   // SAFETY: API responses are decoded into the caller's declared response contract.
   const result = await response.json().catch(() => ({})) as { error?: string } & T;
   if (!response.ok) throw new Error(result.error ?? 'The local API request failed.');
   return result;
+}
+
+export async function healthCheck(): Promise<boolean> {
+  try {
+    const response = await fetch(apiPath('/health'), { signal: AbortSignal.timeout(3_000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 export function jsonRequest<T>(path: string, body: JsonRequestBody, method = 'POST') {

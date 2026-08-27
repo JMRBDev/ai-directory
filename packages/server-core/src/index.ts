@@ -1,5 +1,6 @@
 export { createApp } from './app.js';
 export type { ServerOptions } from './types.js';
+export { generatePairingToken } from './pairing.js';
 export {
   installationPackOperation,
   installationResourceIds,
