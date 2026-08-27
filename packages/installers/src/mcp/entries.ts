@@ -32,10 +32,19 @@ const mcpEntries = {
     notes: [],
   }),
   codex: codexMcpEntry,
-} satisfies Record<Harness, (manifest: McpServerManifest) => McpEntryResult>;
+  pi: (manifest: McpServerManifest): McpEntryResult => ({
+    entry: claudeMcpEntry(manifest),
+    notes: [],
+  }),
+} satisfies Partial<Record<Harness, (manifest: McpServerManifest) => McpEntryResult>>;
 
 export function mcpEntryFor(harness: Harness, manifest: McpServerManifest): McpEntryResult {
-  return mcpEntries[harness](manifest);
+  if (!(harness in mcpEntries)) {
+    throw new Error(`MCP servers are not supported by ${harness}.`);
+  }
+  // SAFETY: the `in` guard narrows harness to a key of the mcpEntries record.
+  const resolver = mcpEntries[harness as keyof typeof mcpEntries];
+  return resolver(manifest);
 }
 
 function claudeMcpEntry(manifest: McpServerManifest): McpServerEntry {

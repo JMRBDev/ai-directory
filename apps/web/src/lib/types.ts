@@ -13,6 +13,20 @@ export type { HarnessDetection, Installation, LocalResource, PlanChange, ChangeP
 
 export type HarnessOrigin = 'npm' | 'homebrew' | 'native';
 
+export type PiMcpAdapterStatus = {
+  installed: boolean;
+  version?: string;
+  installCommand: string;
+  uninstallCommand: string;
+};
+
+export type PiMcpAdapterActionResult = {
+  installed: boolean;
+  command: string;
+  args: string[];
+  version?: string;
+};
+
 export type HarnessManagerStatus = HarnessDetection & {
   installed: boolean;
   installCommand: string;
@@ -30,6 +44,7 @@ export const harnessOptions: Array<{ value: Harness; label: string }> = [
   { value: 'claude-code', label: 'Claude Code' },
   { value: 'opencode', label: 'OpenCode' },
   { value: 'codex', label: 'Codex' },
+  { value: 'pi', label: 'Pi' },
 ];
 
 export const scopeOptions: Array<{ value: InstallScope; label: string; hint: string }> = [

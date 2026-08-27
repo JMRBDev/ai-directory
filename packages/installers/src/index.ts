@@ -45,6 +45,7 @@ export { getHarnessAdapter, openCodeInstaller } from './adapters.js';
 export { installClaudeCodeResources } from './plans/claude-code.js';
 export { installOpenCodeResources } from './plans/opencode.js';
 export { installCodexResources } from './plans/codex.js';
+export { installPiResources } from './plans/pi.js';
 export { removeStaleInstallationFiles, uninstallInstallation } from './install-cleanup.js';
 
 export { applyResourceOperations, planResourceOperations } from './resource-operations.js';
@@ -61,3 +62,16 @@ export type {
   HarnessManagementOptions,
   HarnessStatus,
 } from './harness-management.js';
+
+export {
+  inspectPiMcpAdapter,
+  installPiMcpAdapter,
+  uninstallPiMcpAdapter,
+  PI_MCP_ADAPTER_PACKAGE,
+  PI_MCP_ADAPTER_REFERENCE,
+} from './pi-mcp-adapter.js';
+export type {
+  PiMcpAdapterActionResult,
+  PiMcpAdapterOptions,
+  PiMcpAdapterStatus,
+} from './pi-mcp-adapter.js';

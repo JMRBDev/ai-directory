@@ -1,4 +1,4 @@
-import { harnessSchema } from '@ai-directory/contracts';
+import { harnessSchema, HARNESS_ID_LIST } from '@ai-directory/contracts';
 import type { ConfigScope } from '@ai-directory/config';
 import type { Harness } from '@ai-directory/installers';
 import { z } from 'zod';
@@ -63,6 +63,9 @@ function resourceRequestFrom(data: {
   return result;
 }
 
+const harnessListMessage = `harnesses must include one or more of ${HARNESS_ID_LIST}.`;
+const harnessOnlyMessage = `harnesses must include only ${HARNESS_ID_LIST}.`;
+
 function requireHarnesses(data: { harnesses?: unknown }) {
   return data.harnesses !== undefined;
 }
@@ -75,9 +78,7 @@ function projectScopeOnlyForMcp(data: { resource: string; scope?: ConfigScope | 
 
 const resourceRequestSchema = resourceRequestWithDependenciesSchema
   .refine(projectScopeOnlyForMcp, { message: projectScopeMessage })
-  .refine(requireHarnesses, {
-    message: 'harnesses must include one or more of claude-code, opencode, or codex.',
-  })
+  .refine(requireHarnesses, { message: harnessListMessage })
   .transform(resourceRequestFrom);
 
 export type ChangeOperationData = ResourceRequestData & { action: 'install' | 'uninstall' };
@@ -87,9 +88,7 @@ const changeOperationSchema = resourceRequestObjectSchema
     action: z.enum(['install', 'uninstall']),
   })
   .refine(projectScopeOnlyForMcp, { message: projectScopeMessage })
-  .refine(requireHarnesses, {
-    message: 'harnesses must include one or more of claude-code, opencode, or codex.',
-  })
+  .refine(requireHarnesses, { message: harnessListMessage })
   .transform((data) => ({ ...resourceRequestFrom(data), action: data.action }));
 
 const changePlanRequestSchema = z.object({
@@ -114,8 +113,8 @@ function requestErrorMessage(issues: z.ZodIssue[]): string {
     if (field === 'resource') return 'resource must be a non-empty string.';
     if (field === 'harnesses') {
       return issue.code === 'too_small'
-        ? 'harnesses must include one or more of claude-code, opencode, or codex.'
-        : 'harnesses must include only claude-code, opencode, or codex.';
+        ? harnessListMessage
+        : harnessOnlyMessage;
     }
     if (field === 'version') {
       return issue.code === 'invalid_type'

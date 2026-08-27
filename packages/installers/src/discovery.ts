@@ -166,6 +166,10 @@ async function scanBundles(
   harness: Harness,
   location: HarnessLocation,
 ): Promise<LocalResource[]> {
+  if (harness === 'pi') {
+    return scanPiExtensions(location.root);
+  }
+
   if (harness !== 'opencode') {
     const root = harness === 'claude-code'
       ? location.skills
@@ -189,6 +193,39 @@ async function scanBundles(
   }
 
   return [...merged.values()];
+}
+
+async function scanPiExtensions(root: string): Promise<LocalResource[]> {
+  const extensionRoot = join(root, 'extensions');
+  const entries = await readDirectory(extensionRoot);
+  const resources: LocalResource[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !['.ts', '.js'].includes(extname(entry.name))) continue;
+
+    const path = join(extensionRoot, entry.name);
+    const name = basename(entry.name, extname(entry.name));
+    const companionPath = join(extensionRoot, `${name}.files`);
+    const companionFiles = (await pathExists(companionPath))
+      ? await listFilesUnder(companionPath)
+      : [];
+    const files = [path, ...companionFiles];
+    const type = companionFiles.some((file) => relative(companionPath, file) === 'TOOL.md')
+      ? 'tools'
+      : 'plugins';
+
+    resources.push({
+      type,
+      name,
+      harness: 'pi',
+      path,
+      files,
+      state: 'unmanaged',
+      registryState: 'unknown',
+    });
+  }
+
+  return resources;
 }
 
 async function scanBundleDirectories(

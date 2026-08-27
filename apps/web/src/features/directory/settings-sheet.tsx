@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
 import { api, healthCheck, readLocalApi, readLocalApiToken, writeLocalApi, writeLocalApiToken } from '../../lib/api';
 import type { InstallScope } from '../../lib/types';
 import { ErrorMessage, SheetFrame } from './common';
-import { HarnessManagerSection } from './harness-manager';
+import { HarnessManagerSection, PiMcpAdapterSection } from './harness-manager';
 import { badgeTone } from './shared';
 import { installScope } from './model';
 import { getServerSystemTheme, getSystemTheme, readStorage, subscribeSystemTheme, writeStorage } from '../../lib/theme';
@@ -124,6 +124,7 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Settings" description="Registry source, agent harnesses, and appearance.">
       <div className="flex flex-col gap-5">
         <HarnessManagerSection />
+        <PiMcpAdapterSection />
         <Separator />
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">

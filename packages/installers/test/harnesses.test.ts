@@ -42,6 +42,15 @@ describe('harness catalog', () => {
     })).toMatchObject({
       skills: join(directory, '.agents', 'skills'),
     });
+
+    expect(resolveHarnessPaths('pi', {
+      cwd: directory,
+      homeDirectory: directory,
+    })).toMatchObject({
+      config: join(directory, '.pi', 'agent'),
+      skills: join(directory, '.pi', 'agent', 'skills'),
+      rules: join(directory, '.pi', 'agent', 'rules'),
+    });
   });
 
   it('honors harness path environment overrides', async () => {
@@ -49,6 +58,7 @@ describe('harness catalog', () => {
     const claudeHome = join(directory, 'claude');
     const codexHome = join(directory, 'codex');
     const openCodeHome = join(directory, 'opencode');
+    const piHome = join(directory, 'pi');
 
     expect(resolveHarnessPaths('claude-code', {
       homeDirectory: directory,
@@ -62,6 +72,10 @@ describe('harness catalog', () => {
       homeDirectory: directory,
       environment: { OPENCODE_CONFIG_DIR: openCodeHome },
     }).config).toBe(openCodeHome);
+    expect(resolveHarnessPaths('pi', {
+      homeDirectory: directory,
+      environment: { PI_CODING_AGENT_DIR: piHome },
+    }).config).toBe(piHome);
   });
 
   it('detects commands and configured paths without running harnesses', async () => {

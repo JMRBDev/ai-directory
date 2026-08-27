@@ -35,6 +35,7 @@ export const harnessOptions = [
   { value: 'claude-code' as const, label: 'Claude Code', hint: 'Anthropic coding harness' },
   { value: 'opencode' as const, label: 'OpenCode', hint: 'OpenCode agent harness' },
   { value: 'codex' as const, label: 'Codex', hint: 'OpenAI coding agent' },
+  { value: 'pi' as const, label: 'Pi', hint: 'Pi coding agent' },
 ];
 
 export async function promptRequiredText(

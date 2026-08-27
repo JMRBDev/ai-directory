@@ -18,6 +18,7 @@ const harnessOptions = [
   { value: 'claude-code', label: 'Claude Code' },
   { value: 'opencode', label: 'OpenCode' },
   { value: 'codex', label: 'Codex' },
+  { value: 'pi', label: 'Pi' },
 ] as const;
 
 const sourceOptions = [

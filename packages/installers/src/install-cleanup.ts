@@ -116,6 +116,10 @@ async function ownedInstallationFiles(
     files.delete(configPath);
   }
 
+  if (type === 'rules' && record.harness === 'pi') {
+    files.delete(record.destination);
+  }
+
   return [...files];
 }
 
@@ -137,6 +141,9 @@ async function removeSharedConfiguration(
     return change ? [change] : [];
   } else if (record.harness === 'codex') {
     const change = await removeCodexGuidance(record, options);
+    return change ? [change] : [];
+  } else if (record.harness === 'pi') {
+    const change = await removePiGuidance(record, options);
     return change ? [change] : [];
   }
 
@@ -175,6 +182,45 @@ async function removeOpenCodeInstruction(
   return {
     path,
     content: ownership?.created && isEmptyOpenCodeConfig(content) ? null : content,
+  };
+}
+
+async function removePiGuidance(
+  record: InstallationRecord,
+  options: InstallOptions,
+): Promise<InstallChange | null> {
+  const current = await currentFile(record.destination);
+
+  if (current === null) return null;
+
+  const key = record.resource;
+  const startMarker = `<!-- ai-directory:rule:${key} -->`;
+  const endMarker = `<!-- /ai-directory:rule:${key} -->`;
+  const start = current.indexOf(startMarker);
+  const end = current.indexOf(endMarker);
+
+  if (start === -1 && end === -1) return null;
+
+  if ((start === -1) !== (end === -1) || end < start) {
+    throw new Error(`Pi managed rule block is malformed: ${key}`);
+  }
+
+  const ownership = record.shared?.find((item) => item.path === record.destination && item.key === key);
+  if (record.shared && !ownership) return null;
+
+  const block = current.slice(start, end + endMarker.length);
+  if (ownership && hashContent(block) !== ownership.hash && !options.force) {
+    throw new Error(`Pi managed rule block was modified: ${key}. Use --force to continue.`);
+  }
+
+  const before = current.slice(0, start);
+  const after = current.slice(end + endMarker.length);
+  const cleanedBefore = before.endsWith('\n\n') ? before.slice(0, -1) : before;
+  const cleanedAfter = after.startsWith('\n') ? after.slice(1) : after;
+  const content = `${cleanedBefore}${cleanedAfter}`;
+  return {
+    path: record.destination,
+    content: ownership?.created && content.trim() === '' ? null : content,
   };
 }
 

@@ -108,6 +108,22 @@ const definitionsById = {
     },
     markers: (location) => [location.config, location.skills, location.agents],
   },
+  pi: {
+    harness: 'pi',
+    displayName: 'Pi',
+    command: 'pi',
+    installers: [
+      { kind: 'script', command: 'bash', args: ['-c', 'curl -fsSL https://pi.dev/install.sh | sh'] },
+      { kind: 'manager', manager: 'npm', package: '@earendil-works/pi-coding-agent' },
+    ],
+    selfUpdate: { command: 'pi', args: ['update', '--self'] },
+    paths: ({ home, environment }) => {
+      const config = configuredPath(environment, 'PI_CODING_AGENT_DIR') ?? join(home, '.pi', 'agent');
+
+      return piLocation(home, config);
+    },
+    markers: (location) => [location.config, location.skills, location.agents],
+  },
 } satisfies Record<Harness, HarnessDefinition>;
 
 const definitions = Object.values(definitionsById);
@@ -195,6 +211,17 @@ function codexLocation(
     agents: join(agentsRoot, 'agents'),
     rules: join(root, '.ai-directory', 'rules'),
     guidance,
+  };
+}
+
+function piLocation(root: string, config: string): HarnessLocation {
+  return {
+    root,
+    config,
+    skills: join(config, 'skills'),
+    agents: join(config, 'agents'),
+    rules: join(config, 'rules'),
+    guidance: config,
   };
 }
 

@@ -771,7 +771,7 @@ describe('local control API', () => {
     const body = await response.json() as {
       harnesses: Array<{ harness: string; configured: boolean; installed: boolean; installCommand: string; version?: string }>;
     };
-    expect(body.harnesses.map((harness) => harness.harness)).toEqual(['claude-code', 'opencode', 'codex']);
+    expect(body.harnesses.map((harness) => harness.harness)).toEqual(['claude-code', 'opencode', 'codex', 'pi']);
     for (const harness of body.harnesses) {
       expect(harness.configured).toBe(false);
       expect(harness.installed).toBe(false);
@@ -825,7 +825,7 @@ describe('local control API', () => {
     });
     expect(invalid.status).toBe(400);
     await expect(invalid.json()).resolves.toEqual({
-      error: 'harness must be one of claude-code, opencode, or codex.',
+      error: 'harness must be one of claude-code, opencode, codex, pi.',
     });
 
     const install = await app.request('/api/harnesses/install', {
@@ -857,6 +857,50 @@ describe('local control API', () => {
     await expect(uninstall.json()).resolves.toMatchObject({ result: { harness: 'claude-code' } });
     expect(runnerCalls.some((call) => call.startsWith('npm install --global'))).toBe(true);
     expect(runnerCalls.some((call) => call.startsWith('npm uninstall --global'))).toBe(true);
+  });
+
+  it('reports and manages the Pi MCP adapter extension', async () => {
+    const cwd = await createTemporaryDirectory();
+    const homeDirectory = await createTemporaryDirectory();
+    const piModules = join(homeDirectory, '.pi', 'agent', 'npm', 'node_modules');
+    const app = createApp({
+      cwd,
+      homeDirectory,
+      environment: { PI_CODING_AGENT_DIR: join(homeDirectory, '.pi', 'agent') },
+      dependencyCommandRunner: async (command, args) => {
+        if (command === 'pi' && args[0] === 'install') {
+          await mkdir(join(piModules, 'pi-mcp-adapter'), { recursive: true });
+          await writeFile(
+            join(piModules, 'pi-mcp-adapter', 'package.json'),
+            JSON.stringify({ name: 'pi-mcp-adapter', version: '2.31.0' }),
+            'utf8',
+          );
+        }
+        if (command === 'pi' && args[0] === 'uninstall') {
+          await rm(join(piModules, 'pi-mcp-adapter'), { recursive: true, force: true });
+        }
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    const status = await app.request('/api/pi/mcp-adapter');
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toMatchObject({
+      adapter: { installed: false, installCommand: 'pi install npm:pi-mcp-adapter' },
+    });
+
+    const install = await app.request('/api/pi/mcp-adapter/install', { method: 'POST' });
+    expect(install.status).toBe(200);
+    await expect(install.json()).resolves.toMatchObject({
+      result: { installed: true, version: '2.31.0', command: 'pi' },
+    });
+
+    const after = await app.request('/api/pi/mcp-adapter');
+    await expect(after.json()).resolves.toMatchObject({ adapter: { installed: true, version: '2.31.0' } });
+
+    const uninstall = await app.request('/api/pi/mcp-adapter/uninstall', { method: 'POST' });
+    expect(uninstall.status).toBe(200);
+    await expect(uninstall.json()).resolves.toMatchObject({ result: { installed: false } });
   });
 
   it('rejects project scope for file resources', async () => {

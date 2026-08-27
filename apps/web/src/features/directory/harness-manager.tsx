@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -11,6 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../../components/ui/alert-dialog';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
 import { FieldDescription } from '../../components/ui/field';
@@ -18,6 +19,7 @@ import { Label } from '../../components/ui/label';
 import { api } from '../../lib/api';
 import type { Harness, HarnessManagerStatus, HarnessOrigin } from '../../lib/types';
 import { useDirectory } from './context';
+import { badgeTone } from './shared';
 
 type HarnessAction = 'install' | 'update' | 'uninstall';
 
@@ -128,6 +130,54 @@ export function HarnessManagerSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </section>
+  );
+}
+
+export function PiMcpAdapterSection() {
+  const queryClient = useQueryClient();
+  const adapter = useQuery({ queryKey: ['pi-mcp-adapter'], queryFn: api.piMcpAdapter });
+  const mutation = useMutation({
+    mutationFn: (action: 'install' | 'uninstall') => api.piMcpAdapterAction(action),
+    onSuccess: (result, action) => {
+      toast.success(action === 'install' ? 'Installed the Pi MCP adapter.' : 'Uninstalled the Pi MCP adapter.');
+      void queryClient.invalidateQueries({ queryKey: ['pi-mcp-adapter'] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'The Pi MCP adapter action failed.'),
+  });
+
+  const installed = adapter.data?.adapter.installed;
+  const version = adapter.data?.adapter.version;
+  const status = adapter.isPending
+    ? 'Loading'
+    : installed
+      ? version
+        ? `Installed · v${version}`
+        : 'Installed'
+      : 'Not installed';
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-medium">Pi MCP adapter</h3>
+        <Badge {...badgeTone(installed ? 'success' : 'muted')}>{status}</Badge>
+      </div>
+      <FieldDescription>
+        Pi has no built-in MCP support. The community <code className="font-mono">pi-mcp-adapter</code> extension adds it; AI Directory writes MCP servers to <code className="font-mono">~/.pi/agent/mcp.json</code> and project <code className="font-mono">.mcp.json</code> when it is installed.
+      </FieldDescription>
+      {adapter.error && <FieldDescription>Could not read the Pi MCP adapter status.</FieldDescription>}
+      <div className="flex gap-2">
+        {!installed && (
+          <Button size="sm" onClick={() => void mutation.mutateAsync('install')} disabled={mutation.isPending}>
+            {mutation.isPending ? 'Installing…' : 'Install adapter'}
+          </Button>
+        )}
+        {installed && (
+          <Button size="sm" variant="ghost" onClick={() => void mutation.mutateAsync('uninstall')} disabled={mutation.isPending}>
+            {mutation.isPending ? 'Removing…' : 'Remove adapter'}
+          </Button>
+        )}
+      </div>
     </section>
   );
 }

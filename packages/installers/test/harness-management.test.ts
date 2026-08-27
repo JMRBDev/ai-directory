@@ -22,6 +22,7 @@ afterEach(() => {
 function createRunner(scenario: {
   claudeVersion?: string;
   codexVersion?: string;
+  piVersion?: string;
   scriptChannel?: boolean;
   failSelfUpdate?: boolean;
   managedLayout?: boolean;
@@ -31,7 +32,7 @@ function createRunner(scenario: {
   temporaryDirectories.push(root);
   const binaryDirectory = scenario.managedLayout ? join(root, 'bin') : root;
   mkdirSync(binaryDirectory, { recursive: true });
-  for (const name of ['claude', 'codex']) {
+  for (const name of ['claude', 'codex', 'pi']) {
     writeFileSync(join(binaryDirectory, name), '#!/bin/sh\nexit 0\n');
     chmodSync(join(binaryDirectory, name), 0o755);
   }
@@ -39,6 +40,7 @@ function createRunner(scenario: {
   const state = {
     claudeVersion: scenario.claudeVersion,
     codexVersion: scenario.codexVersion,
+    piVersion: scenario.piVersion,
   };
 
   async function run(command: string, args: string[]): Promise<DependencyCommandResult> {
@@ -59,6 +61,11 @@ function createRunner(scenario: {
       if (!version) throw new Error('command not found: codex');
       return { stdout: `codex-cli ${version}`, stderr: '' };
     }
+    if (command === 'pi' && args[0] === '--version') {
+      const version = state.piVersion;
+      if (!version) throw new Error('command not found: pi');
+      return { stdout: `pi ${version}`, stderr: '' };
+    }
     if (command === 'claude' && args[0] === 'update') {
       if (scenario.failSelfUpdate) throw new Error('self-update is not supported for this installation');
       state.claudeVersion = '2.0.1';
@@ -68,14 +75,20 @@ function createRunner(scenario: {
       state.claudeVersion = '2.0.1';
       return { stdout: 'Installed.', stderr: '' };
     }
+    if (command === 'bash' && args[0] === '-c' && args[1].includes('pi.dev/install.sh')) {
+      state.piVersion = '1.0.0';
+      return { stdout: 'Installed.', stderr: '' };
+    }
     if (command === 'npm' && args[0] === 'install' && args[1] === '--global') {
       state.claudeVersion = '2.0.1';
       state.codexVersion = '2.0.1';
+      state.piVersion = '1.0.0';
       return { stdout: '', stderr: '' };
     }
     if (command === 'npm' && args[0] === 'uninstall' && args[1] === '--global') {
       state.claudeVersion = undefined;
       state.codexVersion = undefined;
+      state.piVersion = undefined;
       return { stdout: '', stderr: '' };
     }
     throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
@@ -103,6 +116,32 @@ describe('harness management', () => {
     });
     expect(fake.invocations.some((invocation) => invocation.args.some((arg) => arg.includes('claude.ai/install.sh')))).toBe(true);
     expect(fake.invocations.some((invocation) => invocation.command === 'npm' && invocation.args[0] === 'install')).toBe(false);
+  });
+
+  it('installs Pi through its official installer script', async () => {
+    const fake = createRunner({ scriptChannel: true });
+    const result = await installHarness('pi', fake.options);
+
+    expect(result).toMatchObject({
+      harness: 'pi',
+      method: 'script',
+      command: 'bash',
+      version: '1.0.0',
+    });
+    expect(fake.invocations.some((invocation) => invocation.args.some((arg) => arg.includes('pi.dev/install.sh')))).toBe(true);
+  });
+
+  it('installs Pi through npm when the script channel is unavailable', async () => {
+    const fake = createRunner({});
+    const result = await installHarness('pi', fake.options);
+
+    expect(result).toMatchObject({
+      harness: 'pi',
+      method: 'npm',
+      manager: 'npm',
+      package: '@earendil-works/pi-coding-agent',
+      version: '1.0.0',
+    });
   });
 
   it('falls back to the package manager when the script channel is unavailable', async () => {

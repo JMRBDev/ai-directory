@@ -177,8 +177,8 @@ export type ResourceSummary = z.infer<typeof resourceSummarySchema>;
 export type RegistryIndex = z.infer<typeof registryIndexSchema>;
 export type TemplateManifest = z.infer<typeof templateManifestSchema>;
 
-export type Harness = 'claude-code' | 'opencode' | 'codex';
-export const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
+export type Harness = 'claude-code' | 'opencode' | 'codex' | 'pi';
+export const harnessSchema = z.enum(['claude-code', 'opencode', 'codex', 'pi']);
 export const HARNESS_IDS: readonly Harness[] = harnessSchema.options;
 export const HARNESS_ID_LIST = HARNESS_IDS.join(', ');
 

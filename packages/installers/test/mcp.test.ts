@@ -89,6 +89,7 @@ describe('MCP server installation', () => {
     ['claude-code', '.mcp.json', (content: string) => expect(content).toContain('"Authorization": "Bearer ${GITHUB_PAT}"')],
     ['opencode', 'opencode.json', (content: string) => expect(content).toContain('"Authorization": "Bearer {env:GITHUB_PAT}"')],
     ['codex', '.codex/config.toml', (content: string) => expect(content).toContain('bearer_token_env_var = "GITHUB_PAT"')],
+    ['pi', '.mcp.json', (content: string) => expect(content).toContain('"Authorization": "Bearer ${GITHUB_PAT}"')],
   ] as const)('writes a project-scoped %s entry to its config file', async (harness, configPath, assertEntry) => {
     const directory = await createTemporaryDirectory();
     const applied = await applyMcpOperations(
@@ -119,7 +120,7 @@ describe('MCP server installation', () => {
     expect(manifest.installations).toHaveLength(1);
   });
 
-  it.each(['claude-code', 'opencode', 'codex'] as const)(
+  it.each(['claude-code', 'opencode', 'codex', 'pi'] as const)(
     'passes stdio env vars through for %s',
     async (harness) => {
       const directory = await createTemporaryDirectory();
@@ -134,7 +135,7 @@ describe('MCP server installation', () => {
         projectOptions(directory),
       );
 
-      if (harness === 'claude-code') {
+      if (harness === 'claude-code' || harness === 'pi') {
         const content = await readFile(join(directory, '.mcp.json'), 'utf8');
         expect(content).toContain('"DATABASE_URL": "${DATABASE_URL}"');
       } else if (harness === 'opencode') {

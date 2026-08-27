@@ -10,7 +10,7 @@ const jsonConfigSchema = z.object({
 type JsonConfig = z.infer<typeof jsonConfigSchema>;
 
 export function containerKey(harness: Harness): 'mcp' | 'mcpServers' {
-  return harness === 'claude-code' ? 'mcpServers' : 'mcp';
+  return harness === 'claude-code' || harness === 'pi' ? 'mcpServers' : 'mcp';
 }
 
 export function readJsonConfig(content: string, path: string): JsonConfig {

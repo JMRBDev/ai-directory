@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectResourceRoots,
+  harnessSchema,
   mcpServerManifestSchema,
   pluginManifestSchema,
   registryIndexSchema,
@@ -295,5 +296,13 @@ describe('detectResourceRoots', () => {
       { type: 'tools', entryFile: 'TOOL.md', root: 'pack/tools/deployer', name: 'deployer' },
     ]);
     expect(detectResourceRoots(['notes/SKILLS.md', 'deep/AGENT.md.bak'])).toEqual([]);
+  });
+});
+
+describe('harness contract', () => {
+  it('accepts all supported harnesses', () => {
+    expect(harnessSchema.options).toEqual(['claude-code', 'opencode', 'codex', 'pi']);
+    expect(harnessSchema.parse('pi')).toBe('pi');
+    expect(harnessSchema.safeParse('unknown').success).toBe(false);
   });
 });

@@ -29,7 +29,7 @@ describe('request validation', () => {
 
   it('rejects a resource request without harnesses', () => {
     expect(requestError({ resource: 'john-doe/skills/typescript-review' })).toBe(
-      'harnesses must include one or more of claude-code, opencode, or codex.',
+      'harnesses must include one or more of claude-code, opencode, codex, pi.',
     );
   });
 
@@ -37,7 +37,7 @@ describe('request validation', () => {
     expect(requestError({
       resource: 'john-doe/skills/typescript-review',
       harnesses: ['not-a-harness'],
-    })).toBe('harnesses must include only claude-code, opencode, or codex.');
+    })).toBe('harnesses must include only claude-code, opencode, codex, pi.');
   });
 
   it('rejects an empty resource', () => {

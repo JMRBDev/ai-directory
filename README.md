@@ -151,7 +151,19 @@ apps/cli/dist/aid harness update codex
 apps/cli/dist/aid harness uninstall codex
 ```
 
-Installs prefer the official installer channels published by each harness (`claude.ai/install.sh`, `opencode.ai/install`) and fall back to an allowlisted package-manager command (npm global packages). Updates use the harness's own official update command (`claude update`, `opencode upgrade`). Every action first detects how the harness was installed — npm, Homebrew, or a native installer — and only acts through the matching channel: installs verify the version afterwards, and uninstalls refuse with guidance when the binary was not installed through a supported package manager. Harness configuration directories such as `~/.claude` or `~/.codex` are never touched. Interactive terminals ask for confirmation first; scripted runs pass `--yes`. The website Settings sheet shows the same detection with Install, Update, and Uninstall actions behind a confirmation dialog.
+Installs prefer the official installer channels published by each harness (`claude.ai/install.sh`, `opencode.ai/install`, `pi.dev/install.sh`) and fall back to an allowlisted package-manager command (npm global packages). Updates use the harness's own official update command (`claude update`, `opencode upgrade`, `pi update --self`). Every action first detects how the harness was installed — npm, Homebrew, or a native installer — and only acts through the matching channel: installs verify the version afterwards, and uninstalls refuse with guidance when the binary was not installed through a supported package manager. Harness configuration directories such as `~/.claude` or `~/.codex` are never touched. Interactive terminals ask for confirmation first; scripted runs pass `--yes`. The website Settings sheet shows the same detection with Install, Update, and Uninstall actions behind a confirmation dialog.
+
+Pi is supported as a first-class harness. Resources install into `~/.pi/agent/` (`PI_CODING_AGENT_DIR` overrides it): skills into `skills/`, rules into a managed block in `AGENTS.md`, plugins and tools into `extensions/`. Pi has no sub-agents, so `agents` resources report an unsupported error for this harness.
+
+Pi has no built-in MCP support, but the community `pi-mcp-adapter` extension adds it. When that adapter is installed, AI Directory writes MCP servers to `~/.pi/agent/mcp.json` (global) and `.mcp.json` (project) using the standard MCP shape, which the adapter loads. Manage the adapter from the website Settings (Pi MCP adapter section) or the CLI:
+
+```sh
+apps/cli/dist/aid harness pi-mcp-adapter status
+apps/cli/dist/aid harness pi-mcp-adapter install
+apps/cli/dist/aid harness pi-mcp-adapter uninstall
+```
+
+MCP resources still report unsupported when the adapter is not installed, and the Settings sheet shows its availability.
 
 ## Run the local catalog
 

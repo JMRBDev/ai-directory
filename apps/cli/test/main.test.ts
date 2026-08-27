@@ -436,6 +436,7 @@ describe('CLI', () => {
     expect(list.stdout).toContain('Claude Code');
     expect(list.stdout).toContain('OpenCode');
     expect(list.stdout).toContain('Codex');
+    expect(list.stdout).toContain('Pi');
 
     const guarded = runAid(['harness', 'install', 'claude-code'], undefined, registryIndex);
     expect(guarded.code).toBe(1);

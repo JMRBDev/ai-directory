@@ -3,6 +3,8 @@ import type {
   ConfigResponse,
   HarnessManagerStatus,
   LocalResourcesResponse,
+  PiMcpAdapterActionResult,
+  PiMcpAdapterStatus,
   RegistryResponse,
   ResourceResponse,
   Installation,
@@ -26,6 +28,7 @@ export const API_PATHS = {
   validate: '/api/validate',
   submit: '/api/submit',
   refresh: '/api/refresh',
+  piMcpAdapter: '/api/pi/mcp-adapter',
 } as const;
 
 export const LOCAL_API_KEY = 'ai-directory-local-api';
@@ -111,6 +114,8 @@ export const api = {
   localResources: () => request<LocalResourcesResponse>(API_PATHS.localResources),
   harnesses: () => request<{ harnesses: HarnessManagerStatus[] }>(API_PATHS.harnesses),
   harnessAction: (action: 'install' | 'update' | 'uninstall', harness: Harness) => jsonRequest<{ result: { harness: string; version?: string } }>(`${API_PATHS.harnesses}/${action}`, { harness }),
+  piMcpAdapter: () => request<{ adapter: PiMcpAdapterStatus }>(API_PATHS.piMcpAdapter),
+  piMcpAdapterAction: (action: 'install' | 'uninstall') => request<{ result: PiMcpAdapterActionResult }>(`${API_PATHS.piMcpAdapter}/${action}`, { method: 'POST' }),
   config: () => request<ConfigResponse>(API_PATHS.config),
   configPut: (repository: string, scope: 'user' | 'project') => jsonRequest<ConfigResponse>(API_PATHS.config, { repository, scope }, 'PUT'),
   configDelete: (scope: 'user' | 'project') => request<ConfigResponse>(`${API_PATHS.config}?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' }),

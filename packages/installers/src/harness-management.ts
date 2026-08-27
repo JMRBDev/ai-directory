@@ -216,7 +216,7 @@ export async function inspectHarness(harness: Harness, options: HarnessManagemen
 
 export async function inspectHarnesses(options: HarnessManagementOptions = {}): Promise<HarnessStatus[]> {
   return Promise.all(
-    (['claude-code', 'opencode', 'codex'] as const).map((harness) => inspectHarness(harness, options)),
+    (['claude-code', 'opencode', 'codex', 'pi'] as const).map((harness) => inspectHarness(harness, options)),
   );
 }
 
