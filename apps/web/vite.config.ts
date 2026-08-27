@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   server: {
-    allowedHosts: ['macbook-pro-de-jose.tail406fdf.ts.net'],
+    allowedHosts: ['localhost'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:4317',

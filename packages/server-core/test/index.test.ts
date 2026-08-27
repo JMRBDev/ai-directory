@@ -86,14 +86,14 @@ describe('local control API', () => {
       cwd: await createTemporaryDirectory(),
       commandRunner: async (command, args) => {
         expect([command, ...args]).toEqual(['gh', 'api', 'user', '--jq', '.login']);
-        return { stdout: 'JMRBDev\n', stderr: '' };
+        return { stdout: 'OctoCat\n', stderr: '' };
       },
     });
 
     const response = await app.request('/api/github-user');
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ username: 'jmrbdev' });
+    await expect(response.json()).resolves.toEqual({ username: 'octocat' });
   });
 
   it('validates an uploaded resource without touching Git', async () => {

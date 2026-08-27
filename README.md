@@ -1,8 +1,8 @@
 # AI Directory
 
-AI Directory is an internal, Git-backed registry for reusable AI development resources.
+AI Directory is a Git-backed registry for reusable AI development resources — skills, agents, rules, MCP servers, resource packs, plugins, and tools — with a local website and a command-line tool that installs them across coding harnesses (Claude Code, OpenCode, Codex, Pi).
 
-The repository is a Turborepo monorepo. It contains the local website, the Hono server boundary, the Bun CLI, and shared TypeScript packages. The company resource registry is a separate Git repository and is not stored in this application repository.
+The repository is a Turborepo monorepo. It contains the local website, the Hono server boundary, the Bun CLI, and shared TypeScript packages. The resource registry itself is a separate Git repository that you configure and is not stored in this application repository.
 
 ## Stack
 
@@ -30,6 +30,10 @@ packages/
   registry/         Git-backed registry boundary
   server-core/      Reusable Hono application
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 ## Start development
 
@@ -64,7 +68,7 @@ Create a resource locally before submitting it:
 apps/cli/dist/aid create
 apps/cli/dist/aid create my-skill \
   --type skills \
-  --owner jose-rosendo \
+  --owner octocat \
   --description "Review TypeScript changes." \
   --output ./my-skill
 ```
@@ -77,7 +81,7 @@ Validate a resource before submitting it:
 
 ```sh
 apps/cli/dist/aid validate ./my-skill \
-  --id jose-rosendo/skills/my-resource \
+  --id octocat/skills/my-resource \
   --version 1.0.0
 ```
 
@@ -99,11 +103,11 @@ apps/cli/dist/aid list --index /path/to/registry/index.json
 
 The CLI uses a temporary sparse checkout for Git reads. It does not keep a registry clone. `--index` and `AI_DIRECTORY_REGISTRY_INDEX` are explicit local overrides. Use `--type`, `--include-retired`, or `--json` to filter the result.
 
-Set the company registry once for the current user:
+Set the registry once for the current user:
 
 ```sh
 apps/cli/dist/aid config set repository \
-  git@github.com:company/ai-directory-registry.git
+  git@github.com:you/ai-directory-registry.git
 ```
 
 After this, `list`, `show`, `install`, and `submit` use the configured Git repository by default. Use `--scope project` to store an override in `.ai-directory/config.json`, or use `AI_DIRECTORY_REGISTRY_REPOSITORY` for an environment-level override. Inspect the effective value with `aid config get repository`.
@@ -126,7 +130,7 @@ The setup flow checks Git access, reads the production `main` branch, and saves 
 
 ```sh
 apps/cli/dist/aid setup \
-  --repository git@github.com:company/ai-directory-registry.git \
+  --repository git@github.com:you/ai-directory-registry.git \
   --scope user \
   --non-interactive
 ```
@@ -138,7 +142,7 @@ apps/cli/dist/aid doctor
 apps/cli/dist/aid doctor --json
 ```
 
-The CLI uses the Git credentials already configured on the employee's machine. It does not store Git credentials in AI Directory configuration.
+The CLI uses the Git credentials already configured on the machine. It does not store Git credentials in AI Directory configuration.
 
 ## Manage agent harnesses
 
@@ -176,7 +180,7 @@ apps/cli/dist/aid web --open
 
 Use the Settings control in the catalog to configure the registry repository from the browser. The sheet writes through the local API, so the CLI and website share the same user/project configuration. Use `--index`, `--host`, or `--port` to change the local setup. The CLI serves the built Vite `dist` folder and the Hono API from one process.
 
-Use `Publish` in the catalog to submit a resource. The local API keeps uploaded files in a temporary directory and removes them after validation or submission. Website publishing requires the configured source to be a Git repository and uses the employee's existing Git and GitHub CLI credentials. Use `Refresh registry` on the catalog after a pull request is merged to fetch the latest production branch.
+Use `Publish` in the catalog to submit a resource. The local API keeps uploaded files in a temporary directory and removes them after validation or submission. Website publishing requires the configured source to be a Git repository and uses the existing Git and GitHub CLI credentials. Use `Refresh registry` on the catalog after a pull request is merged to fetch the latest production branch.
 
 For a release, ship the compiled `aid` binary. The CLI build embeds the built website into the binary itself (`--asset`), so `aid web` serves the SPA from the single executable with no extra files. During development the CLI still prefers a `apps/web/dist` on disk, or `AI_DIRECTORY_WEB_DIST` when the assets use another location.
 
@@ -204,12 +208,12 @@ apps/cli/dist/aid web --host 0.0.0.0 --port 4321
 
 Note: browsers allow a page served over HTTPS to call `http://127.0.0.1` and `http://localhost` (treated as trustworthy origins). A hosted page calling `http://<LAN-IP>` may be blocked as mixed content; prefer the loopback address and a tunnel if the CLI runs elsewhere.
 
-## Run the local catalog
+## Inspect the registry
 
 Inspect a version from the configured registry:
 
 ```sh
-apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review
+apps/cli/dist/aid show octocat/skills/typescript-api-review
 ```
 
 Use `--version` to inspect a specific version or `--json` for machine-readable output.
@@ -217,8 +221,8 @@ Use `--version` to inspect a specific version or `--json` for machine-readable o
 Pass a repository for a one-command override:
 
 ```sh
-apps/cli/dist/aid show jose-rosendo/skills/typescript-api-review \
-  --repository git@github.com:company/ai-directory-registry.git
+apps/cli/dist/aid show octocat/skills/typescript-api-review \
+  --repository git@github.com:you/ai-directory-registry.git
 ```
 
 The command uses a temporary sparse checkout for `index.json` and the requested resource. It removes that checkout after reading. An explicit `--index` takes precedence over the repository option.
@@ -241,36 +245,36 @@ Prepare a resource directory with its required entry file (`SKILL.md`, `AGENT.md
 
 ```sh
 apps/cli/dist/aid submit ./my-resource \
-  --id jose-rosendo/skills/my-resource \
+  --id octocat/skills/my-resource \
   --version 1.0.0 \
   --description "Short resource description"
 ```
 
-The command uses a temporary partial checkout. It does not keep a full registry copy on the employee's computer. The command creates a branch, copies the package, updates `index.json`, commits and pushes the branch, and opens a pull request through the authenticated GitHub CLI. The production branch remains unchanged until reviewers merge the pull request.
+The command uses a temporary partial checkout. It does not keep a full registry copy on the machine. The command creates a branch, copies the package, updates `index.json`, commits and pushes the branch, and opens a pull request through the authenticated GitHub CLI. The production branch remains unchanged until reviewers merge the pull request.
 
 In an interactive terminal, `submit` validates the local inputs and asks for confirmation before it creates the branch and pull request.
 
 The same remote checkout mode is available during installation:
 
 ```sh
-apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
+apps/cli/dist/aid install octocat/skills/typescript-api-review \
   --scope project --harness claude-code
 ```
 
 Select the target harness when needed:
 
 ```sh
-apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
+apps/cli/dist/aid install octocat/skills/typescript-api-review \
   --harness opencode --scope project
 
-apps/cli/dist/aid install jose-rosendo/skills/typescript-api-review \
+apps/cli/dist/aid install octocat/skills/typescript-api-review \
   --harness codex --scope project
 ```
 
 Install a tool and its declared runtime dependency in a script or CI job:
 
 ```sh
-apps/cli/dist/aid install jose-rosendo/tools/semgrep \
+apps/cli/dist/aid install octocat/tools/semgrep \
   --harness codex \
   --install-dependencies
 ```
@@ -281,7 +285,7 @@ Project installations are recorded in `.ai-directory/installed.json`. Global ins
 
 ```sh
 apps/cli/dist/aid installed
-apps/cli/dist/aid update jose-rosendo/skills/typescript-api-review \
+apps/cli/dist/aid update octocat/skills/typescript-api-review \
   --scope project
 ```
 

@@ -48,7 +48,7 @@ export const setup = defineCommand({
       if (!args.repository && !nonInteractive) {
         const options: TextOptions = {
           message: 'What is the registry Git URL?',
-          placeholder: 'git@github.com:company/ai-directory-registry.git',
+          placeholder: 'git@github.com:you/ai-directory-registry.git',
           validate(value) {
             if (!value?.trim()) return 'A registry Git URL is required.';
           },
