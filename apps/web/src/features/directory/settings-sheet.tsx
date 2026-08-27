@@ -122,64 +122,66 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
 
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Settings" description="Registry source, agent harnesses, and appearance.">
-      <HarnessManagerSection />
-      <Separator />
-      <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-medium">Registry source</h3>
-          <Badge {...badgeTone(sourceLabel === 'Not configured' || sourceLabel === 'Unavailable' ? 'muted' : 'secondary')}>{sourceLabel}</Badge>
-        </div>
-        {configError && <ErrorMessage message={configError} />}
-        <Field>
-          <FieldLabel htmlFor="registry-repository">Git repository URL</FieldLabel>
-          <Input id="registry-repository" placeholder="https://github.com/org/resources" value={repository ?? currentRepository} onChange={(event) => setRepository(event.target.value)} />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="settings-scope">Save scope</FieldLabel>
-          <Select value={configScope} onValueChange={(value) => { if (value !== null) setConfigScope(installScope(value)); }}>
-            <SelectTrigger id="settings-scope"><SelectValue>{scopeOptions.find((option) => option.value === configScope)?.label}</SelectValue></SelectTrigger>
-            <SelectContent>{scopeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-          </Select>
-        </Field>
-        <div className="flex gap-2">
-          <Button size="sm" onClick={save} disabled={!(repository ?? currentRepository).trim() || saveMutation.isPending}>Save</Button>
-          <Button variant="ghost" size="sm" onClick={() => void clearMutation.mutateAsync()} disabled={clearMutation.isPending}>Clear</Button>
-        </div>
-      </section>
-      <Separator />
-      <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-medium">Local connection</h3>
-          <Badge {...badgeTone(connectionStatus === 'connected' ? 'success' : connectionStatus === 'unreachable' ? 'destructive' : connectionStatus === 'checking' ? 'secondary' : 'muted')}>{connectionLabel}</Badge>
-        </div>
-        <FieldDescription>Run `aid web` in a terminal, then enter its URL and pairing token to control this setup from a hosted website.</FieldDescription>
-        <Field>
-          <FieldLabel htmlFor="local-url">Local server URL</FieldLabel>
-          <Input id="local-url" type="text" inputMode="url" placeholder="http://127.0.0.1:4321" value={localUrl} onChange={(event) => { setLocalUrl(event.target.value); setConnectionStatus('idle'); }} autoComplete="off" />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="local-token">Pairing token</FieldLabel>
-          <Input id="local-token" type="password" placeholder="Paste the token printed by aid web" value={localToken} onChange={(event) => setLocalToken(event.target.value)} autoComplete="off" />
-        </Field>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => void testConnection()} disabled={connectionStatus === 'checking' || !localUrl.trim()}>Test connection</Button>
-          <Button size="sm" onClick={saveLocalConnection} disabled={!localUrl.trim()}>Save</Button>
-          <Button variant="ghost" size="sm" onClick={clearLocalConnection} disabled={!readLocalApi() && !readLocalApiToken()}>Clear</Button>
-        </div>
-      </section>
-      <Separator />
-      <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">Appearance</h3>
-        <ToggleGroup
-          value={[theme]}
-          onValueChange={(value) => { const next = value[0]; if (next === 'system' || next === 'light' || next === 'dark') chooseTheme(next); }}
-          aria-label="Color theme"
-        >
-          {(['system', 'light', 'dark'] as const).map((value) => (
-            <ToggleGroupItem className="capitalize" value={value} key={value}>{value}</ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </section>
+      <div className="flex flex-col gap-5">
+        <HarnessManagerSection />
+        <Separator />
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-medium">Registry source</h3>
+            <Badge {...badgeTone(sourceLabel === 'Not configured' || sourceLabel === 'Unavailable' ? 'muted' : 'secondary')}>{sourceLabel}</Badge>
+          </div>
+          {configError && <ErrorMessage message={configError} />}
+          <Field>
+            <FieldLabel htmlFor="registry-repository">Git repository URL</FieldLabel>
+            <Input id="registry-repository" placeholder="https://github.com/org/resources" value={repository ?? currentRepository} onChange={(event) => setRepository(event.target.value)} />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="settings-scope">Save scope</FieldLabel>
+            <Select value={configScope} onValueChange={(value) => { if (value !== null) setConfigScope(installScope(value)); }}>
+              <SelectTrigger id="settings-scope"><SelectValue>{scopeOptions.find((option) => option.value === configScope)?.label}</SelectValue></SelectTrigger>
+              <SelectContent>{scopeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={save} disabled={!(repository ?? currentRepository).trim() || saveMutation.isPending}>Save</Button>
+            <Button variant="ghost" size="sm" onClick={() => void clearMutation.mutateAsync()} disabled={clearMutation.isPending}>Clear</Button>
+          </div>
+        </section>
+        <Separator />
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-medium">Local connection</h3>
+            <Badge {...badgeTone(connectionStatus === 'connected' ? 'success' : connectionStatus === 'unreachable' ? 'destructive' : connectionStatus === 'checking' ? 'secondary' : 'muted')}>{connectionLabel}</Badge>
+          </div>
+          <FieldDescription>Run `aid web` in a terminal, then enter its URL and pairing token to control this setup from a hosted website.</FieldDescription>
+          <Field>
+            <FieldLabel htmlFor="local-url">Local server URL</FieldLabel>
+            <Input id="local-url" type="text" inputMode="url" placeholder="http://127.0.0.1:4321" value={localUrl} onChange={(event) => { setLocalUrl(event.target.value); setConnectionStatus('idle'); }} autoComplete="off" />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="local-token">Pairing token</FieldLabel>
+            <Input id="local-token" type="password" placeholder="Paste the token printed by aid web" value={localToken} onChange={(event) => setLocalToken(event.target.value)} autoComplete="off" />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => void testConnection()} disabled={connectionStatus === 'checking' || !localUrl.trim()}>Test connection</Button>
+            <Button size="sm" onClick={saveLocalConnection} disabled={!localUrl.trim()}>Save</Button>
+            <Button variant="ghost" size="sm" onClick={clearLocalConnection} disabled={!readLocalApi() && !readLocalApiToken()}>Clear</Button>
+          </div>
+        </section>
+        <Separator />
+        <section className="flex flex-col gap-3">
+          <h3 className="text-sm font-medium">Appearance</h3>
+          <ToggleGroup
+            value={[theme]}
+            onValueChange={(value) => { const next = value[0]; if (next === 'system' || next === 'light' || next === 'dark') chooseTheme(next); }}
+            aria-label="Color theme"
+          >
+            {(['system', 'light', 'dark'] as const).map((value) => (
+              <ToggleGroupItem className="capitalize" value={value} key={value}>{value}</ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </section>
+      </div>
     </SheetFrame>
   );
 }

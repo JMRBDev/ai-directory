@@ -62,60 +62,62 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Installed resources" description="Resources found in your local harness directories.">
-      <div className="flex items-center gap-2">
-        <Select value={harnessFilter} onValueChange={(value) => { if (value !== null) setHarnessFilter(parseHarnessFilter(value)); }}>
-          <SelectTrigger aria-label="Harness" className="flex-1"><SelectValue>{selectedLabel(harnessOptions, harnessFilter)}</SelectValue></SelectTrigger>
-          <SelectContent>{harnessOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-        </Select>
-        <Select value={sourceFilter} onValueChange={(value) => { if (value !== null) setSourceFilter(parseSourceFilter(value)); }}>
-          <SelectTrigger aria-label="Source" className="flex-1"><SelectValue>{selectedLabel(sourceOptions, sourceFilter)}</SelectValue></SelectTrigger>
-          <SelectContent>{sourceOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="Refresh local scan"
-          onClick={() => void queryClient.invalidateQueries({ queryKey: ['local-resources'] })}
-          disabled={localLoading}
-        >
-          <HugeiconsIcon icon={RefreshIcon} className={cn(localLoading && 'animate-spin')} />
-        </Button>
+      <div className="flex flex-col gap-5">
+        <div className="flex items-center gap-2">
+          <Select value={harnessFilter} onValueChange={(value) => { if (value !== null) setHarnessFilter(parseHarnessFilter(value)); }}>
+            <SelectTrigger aria-label="Harness" className="flex-1"><SelectValue>{selectedLabel(harnessOptions, harnessFilter)}</SelectValue></SelectTrigger>
+            <SelectContent>{harnessOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select value={sourceFilter} onValueChange={(value) => { if (value !== null) setSourceFilter(parseSourceFilter(value)); }}>
+            <SelectTrigger aria-label="Source" className="flex-1"><SelectValue>{selectedLabel(sourceOptions, sourceFilter)}</SelectValue></SelectTrigger>
+            <SelectContent>{sourceOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Refresh local scan"
+            onClick={() => void queryClient.invalidateQueries({ queryKey: ['local-resources'] })}
+            disabled={localLoading}
+          >
+            <HugeiconsIcon icon={RefreshIcon} className={cn(localLoading && 'animate-spin')} />
+          </Button>
+        </div>
+        {localError && <ErrorMessage message={localError} />}
+        {localRegistryError && <ErrorMessage message={localRegistryError} />}
+        {localLoading ? (
+          <LoadingCards count={2} />
+        ) : !localError && visibleResources.length > 0 ? (
+          <>
+            <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
+              {visibleResources.length} resource{visibleResources.length === 1 ? '' : 's'}
+            </p>
+            <Card className="gap-0 py-0">
+              <ul className="divide-y px-4">
+                {visibleResources.map((resource) => {
+                  const key = resource.resource ? `${resource.resource}\u0000${resource.harness}` : '';
+                  return (
+                    <LocalResourceRow
+                      key={`${resource.harness}-${resource.path}`}
+                      resource={resource}
+                      homeDirectory={homeDirectory}
+                      staged={key ? staged[key] : undefined}
+                      onInstall={() => stageLocal(resource, 'install')}
+                      onUninstall={() => stageLocal(resource, 'uninstall')}
+                      onDiscard={() => key && unstage(key)}
+                    />
+                  );
+                })}
+              </ul>
+            </Card>
+          </>
+        ) : (
+          <DirectoryEmpty
+            icon={<HugeiconsIcon icon={InfoIcon} />}
+            title={localResources.length === 0 ? 'No local resources found' : 'No matching resources'}
+            description={localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}
+          />
+        )}
       </div>
-      {localError && <ErrorMessage message={localError} />}
-      {localRegistryError && <ErrorMessage message={localRegistryError} />}
-      {localLoading ? (
-        <LoadingCards count={2} />
-      ) : !localError && visibleResources.length > 0 ? (
-        <>
-          <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
-            {visibleResources.length} resource{visibleResources.length === 1 ? '' : 's'}
-          </p>
-          <Card className="gap-0 py-0">
-            <ul className="divide-y px-4">
-              {visibleResources.map((resource) => {
-                const key = resource.resource ? `${resource.resource}\u0000${resource.harness}` : '';
-                return (
-                  <LocalResourceRow
-                    key={`${resource.harness}-${resource.path}`}
-                    resource={resource}
-                    homeDirectory={homeDirectory}
-                    staged={key ? staged[key] : undefined}
-                    onInstall={() => stageLocal(resource, 'install')}
-                    onUninstall={() => stageLocal(resource, 'uninstall')}
-                    onDiscard={() => key && unstage(key)}
-                  />
-                );
-              })}
-            </ul>
-          </Card>
-        </>
-      ) : (
-        <DirectoryEmpty
-          icon={<HugeiconsIcon icon={InfoIcon} />}
-          title={localResources.length === 0 ? 'No local resources found' : 'No matching resources'}
-          description={localResources.length === 0 ? 'Resources will appear here after the local harness scan.' : 'Try a different harness or source filter.'}
-        />
-      )}
     </SheetFrame>
   );
 }

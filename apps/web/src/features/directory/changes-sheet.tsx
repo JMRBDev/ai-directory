@@ -14,7 +14,7 @@ import { cn } from '../../lib/utils';
 import { ErrorMessage, SheetFrame } from './common';
 import { useDirectory } from './context';
 import { hasApplyableOperation } from './model';
-import { accordionTriggerClass, badgeTone, DirectoryEmpty, HarnessToggleGroup, ScopeToggleGroup } from './shared';
+import { accordionContentClass, accordionTriggerClass, badgeTone, DirectoryEmpty, HarnessToggleGroup, ScopeToggleGroup } from './shared';
 
 type StagedGroup = { key: string; name: string; item?: StagedItem; changes: PlanChange[] };
 
@@ -167,7 +167,7 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             {group.changes.length > 0 ? countsLabel(changeCounts(group.changes)) : 'no file changes'}
           </Badge>
         </AccordionTrigger>
-        <AccordionContent className="px-3 pb-3">
+        <AccordionContent className={accordionContentClass}>
           <div className="flex flex-col divide-y divide-border/60">
             {item && (
               <div className="flex flex-col gap-1.5 pb-3">
@@ -248,7 +248,7 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           description="Select resources from the catalog or an installed resource."
         />
       ) : (
-        <>
+        <div className="flex flex-col gap-5">
           {plan?.plan.conflicts.length ? (
             <Alert variant="destructive">
               <AlertDescription>{plan.plan.conflicts.join(' ')}</AlertDescription>
@@ -269,7 +269,7 @@ export function ChangesSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               </Accordion>
             </>
           )}
-        </>
+        </div>
       )}
     </SheetFrame>
   );
