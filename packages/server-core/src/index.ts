@@ -9,3 +9,17 @@ export {
   readInstallationPacks,
   readInstallationRecords,
 } from './installations.js';
+export { applyPlannedChange, changeOptions, resolveOperations } from './planning.js';
+export type {
+  ApplyOutcome,
+  PlannedChangeSummary,
+  RegistryApiResponse,
+} from './planning.js';
+export { changePlanError, parseChangeOperations, parseResourceRequest, requestError } from './requests.js';
+export type {
+  ChangeOperationData,
+  ChangePlanRequestData,
+  ResourceRequestData,
+} from './requests.js';
+export { parseResourceUpload, withResourceUpload } from './uploads.js';
+export type { ResourceUpload } from './uploads.js';
