@@ -8,7 +8,6 @@ export type ConfigScope = 'user' | 'project';
 
 export const DEFAULT_API_HOST = '127.0.0.1';
 export const DEFAULT_API_PORT = 4317;
-export const DEFAULT_API_URL = `http://${DEFAULT_API_HOST}:${DEFAULT_API_PORT}`;
 
 const configSchema = z.object({
   repository: z.string().trim().min(1).optional(),

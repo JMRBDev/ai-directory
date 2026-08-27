@@ -10,7 +10,7 @@ import { harnessOptions, type Harness, type InstallScope } from '../../lib/types
 import { installScope } from './model';
 
 type StockBadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
-export type BadgeTone = StockBadgeVariant | 'muted' | 'success' | 'warning';
+type BadgeTone = StockBadgeVariant | 'muted' | 'success' | 'warning';
 
 const customToneClasses = {
   muted: 'border-transparent bg-muted text-muted-foreground',
