@@ -179,6 +179,8 @@ export type TemplateManifest = z.infer<typeof templateManifestSchema>;
 
 export type Harness = 'claude-code' | 'opencode' | 'codex';
 export const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
+export const HARNESS_IDS: readonly Harness[] = harnessSchema.options;
+export const HARNESS_ID_LIST = HARNESS_IDS.join(', ');
 
 export const RESOURCE_ENTRY_FILES = {
   skills: 'SKILL.md',

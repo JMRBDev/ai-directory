@@ -1,5 +1,5 @@
 import { cancel, confirm, isCancel } from '@clack/prompts';
-import { harnessSchema, resourceTypeSchema, type ResourceType } from '@ai-directory/contracts';
+import { harnessSchema, HARNESS_ID_LIST, resourceTypeSchema, type ResourceType } from '@ai-directory/contracts';
 import { resolveRepository, type ConfigScope } from '@ai-directory/config';
 import { resolveRegistrySource, type RegistrySourceOptions } from '@ai-directory/registry';
 import type { Harness } from '@ai-directory/installers';
@@ -61,7 +61,7 @@ export function parseHarnesses(value: string | undefined, rawArgs: string[]): Ha
   for (const candidate of values) {
     if (!isHarness(candidate)) {
       throw new Error(
-        `Unsupported harness. Choose one or more of: claude-code, opencode, codex.`,
+        `Unsupported harness. Choose one or more of: ${HARNESS_ID_LIST}.`,
       );
     }
     if (!seen.has(candidate)) {

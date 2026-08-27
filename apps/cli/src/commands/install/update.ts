@@ -9,23 +9,16 @@ import {
 } from '@ai-directory/installers';
 import {
   installManifestPath,
-  installationResourceIds,
   isMcpResource,
-  readInstallationPacks,
-  readInstallationRecords,
 } from '@ai-directory/server-core';
 import { readRegistrySourceResource } from '@ai-directory/registry';
 import {
   getRegistrySource,
-  hasHarnessArgument,
   isInteractiveTerminal,
-  parseHarnesses,
-  parseScope,
   reportError,
   withInteractiveForce,
 } from '../../helpers';
-import { promptInstalledHarnesses, promptInstalledResource } from '../../prompts';
-import { ensureToolDependencies } from './shared';
+import { ensureToolDependencies, resolveInstalledTarget } from './shared';
 
 export const update = defineCommand({
   meta: {
@@ -79,42 +72,19 @@ export const update = defineCommand({
   },
   async run({ args, rawArgs }) {
     try {
-      const interactiveTerminal = isInteractiveTerminal();
       const resourceArgument = args.resource.trim();
-      const explicitHarnesses = hasHarnessArgument(rawArgs);
       const source = getRegistrySource(args.index, args.repository, args.base);
-      const installedRecords = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
-        ? await readInstallationRecords()
-        : [];
-      const installedPacks = interactiveTerminal && (!resourceArgument || !explicitHarnesses)
-        ? await readInstallationPacks()
-        : [];
-      const initialManifest = resourceArgument && !isMcpResource(resourceArgument)
-        ? await readInstallationManifest(installManifestPath('user'))
-        : undefined;
-      const choice = resourceArgument
-        ? {
-            resource: resourceArgument,
-            resources: await installationResourceIds(resourceArgument, source, initialManifest),
-          }
-        : (
-            interactiveTerminal
-              ? await promptInstalledResource(installedRecords, source, installedPacks)
-              : undefined
-          );
-      if (!choice) throw new Error('Resource ID is required. Pass it as the positional argument.');
-      const resource = choice.resource;
-      const resourceIds = choice.resources;
-      const scope = isMcpResource(resource) ? parseScope(args.scope) : 'user';
-      const harnesses = explicitHarnesses
-        ? parseHarnesses(args.harness, rawArgs)
-        : interactiveTerminal
-          ? await promptInstalledHarnesses(installedRecords, resourceIds, installedPacks, resource)
-          : parseHarnesses(args.harness, rawArgs);
-
-      if (!harnesses) throw new Error('Select at least one harness.');
-
-      const interactive = interactiveTerminal && (!resourceArgument || !explicitHarnesses);
+      const target = await resolveInstalledTarget(
+        resourceArgument,
+        args.scope,
+        args.harness,
+        rawArgs,
+        source,
+      );
+      const resource = target.resource;
+      const harnesses = target.harnesses;
+      const scope = target.scope;
+      const interactive = target.interactive;
       const updatedHarnesses = await withInteractiveForce(
         interactive,
         args.force ?? false,

@@ -1,6 +1,6 @@
 import { confirm, isCancel } from '@clack/prompts';
 import { defineCommand } from 'citty';
-import { harnessSchema } from '@ai-directory/contracts';
+import { harnessSchema, HARNESS_ID_LIST } from '@ai-directory/contracts';
 import {
   inspectHarness,
   installHarness,
@@ -11,13 +11,11 @@ import {
 } from '@ai-directory/installers';
 import { cancelled, isInteractiveTerminal, reportError } from '../helpers';
 
-const HARNESS_IDS = ['claude-code', 'opencode', 'codex'] as const;
-
 function parseHarness(value: string) {
   const result = harnessSchema.safeParse(value.trim());
 
   if (!result.success) {
-    throw new Error(`Unknown harness: ${value}. Supported harnesses: ${HARNESS_IDS.join(', ')}.`);
+    throw new Error(`Unknown harness: ${value}. Supported harnesses: ${HARNESS_ID_LIST}.`);
   }
 
   return result.data;
@@ -97,7 +95,7 @@ function managementCommand(action: keyof typeof actionDescriptions) {
       harness: {
         type: 'positional',
         default: '',
-        description: `Harness ID: ${HARNESS_IDS.join(', ')}`,
+        description: `Harness ID: ${HARNESS_ID_LIST}`,
       },
       yes: {
         type: 'boolean',
