@@ -5,7 +5,16 @@ import type { RouteContext } from '../types.js';
 
 export function registerRegistryRoutes({ app, options, cwd }: RouteContext): void {
   app.get('/api/registry', async (context) => {
-    const source = registrySource(options, cwd);
+    let source;
+    try {
+      source = registrySource(options, cwd);
+    } catch (caught) {
+      return context.json({
+        index: null,
+        source: 'none',
+        error: errorMessage(caught),
+      });
+    }
 
     try {
       const index = await withRegistrySnapshot(options, cwd, (snapshot) => snapshot.readIndex());

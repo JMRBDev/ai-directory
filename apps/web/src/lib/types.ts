@@ -101,7 +101,7 @@ export type PairSessionResult = {
 
 export type RegistryResponse = {
   index: RegistryIndex | null;
-  source: 'local' | 'remote';
+  source: 'local' | 'remote' | 'none';
   repository?: string;
   error?: string;
 };

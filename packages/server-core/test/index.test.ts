@@ -72,6 +72,19 @@ describe('local control API', () => {
     expect(body.version).toBe('1.2.3');
   });
 
+  it('starts with prewarm when no project registry source is configured', async () => {
+    const cwd = await createTemporaryDirectory();
+    // The developer user config may point at a real registry; assert only that
+    // the server boots and the registry route answers instead of throwing.
+    const app = createApp({ cwd, prewarm: true });
+
+    const health = await app.request('/health');
+    expect(health.status).toBe(200);
+
+    const registry = await app.request('/api/registry');
+    expect(registry.status).toBe(200);
+  });
+
   it('rejects invalid configuration requests', async () => {
     const app = createApp({ cwd: await createTemporaryDirectory() });
 

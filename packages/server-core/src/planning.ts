@@ -53,7 +53,7 @@ export type ApplyOutcome<T> =
 
 export type RegistryApiResponse = {
   index: RegistryIndex | null;
-  source: 'local' | 'remote';
+  source: 'local' | 'remote' | 'none';
   repository?: string;
   error?: string;
 };

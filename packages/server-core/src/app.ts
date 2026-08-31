@@ -21,7 +21,14 @@ export function createApp(options: ServerOptions = {}) {
   const sessions = createSessionStore(pairingTokens ?? []);
 
   if (options.prewarm) {
-    void cachedRegistry.get(registrySource(options, cwd)).catch(() => undefined);
+    let source;
+    try {
+      source = registrySource(options, cwd);
+    } catch {
+      // No registry source is configured yet; the server still starts so the
+      // website can guide setup. Registry reads resolve per request.
+    }
+    if (source) void cachedRegistry.get(source).catch(() => undefined);
   }
 
   app.use('/health', cors({ origin: '*' }));
