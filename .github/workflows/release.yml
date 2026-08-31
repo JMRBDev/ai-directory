@@ -28,13 +28,40 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build cross-platform binaries
+      - name: Build the release binaries
+        run: pnpm --filter @ai-directory/cli release:build
+
+      - name: Verify the tag matches the package version
         run: |
-          pnpm --filter @ai-directory/cli prebuild
-          pnpm --filter @ai-directory/cli build:darwin:arm64
-          pnpm --filter @ai-directory/cli build:darwin:x64
-          pnpm --filter @ai-directory/cli build:linux:x64
-          pnpm --filter @ai-directory/cli build:windows:x64
+          set -euo pipefail
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_NAME" != "v${PACKAGE_VERSION}" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package.json version v${PACKAGE_VERSION}."
+            echo "Bump the version in the root package.json to match the tag (or retag), then rerun."
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME matches package.json version $PACKAGE_VERSION."
+
+      - name: Smoke test the Linux release binary
+        run: |
+          set -euo pipefail
+          BIN="apps/cli/dist/aid-linux-x64"
+          chmod +x "$BIN"
+          VERSION=$(node -p "require('./package.json').version")
+          "$BIN" --version | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$'
+          "$BIN" --help | grep -E 'self-update'
+          "$BIN" __selfcheck --expected-version "$VERSION" | grep '"ok":true'
+          "$BIN" web --host 127.0.0.1 --port 0 --no-token > /tmp/aid-web.log 2>&1 &
+          AID_PID=$!
+          trap 'kill -INT "$AID_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            PORT=$(grep -oE 'listening on http://127\.0\.0\.1:[0-9]+' /tmp/aid-web.log | head -1 | grep -oE '[0-9]+$' || true)
+            [ -n "$PORT" ] && break
+            sleep 0.2
+          done
+          [ -n "$PORT" ]
+          curl -fsS "http://127.0.0.1:${PORT}/health" | grep "\"version\":\"${VERSION}\""
+          curl -fsS "http://127.0.0.1:${PORT}/" | grep '<div id="root"></div>'
 
       - name: Publish the GitHub release
         run: |

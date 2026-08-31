@@ -11,11 +11,12 @@
     "build:darwin:x64": "bun build src/main.ts --compile --target=bun-darwin-x64 --asset ../web/dist --outfile dist/aid-darwin-x64",
     "build:linux:x64": "bun build src/main.ts --compile --target=bun-linux-x64 --asset ../web/dist --outfile dist/aid-linux-x64",
     "build:windows:x64": "bun build src/main.ts --compile --target=bun-windows-x64 --asset ../web/dist --outfile dist/aid-windows-x64.exe",
+    "release:build": "pnpm --filter \"@ai-directory/cli...\" build && pnpm --filter @ai-directory/cli build:darwin:arm64 && pnpm --filter @ai-directory/cli build:darwin:x64 && pnpm --filter @ai-directory/cli build:linux:x64 && pnpm --filter @ai-directory/cli build:windows:x64",
     "clean": "rm -rf dist",
     "dev": "bun run src/main.ts",
     "test": "vitest run --passWithNoTests --exclude 'dist/**'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prebuild": "pnpm --filter @ai-directory/server-core build && pnpm --filter @ai-directory/web build"
+    "prebuild": "pnpm --filter @ai-directory/web build"
   },
   "dependencies": {
     "@ai-directory/config": "workspace:*",

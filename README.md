@@ -307,7 +307,15 @@ apps/cli/dist/aid self-update --yes    # apply without prompting (for scripts)
 
 `self-update` queries `gh release view` for the newest `vX.Y.Z` tag, downloads the asset matching the current platform and architecture (`aid-darwin-arm64`, `aid-linux-x64`, and so on), verifies the SHA-256 digest GitHub assigns to the asset, runs the staged binary's hidden `__selfcheck`, and then atomically swaps it into place. It refuses to run from source (`bun run`) and, on Windows where a running executable cannot be replaced, prints the staged path for a manual swap.
 
-Tagging `vX.Y.Z` triggers the release workflow, which cross-compiles the binaries and creates a GitHub release with all platform assets.
+## Release a new version
+
+The release version lives in the root `package.json`. To publish a release:
+
+1. Bump the version in the root `package.json` (for example to `0.2.0`) and commit it.
+2. Tag and push the tag — the tag must match the version: `git tag v0.2.0 && git push origin v0.2.0`.
+3. The release workflow cross-compiles the four binaries (`aid-darwin-arm64`, `aid-darwin-x64`, `aid-linux-x64`, `aid-windows-x64.exe`), verifies the tag matches the package version, smoke-tests the Linux binary, and creates a GitHub release with all platform assets.
+
+The workflow fails fast if the tag does not match `package.json`, so a mismatched tag never publishes binaries that would confuse `self-update`.
 
 ## Checks
 
