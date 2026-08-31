@@ -36,6 +36,14 @@ export function getInstallManifestPath(homeDirectory?: string): string {
   return join(dataDirectory, 'installed.json');
 }
 
+export function getAiDirectoryDataDirectory(homeDirectory?: string): string {
+  if (homeDirectory) {
+    return join(resolve(homeDirectory), '.local', 'share', 'ai-directory');
+  }
+
+  return envPaths('ai-directory', { suffix: '' }).data;
+}
+
 export function getProjectInstallManifestPath(cwd = process.cwd()): string {
   return join(cwd, '.ai-directory', 'installed.json');
 }

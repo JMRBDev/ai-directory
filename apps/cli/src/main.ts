@@ -11,6 +11,8 @@ import { harness } from './commands/harness';
 import { doctor, setup } from './commands/setup';
 import { configClear, configGet, configList, configPath, configSet } from './commands/config';
 import { web } from './commands/web';
+import { selfUpdate } from './commands/self-update';
+import { selfcheck } from './commands/selfcheck';
 import { version } from './version';
 
 const interactiveCommands = {
@@ -25,6 +27,7 @@ const interactiveCommands = {
   installed,
   setup,
   doctor,
+  'self-update': selfUpdate,
 } satisfies Record<string, CommandDef<any>>;
 
 async function runInteractiveMain(): Promise<void> {
@@ -44,6 +47,7 @@ async function runInteractiveMain(): Promise<void> {
       { value: 'installed', label: 'List installed resources' },
       { value: 'setup', label: 'Configure the registry' },
       { value: 'doctor', label: 'Check the setup' },
+      { value: 'self-update', label: 'Update AI Directory' },
       { value: 'exit', label: 'Exit' },
     ],
   });
@@ -97,6 +101,8 @@ const main = defineCommand({
     setup,
     doctor,
     config,
+    'self-update': selfUpdate,
+    __selfcheck: selfcheck,
   },
   async run({ rawArgs }) {
     if (rawArgs.length === 0) {

@@ -34,3 +34,51 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  release-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the release binary
+        run: pnpm --filter @ai-directory/cli build:linux:x64
+
+      - name: Smoke test the release binary
+        run: |
+          set -euo pipefail
+          BIN="apps/cli/dist/aid-linux-x64"
+          chmod +x "$BIN"
+
+          "$BIN" --version | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$'
+          "$BIN" --help | grep -E 'USAGE aid|self-update'
+          "$BIN" __selfcheck --expected-version "$(node -p "require('./package.json').version")" | grep '"ok":true'
+
+          # Serve the embedded SPA + API and assert the health endpoint reports the version.
+          "$BIN" web --host 127.0.0.1 --port 0 --no-token > /tmp/aid-web.log 2>&1 &
+          AID_PID=$!
+          trap 'kill -INT "$AID_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            PORT=$(grep -oE 'listening on http://127\.0\.0\.1:[0-9]+' /tmp/aid-web.log | head -1 | grep -oE '[0-9]+$' || true)
+            [ -n "$PORT" ] && break
+            sleep 0.2
+          done
+          [ -n "$PORT" ]
+          VERSION=$(node -p "require('./package.json').version")
+          curl -fsS "http://127.0.0.1:${PORT}/health" | grep "\"version\":\"${VERSION}\""
+          curl -fsS "http://127.0.0.1:${PORT}/" | grep '<div id="root"></div>'
+

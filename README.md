@@ -295,6 +295,20 @@ Pass `--version` to update to a specific version instead of the latest; the comm
 
 Template installations are expanded into their component resources. Use `installed` to see those components and update them individually.
 
+## Update the CLI
+
+The compiled `aid` binary can update itself from a tagged GitHub release of this repository:
+
+```sh
+apps/cli/dist/aid self-update          # check and apply the latest release
+apps/cli/dist/aid self-update --dry-run # check only; do not download or swap
+apps/cli/dist/aid self-update --yes    # apply without prompting (for scripts)
+```
+
+`self-update` queries `gh release view` for the newest `vX.Y.Z` tag, downloads the asset matching the current platform and architecture (`aid-darwin-arm64`, `aid-linux-x64`, and so on), verifies the SHA-256 digest GitHub assigns to the asset, runs the staged binary's hidden `__selfcheck`, and then atomically swaps it into place. It refuses to run from source (`bun run`) and, on Windows where a running executable cannot be replaced, prints the staged path for a manual swap.
+
+Tagging `vX.Y.Z` triggers the release workflow, which cross-compiles the binaries and creates a GitHub release with all platform assets.
+
 ## Checks
 
 ```sh
@@ -302,6 +316,8 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+CI also runs a `release-smoke` job that builds the Linux binary, checks `--version`, `--help`, and `__selfcheck`, then starts `aid web` and asserts the embedded SPA and the `/health` version match the release version.
 
 ## Repository boundary
 

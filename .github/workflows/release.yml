@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build cross-platform binaries
+        run: |
+          pnpm --filter @ai-directory/cli prebuild
+          pnpm --filter @ai-directory/cli build:darwin:arm64
+          pnpm --filter @ai-directory/cli build:darwin:x64
+          pnpm --filter @ai-directory/cli build:linux:x64
+          pnpm --filter @ai-directory/cli build:windows:x64
+
+      - name: Publish the GitHub release
+        run: |
+          # GitHub computes a sha256 digest for each uploaded asset automatically;
+          # self-update reads that digest to verify the download before swapping.
+          gh release create "$GITHUB_REF_NAME" \
+            apps/cli/dist/aid-darwin-arm64 \
+            apps/cli/dist/aid-darwin-x64 \
+            apps/cli/dist/aid-linux-x64 \
+            apps/cli/dist/aid-windows-x64.exe \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "AI Directory $GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
