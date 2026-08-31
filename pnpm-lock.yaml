@@ -76,6 +76,9 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2
     devDependencies:
+      '@ai-directory/web':
+        specifier: workspace:*
+        version: link:../web
       bun-types:
         specifier: ^1.3.14
         version: 1.3.14
