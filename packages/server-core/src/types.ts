@@ -10,7 +10,7 @@ export type ServerOptions = {
   commandRunner?: CommandRunner;
   dependencyCommandRunner?: DependencyCommandRunner;
   prewarm?: boolean;
-  pairingToken?: string;
+  pairingTokens?: string[];
 };
 
 export type JsonValue = string | boolean | number | null | JsonValue[] | { [key: string]: JsonValue };

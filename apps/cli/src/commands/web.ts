@@ -71,7 +71,7 @@ export const web = defineCommand({
     const pairingToken = args['no-token'] ? undefined : generatePairingToken();
     const serverOptions: ServerOptions = { cwd, homeDirectory: homedir(), prewarm: true };
     if (indexPath) serverOptions.registryIndexPath = indexPath;
-    if (pairingToken) serverOptions.pairingToken = pairingToken;
+    if (pairingToken) serverOptions.pairingTokens = [pairingToken];
     const app = createApp(serverOptions);
     const server = Bun.serve({
       hostname: host,

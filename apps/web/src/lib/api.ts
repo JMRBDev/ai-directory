@@ -3,8 +3,10 @@ import type {
   ConfigResponse,
   HarnessManagerStatus,
   LocalResourcesResponse,
+  PairSessionResult,
   PiMcpAdapterActionResult,
   PiMcpAdapterStatus,
+  RemoteSession,
   RegistryResponse,
   ResourceResponse,
   Installation,
@@ -29,10 +31,16 @@ export const API_PATHS = {
   submit: '/api/submit',
   refresh: '/api/refresh',
   piMcpAdapter: '/api/pi/mcp-adapter',
+  authSessions: '/api/auth/sessions',
 } as const;
 
 export const LOCAL_API_KEY = 'ai-directory-local-api';
-export const LOCAL_API_TOKEN_KEY = 'ai-directory-local-api-token';
+const LOCAL_SESSION_KEY = 'ai-directory-local-session';
+
+type LocalSessionRecord = {
+  sessionToken: string;
+  id?: string;
+};
 
 export function readLocalApi(): string {
   try {
@@ -53,22 +61,44 @@ export function writeLocalApi(value: string) {
   }
 }
 
-export function readLocalApiToken(): string {
+function readSessionRecord(): LocalSessionRecord | null {
   try {
-    return globalThis.localStorage?.getItem(LOCAL_API_TOKEN_KEY)?.trim() ?? '';
+    const value = globalThis.localStorage?.getItem(LOCAL_SESSION_KEY);
+    if (!value) return null;
+    // SAFETY: The browser stores JSON written by writeLocalSession under this application-owned key.
+    const record = JSON.parse(value) as LocalSessionRecord;
+    return record.sessionToken ? record : null;
   } catch {
-    return '';
+    return null;
   }
 }
 
-export function writeLocalApiToken(value: string) {
+function writeSessionRecord(record: LocalSessionRecord | null) {
   try {
-    const normalized = value.trim();
-    if (normalized) globalThis.localStorage?.setItem(LOCAL_API_TOKEN_KEY, normalized);
-    else globalThis.localStorage?.removeItem(LOCAL_API_TOKEN_KEY);
+    if (record) globalThis.localStorage?.setItem(LOCAL_SESSION_KEY, JSON.stringify(record));
+    else globalThis.localStorage?.removeItem(LOCAL_SESSION_KEY);
   } catch {
     // A private browsing session can reject localStorage. Same-origin /api still works.
   }
+}
+
+export function readLocalSession(): string {
+  return readSessionRecord()?.sessionToken ?? '';
+}
+
+export function readLocalSessionId(): string {
+  return readSessionRecord()?.id ?? '';
+}
+
+export function writeLocalSession(sessionToken: string, id?: string) {
+  const normalized = sessionToken.trim();
+  if (!normalized) {
+    writeSessionRecord(null);
+    return;
+  }
+  const record: LocalSessionRecord = { sessionToken: normalized };
+  if (id) record.id = id;
+  writeSessionRecord(record);
 }
 
 function apiPath(path: string): string {
@@ -78,14 +108,39 @@ function apiPath(path: string): string {
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  const token = readLocalApiToken();
-  if (token) headers.set('authorization', `Bearer ${token}`);
+  const session = readLocalSession();
+  if (session) headers.set('authorization', `Bearer ${session}`);
 
   const response = await fetch(apiPath(path), { ...init, headers });
   // SAFETY: API responses are decoded into the caller's declared response contract.
   const result = await response.json().catch(() => ({})) as { error?: string } & T;
   if (!response.ok) throw new Error(result.error ?? 'The local API request failed.');
   return result;
+}
+
+/** Exchange a one-time pairing token for a session token that is then stored. */
+export async function pairSession(token: string): Promise<PairSessionResult> {
+  const response = await fetch(apiPath(API_PATHS.authSessions), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: token.trim() }),
+  });
+  // SAFETY: The sessions endpoint is contract-tested and returns this exact shape.
+  const result = await response.json().catch(() => ({})) as { error?: string } & PairSessionResult;
+  if (!response.ok) {
+    throw new Error(result.error ?? 'The pairing token is invalid or was already used.');
+  }
+  return result;
+}
+
+export async function remoteSessions(): Promise<RemoteSession[]> {
+  const result = await request<{ sessions: RemoteSession[] }>(API_PATHS.authSessions);
+  return result.sessions;
+}
+
+export async function revokeRemoteSession(id: string): Promise<boolean> {
+  const result = await request<{ ok: boolean }>(`${API_PATHS.authSessions}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return result.ok;
 }
 
 export async function healthCheck(): Promise<boolean> {
@@ -113,6 +168,8 @@ export const api = {
   installed: () => request<{ installations?: Installation[] }>(API_PATHS.installed),
   localResources: () => request<LocalResourcesResponse>(API_PATHS.localResources),
   harnesses: () => request<{ harnesses: HarnessManagerStatus[] }>(API_PATHS.harnesses),
+  sessions: () => remoteSessions(),
+  revokeSession: (id: string) => revokeRemoteSession(id),
   harnessAction: (action: 'install' | 'update' | 'uninstall', harness: Harness) => jsonRequest<{ result: { harness: string; version?: string } }>(`${API_PATHS.harnesses}/${action}`, { harness }),
   piMcpAdapter: () => request<{ adapter: PiMcpAdapterStatus }>(API_PATHS.piMcpAdapter),
   piMcpAdapterAction: (action: 'install' | 'uninstall') => request<{ result: PiMcpAdapterActionResult }>(`${API_PATHS.piMcpAdapter}/${action}`, { method: 'POST' }),

@@ -197,9 +197,9 @@ A hosted site is read-only until it connects to a running local CLI. To control 
 
 1. On that machine, start the local server: `aid web --open` (or `--host 0.0.0.0 --port 4321` to accept connections from your browser).
 2. `aid web` prints a **pairing token** and the local URL (`http://127.0.0.1:4321`).
-3. In the hosted website, open **Settings → Local connection**, enter the URL and token, then **Test connection**.
+3. In the hosted website, open **Settings → Local connection**, enter the URL and token, then **Connect**.
 
-The browser calls your local API directly (client-side). Cross-origin requests require the pairing token, so a random website cannot silently install or uninstall resources on your machine. Same-origin requests (when you open `http://127.0.0.1:4321` directly) do not need the token. Pass `--no-token` to `aid web` to allow cross-origin access without a token — use it only on a trusted LAN or localhost.
+The browser calls your local API directly (client-side). The pairing token is a **one-time bootstrap credential**: the website exchanges it once for a **session token** and uses that session for subsequent requests, so a printed token cannot be reused if it leaks after you connect. Same-origin requests (when you open `http://127.0.0.1:4321` directly) do not need a token. From the local page you can list active remote sessions and revoke one at any time. Pass `--no-token` to `aid web` to allow cross-origin access without pairing — use it only on a trusted LAN or localhost.
 
 ```sh
 apps/cli/dist/aid web --host 0.0.0.0 --port 4321

@@ -1,5 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, healthCheck, jsonRequest, readLocalApi, readLocalApiToken, request, writeLocalApi, writeLocalApiToken } from '../src/lib/api';
+import {
+  api,
+  healthCheck,
+  jsonRequest,
+  pairSession,
+  readLocalApi,
+  readLocalSession,
+  readLocalSessionId,
+  request,
+  writeLocalApi,
+  writeLocalSession,
+} from '../src/lib/api';
 
 function createStorage(): Storage {
   const data = new Map<string, string>();
@@ -117,17 +128,19 @@ describe('web API client', () => {
     await expect(healthCheck()).resolves.toBe(false);
   });
 
-  it('stores and clears the pairing token', () => {
-    writeLocalApiToken('abc123');
-    expect(readLocalApiToken()).toBe('abc123');
+  it('stores and clears the session token', () => {
+    writeLocalSession('abc123', 'sess-1');
+    expect(readLocalSession()).toBe('abc123');
+    expect(readLocalSessionId()).toBe('sess-1');
 
-    writeLocalApiToken('  ');
-    expect(readLocalApiToken()).toBe('');
+    writeLocalSession('  ');
+    expect(readLocalSession()).toBe('');
+    expect(readLocalSessionId()).toBe('');
   });
 
-  it('sends the pairing token as a bearer header', async () => {
+  it('sends the session token as a bearer header', async () => {
     writeLocalApi('http://127.0.0.1:4321');
-    writeLocalApiToken('secret-token');
+    writeLocalSession('secret-token');
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -137,7 +150,7 @@ describe('web API client', () => {
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret-token');
   });
 
-  it('omits the authorization header when no token is set', async () => {
+  it('omits the authorization header when no session is set', async () => {
     writeLocalApi('http://127.0.0.1:4321');
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -146,5 +159,50 @@ describe('web API client', () => {
 
     const init = fetchMock.mock.calls[0]?.[1];
     expect(new Headers(init?.headers).has('authorization')).toBe(false);
+  });
+
+  it('exchanges a pairing token for a session', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      sessionToken: 'session-value',
+      session: { id: 'abc', label: 'Hosted site', createdAt: '2026-01-01T00:00:00Z' },
+    }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(pairSession('pair-token')).resolves.toMatchObject({ sessionToken: 'session-value' });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toBe('/api/auth/sessions');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ token: 'pair-token' });
+  });
+
+  it('surfaces a pairing failure when the pairing token was already used', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ error: 'The pairing token is invalid or was already used.' }), { status: 401 })));
+
+    await expect(pairSession('used-token')).rejects.toThrow('The pairing token is invalid or was already used.');
+  });
+
+  it('lists remote sessions', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      sessions: [{ id: 'a', label: 'Hosted site', createdAt: '2026-01-01T00:00:00Z' }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    writeLocalSession('session-value');
+
+    await expect(api.sessions()).resolves.toEqual([{ id: 'a', label: 'Hosted site', createdAt: '2026-01-01T00:00:00Z' }]);
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer session-value');
+  });
+
+  it('revokes a remote session', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    writeLocalSession('session-value');
+
+    await expect(api.revokeSession('abc')).resolves.toBe(true);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toBe('/api/auth/sessions/abc');
+    expect(init?.method).toBe('DELETE');
   });
 });

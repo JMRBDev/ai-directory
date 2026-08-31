@@ -18,7 +18,9 @@ export function isCrossOrigin(request: Request): boolean {
   }
 }
 
-export function hasValidPairingToken(request: Request, expectedToken: string): boolean {
+export function bearerToken(request: Request): string | null {
   const authorization = request.headers.get('authorization');
-  return authorization === `Bearer ${expectedToken}`;
+  if (!authorization?.startsWith('Bearer ')) return null;
+  const token = authorization.slice('Bearer '.length).trim();
+  return token.length > 0 ? token : null;
 }

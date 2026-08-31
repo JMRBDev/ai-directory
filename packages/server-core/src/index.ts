@@ -1,6 +1,8 @@
 export { createApp } from './app.js';
 export type { ServerOptions } from './types.js';
 export { generatePairingToken } from './pairing.js';
+export { bearerToken } from './pairing.js';
+export type { RemoteSession, SessionStore } from './auth.js';
 export {
   installationPackOperation,
   installationResourceIds,

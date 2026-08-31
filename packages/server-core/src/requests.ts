@@ -106,6 +106,16 @@ export const configRequestSchema = z.object({
   scope: configScopeSchema,
 });
 
+export const pairSessionRequestSchema = z.object({
+  token: z.string().trim().min(1),
+});
+
+export type PairSessionRequestData = z.infer<typeof pairSessionRequestSchema>;
+
+export function parsePairSessionRequest(body: RequestBody): PairSessionRequestData {
+  return pairSessionRequestSchema.parse(body);
+}
+
 function requestErrorMessage(issues: z.ZodIssue[]): string {
   for (const issue of issues) {
     if (issue.code === 'custom') return issue.message;

@@ -88,6 +88,17 @@ export type ConfigResponse = {
   clearedScope?: string;
 };
 
+export type RemoteSession = {
+  id: string;
+  label: string;
+  createdAt: string;
+};
+
+export type PairSessionResult = {
+  sessionToken: string;
+  session: RemoteSession;
+};
+
 export type RegistryResponse = {
   index: RegistryIndex | null;
   source: 'local' | 'remote';

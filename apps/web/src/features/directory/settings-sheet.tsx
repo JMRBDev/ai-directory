@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Separator } from '../../components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
-import { api, healthCheck, readLocalApi, readLocalApiToken, writeLocalApi, writeLocalApiToken } from '../../lib/api';
+import { api, healthCheck, pairSession, readLocalApi, readLocalSession, readLocalSessionId, writeLocalApi, writeLocalSession } from '../../lib/api';
 import type { InstallScope } from '../../lib/types';
 import { ErrorMessage, SheetFrame } from './common';
 import { HarnessManagerSection, PiMcpAdapterSection } from './harness-manager';
@@ -45,10 +45,27 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
             ? rawSource
             : 'Not configured';
   const [localUrl, setLocalUrl] = useState(() => readLocalApi());
-  const [localToken, setLocalToken] = useState(() => readLocalApiToken());
+  const [localToken, setLocalToken] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() =>
     readLocalApi() ? 'idle' : 'idle',
   );
+  const remoteSessionsQuery = useQuery({
+    queryKey: ['auth-sessions'],
+    queryFn: api.sessions,
+    enabled: open && Boolean(readLocalApi()),
+  });
+  const revokeMutation = useMutation({
+    mutationFn: (id: string) => api.revokeSession(id),
+    onSuccess: (ok) => {
+      if (ok) {
+        toast.success('Revoked the remote session.');
+        void queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
+      } else {
+        toast.error('The session could not be revoked.');
+      }
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not revoke the session.'),
+  });
   const saveMutation = useMutation({
     mutationFn: () => api.configPut(repository ?? currentRepository, configScope),
     onSuccess: (result) => {
@@ -92,33 +109,56 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
     else toast.error('Could not reach the local AI Directory server.');
   }
 
-  function saveLocalConnection() {
-    writeLocalApi(localUrl);
-    writeLocalApiToken(localToken);
-    setConnectionStatus('idle');
-    toast.success('Saved the local connection. Your requests will now use this server.');
-    void queryClient.invalidateQueries();
+  async function connectLocalConnection() {
+    const url = localUrl.trim();
+    const token = localToken.trim();
+    if (!url) {
+      toast.error('Enter the local server URL printed by `aid web`.');
+      return;
+    }
+    if (!token) {
+      toast.error('Enter the pairing token printed by `aid web`.');
+      return;
+    }
+    try {
+      writeLocalApi(url);
+      const paired = await pairSession(token);
+      writeLocalSession(paired.sessionToken, paired.session.id);
+      setLocalToken('');
+      setConnectionStatus('connected');
+      toast.success('Connected. Your requests now use the local server.');
+      void queryClient.invalidateQueries();
+      void queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
+    } catch (caught) {
+      writeLocalApi('');
+      writeLocalSession('');
+      setConnectionStatus('unreachable');
+      toast.error(caught instanceof Error ? caught.message : 'Could not pair with the local server.');
+    }
   }
 
   function clearLocalConnection() {
     setLocalUrl('');
     setLocalToken('');
     writeLocalApi('');
-    writeLocalApiToken('');
+    writeLocalSession('');
     setConnectionStatus('idle');
     toast.success('Cleared the local connection.');
     void queryClient.invalidateQueries();
   }
 
+  const hasSession = Boolean(readLocalSession());
   const connectionLabel = connectionStatus === 'connected'
     ? 'Connected'
     : connectionStatus === 'unreachable'
       ? 'Unreachable'
       : connectionStatus === 'checking'
         ? 'Checking…'
-        : readLocalApi()
-          ? 'Configured'
-          : 'Not configured';
+        : hasSession
+          ? 'Connected'
+          : readLocalApi()
+            ? 'Connect required'
+            : 'Not configured';
 
   return (
     <SheetFrame open={open} onOpenChange={onOpenChange} title="Settings" description="Registry source, agent harnesses, and appearance.">
@@ -154,7 +194,7 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
             <h3 className="text-sm font-medium">Local connection</h3>
             <Badge {...badgeTone(connectionStatus === 'connected' ? 'success' : connectionStatus === 'unreachable' ? 'destructive' : connectionStatus === 'checking' ? 'secondary' : 'muted')}>{connectionLabel}</Badge>
           </div>
-          <FieldDescription>Run `aid web` in a terminal, then enter its URL and pairing token to control this setup from a hosted website.</FieldDescription>
+          <FieldDescription>Run `aid web` in a terminal, then enter its URL and pairing token to control this setup from a hosted website. The pairing token is exchanged once for a session.</FieldDescription>
           <Field>
             <FieldLabel htmlFor="local-url">Local server URL</FieldLabel>
             <Input id="local-url" type="text" inputMode="url" placeholder="http://127.0.0.1:4321" value={localUrl} onChange={(event) => { setLocalUrl(event.target.value); setConnectionStatus('idle'); }} autoComplete="off" />
@@ -165,9 +205,35 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
           </Field>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => void testConnection()} disabled={connectionStatus === 'checking' || !localUrl.trim()}>Test connection</Button>
-            <Button size="sm" onClick={saveLocalConnection} disabled={!localUrl.trim()}>Save</Button>
-            <Button variant="ghost" size="sm" onClick={clearLocalConnection} disabled={!readLocalApi() && !readLocalApiToken()}>Clear</Button>
+            <Button size="sm" onClick={() => void connectLocalConnection()}>Connect</Button>
+            <Button variant="ghost" size="sm" onClick={clearLocalConnection} disabled={!readLocalApi() && !readLocalSession()}>Clear</Button>
           </div>
+          {hasSession && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs font-medium text-muted-foreground">Remote sessions</p>
+              {remoteSessionsQuery.isPending ? (
+                <p className="text-xs text-muted-foreground" role="status">Loading…</p>
+              ) : remoteSessionsQuery.error ? (
+                <ErrorMessage message={remoteSessionsQuery.error instanceof Error ? remoteSessionsQuery.error.message : 'Could not load remote sessions.'} />
+              ) : (remoteSessionsQuery.data?.length ?? 0) === 0 ? (
+                <p className="text-xs text-muted-foreground">No remote sessions. Connect from a hosted website to create one.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {remoteSessionsQuery.data?.map((session) => (
+                    <li key={session.id} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                      <div className="flex min-w-0 flex-col">
+                        <span className="truncate text-sm">{session.label}</span>
+                        <span className="text-xs text-muted-foreground">Created {new Date(session.createdAt).toLocaleString()}{readLocalSessionId() === session.id ? ' · this browser' : ''}</span>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => void revokeMutation.mutateAsync(session.id)} disabled={revokeMutation.isPending}>
+                        Revoke
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </section>
         <Separator />
         <section className="flex flex-col gap-3">
