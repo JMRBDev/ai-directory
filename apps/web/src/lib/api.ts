@@ -143,13 +143,36 @@ export async function revokeRemoteSession(id: string): Promise<boolean> {
   return result.ok;
 }
 
-export async function healthCheck(): Promise<boolean> {
+export type HealthResponse = {
+  ok: boolean;
+  version: string | null;
+};
+
+export type ServerHealth = {
+  reachable: boolean;
+  version: string | null;
+};
+
+/** The version baked into this website build at compile time. */
+export function appVersion(): string {
+  return __APP_VERSION__;
+}
+
+export async function serverHealth(): Promise<ServerHealth> {
   try {
     const response = await fetch(apiPath('/health'), { signal: AbortSignal.timeout(3_000) });
-    return response.ok;
+    if (!response.ok) return { reachable: false, version: null };
+    // SAFETY: The health endpoint is contract-tested and returns this exact shape.
+    const health = await response.json() as HealthResponse;
+    return { reachable: true, version: health.version ?? null };
   } catch {
-    return false;
+    return { reachable: false, version: null };
   }
+}
+
+export async function healthCheck(): Promise<boolean> {
+  const health = await serverHealth();
+  return health.reachable;
 }
 
 export function jsonRequest<T>(path: string, body: JsonRequestBody, method = 'POST') {

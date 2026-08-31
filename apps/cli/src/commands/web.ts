@@ -4,6 +4,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { defineCommand } from 'citty';
 import { createApp, generatePairingToken, type ServerOptions } from '@ai-directory/server-core';
 import { DEFAULT_API_HOST, findWorkspaceRoot } from '@ai-directory/config';
+import { version } from '../version';
 
 const CONTENT_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -69,7 +70,7 @@ export const web = defineCommand({
     const port = Number(args.port ?? '4321');
     const cwd = resolve(process.cwd());
     const pairingToken = args['no-token'] ? undefined : generatePairingToken();
-    const serverOptions: ServerOptions = { cwd, homeDirectory: homedir(), prewarm: true };
+    const serverOptions: ServerOptions = { cwd, homeDirectory: homedir(), prewarm: true, version };
     if (indexPath) serverOptions.registryIndexPath = indexPath;
     if (pairingToken) serverOptions.pairingTokens = [pairingToken];
     const app = createApp(serverOptions);

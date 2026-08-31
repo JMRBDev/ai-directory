@@ -184,6 +184,8 @@ Use `Publish` in the catalog to submit a resource. The local API keeps uploaded 
 
 For a release, ship the compiled `aid` binary. The CLI build embeds the built website into the binary itself (`--asset`), so `aid web` serves the SPA from the single executable with no extra files. During development the CLI still prefers a `apps/web/dist` on disk, or `AI_DIRECTORY_WEB_DIST` when the assets use another location.
 
+The release version lives in the root `package.json` and is the single source of truth: the CLI bakes it into its `--version` output and the embedded server reports it on `/health`, and the website build bakes the same value in at compile time. When a hosted website connects to a local server of a different version, Settings shows both versions and warns when the server is older.
+
 ## Host the website and pair it with your local CLI
 
 The website is a static SPA. The same build you run locally can be hosted on a static host (for example Vercel) so others can browse the public catalog without running anything.

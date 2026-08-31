@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   api,
+  appVersion,
   healthCheck,
   jsonRequest,
   pairSession,
@@ -8,6 +9,7 @@ import {
   readLocalSession,
   readLocalSessionId,
   request,
+  serverHealth,
   writeLocalApi,
   writeLocalSession,
 } from '../src/lib/api';
@@ -204,5 +206,22 @@ describe('web API client', () => {
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(String(url)).toBe('/api/auth/sessions/abc');
     expect(init?.method).toBe('DELETE');
+  });
+
+  it('reports the version baked into this build', () => {
+    // SAFETY: The web build defines __APP_VERSION__ from the root package version.
+    expect(appVersion()).toMatch(/^\d+\.\d+\.\d+/u);
+  });
+
+  it('reads the server version from the health endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: true, version: '9.9.9' }), { status: 200 })));
+
+    await expect(serverHealth()).resolves.toEqual({ reachable: true, version: '9.9.9' });
+  });
+
+  it('reports the server as unreachable when health fails', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockRejectedValue(new Error('network down')));
+
+    await expect(serverHealth()).resolves.toEqual({ reachable: false, version: null });
   });
 });

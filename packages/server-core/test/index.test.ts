@@ -28,7 +28,12 @@ describe('local control API', () => {
     const cwd = await createTemporaryDirectory();
     const app = createApp({ cwd });
 
-    expect((await app.request('/health')).status).toBe(200);
+    const health = await app.request('/health');
+    expect(health.status).toBe(200);
+    // SAFETY: The health endpoint is contract-tested and returns this exact shape.
+    const healthBody = await health.json() as { ok: boolean; version: string | null };
+    expect(healthBody.ok).toBe(true);
+    expect(healthBody.version).toBeNull();
 
     const save = await app.request('/api/config', {
       method: 'PUT',
@@ -53,6 +58,18 @@ describe('local control API', () => {
     expect(clear.status).toBe(200);
     await expect(clear.json()).resolves.toMatchObject({ clearedScope: 'project' });
     expect(readConfigFile(join(cwd, '.ai-directory', 'config.json'))).toEqual({});
+  });
+
+  it('reports the server version on the health endpoint when configured', async () => {
+    const cwd = await createTemporaryDirectory();
+    const app = createApp({ cwd, version: '1.2.3' });
+
+    const health = await app.request('/health');
+    expect(health.status).toBe(200);
+    // SAFETY: The health endpoint is contract-tested and returns this exact shape.
+    const body = await health.json() as { ok: boolean; version: string | null };
+    expect(body.ok).toBe(true);
+    expect(body.version).toBe('1.2.3');
   });
 
   it('rejects invalid configuration requests', async () => {

@@ -24,7 +24,8 @@ export function createApp(options: ServerOptions = {}) {
     void cachedRegistry.get(registrySource(options, cwd)).catch(() => undefined);
   }
 
-  app.get('/health', (context) => context.json({ ok: true }));
+  app.use('/health', cors({ origin: '*' }));
+  app.get('/health', (context) => context.json({ ok: true, version: options.version ?? null }));
   app.use('/api/*', cors({ origin: '*' }));
 
   registerAuthRoutes({ app, options, cwd }, sessions);

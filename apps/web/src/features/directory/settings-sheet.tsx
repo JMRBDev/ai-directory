@@ -8,8 +8,9 @@ import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Separator } from '../../components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
-import { api, healthCheck, pairSession, readLocalApi, readLocalSession, readLocalSessionId, writeLocalApi, writeLocalSession } from '../../lib/api';
+import { api, appVersion, healthCheck, pairSession, readLocalApi, readLocalSession, readLocalSessionId, serverHealth, writeLocalApi, writeLocalSession } from '../../lib/api';
 import type { InstallScope } from '../../lib/types';
+import { serverVersionStatus } from '../../lib/versions';
 import { ErrorMessage, SheetFrame } from './common';
 import { HarnessManagerSection, PiMcpAdapterSection } from './harness-manager';
 import { badgeTone } from './shared';
@@ -66,6 +67,15 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not revoke the session.'),
   });
+  const serverVersionQuery = useQuery({
+    queryKey: ['server-health'],
+    queryFn: serverHealth,
+    enabled: open && Boolean(readLocalApi()) && Boolean(readLocalSession()),
+  });
+  const siteVersion = appVersion();
+  const skew = serverVersionQuery.data
+    ? serverVersionStatus(serverVersionQuery.data.version, siteVersion)
+    : 'unknown';
   const saveMutation = useMutation({
     mutationFn: () => api.configPut(repository ?? currentRepository, configScope),
     onSuccess: (result) => {
@@ -208,6 +218,17 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
             <Button size="sm" onClick={() => void connectLocalConnection()}>Connect</Button>
             <Button variant="ghost" size="sm" onClick={clearLocalConnection} disabled={!readLocalApi() && !readLocalSession()}>Clear</Button>
           </div>
+          {skew !== 'unknown' && (
+            <dl className="flex flex-col gap-1 text-xs text-muted-foreground">
+              <div className="flex justify-between gap-3"><dt>This website</dt><dd className="tabular-nums">v{siteVersion}</dd></div>
+              <div className="flex justify-between gap-3"><dt>Local server</dt><dd className="tabular-nums">{serverVersionQuery.data?.version ? `v${serverVersionQuery.data.version}` : 'unknown'}</dd></div>
+            </dl>
+          )}
+          {skew === 'server-behind' && (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
+              The local server is older than this website. Restart it from a newer `aid` build to avoid mismatches.
+            </p>
+          )}
           {hasSession && (
             <div className="flex flex-col gap-2">
               <p className="text-xs font-medium text-muted-foreground">Remote sessions</p>

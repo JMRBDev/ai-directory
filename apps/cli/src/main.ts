@@ -11,6 +11,7 @@ import { harness } from './commands/harness';
 import { doctor, setup } from './commands/setup';
 import { configClear, configGet, configList, configPath, configSet } from './commands/config';
 import { web } from './commands/web';
+import { version } from './version';
 
 const interactiveCommands = {
   install,
@@ -77,7 +78,7 @@ const config = defineCommand({
 const main = defineCommand({
   meta: {
     name: 'aid',
-    version: '0.0.0',
+    version,
     description: 'AI Directory resource registry',
   },
   subCommands: {

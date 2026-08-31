@@ -11,6 +11,7 @@ export type ServerOptions = {
   dependencyCommandRunner?: DependencyCommandRunner;
   prewarm?: boolean;
   pairingTokens?: string[];
+  version?: string;
 };
 
 export type JsonValue = string | boolean | number | null | JsonValue[] | { [key: string]: JsonValue };

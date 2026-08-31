@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,6 +17,9 @@ const registryIndex = join(
   'fixtures',
   'index.json',
 );
+// SAFETY: The root package.json is the single source of truth for the release version.
+const rootPackageJson = JSON.parse(readFileSync(join(packageRoot, '..', '..', 'package.json'), 'utf8')) as { version: string };
+const expectedVersion = rootPackageJson.version;
 
 describe('CLI web server', () => {
   it('serves the SPA shell, deep links, assets, and API routes', async () => {
@@ -50,7 +54,7 @@ describe('CLI web server', () => {
 
       const health = await fetch(`${baseUrl}/health`);
       expect(health.status).toBe(200);
-      await expect(health.json()).resolves.toEqual({ ok: true });
+      await expect(health.json()).resolves.toMatchObject({ ok: true, version: expectedVersion });
 
       const registry = await fetch(`${baseUrl}/api/registry`);
       expect(registry.status).toBe(200);
