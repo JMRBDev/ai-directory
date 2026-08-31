@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "release:build": "pnpm build && pnpm --filter @ai-directory/cli build:darwin:arm64 && pnpm --filter @ai-directory/cli build:darwin:x64 && pnpm --filter @ai-directory/cli build:linux:x64 && pnpm --filter @ai-directory/cli build:windows:x64",
     "dev": "turbo run dev --filter=@ai-directory/api --filter=@ai-directory/web",
     "lint": "oxlint",
     "test": "turbo run test",

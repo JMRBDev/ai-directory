@@ -55,11 +55,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build workspace dependencies and the website
-        run: pnpm --filter "@ai-directory/cli..." build
-
-      - name: Build the release binary
-        run: pnpm --filter @ai-directory/cli build:linux:x64
+      - name: Build the workspace, website, and release binary
+        run: pnpm build && pnpm --filter @ai-directory/cli build:linux:x64
 
       - name: Smoke test the release binary
         run: |
