@@ -4,6 +4,26 @@ AI Directory is a Git-backed registry for reusable AI development resources — 
 
 The repository is a Turborepo monorepo. It contains the local website, the Hono server boundary, the Bun CLI, and shared TypeScript packages. The resource registry itself is a separate Git repository that you configure and is not stored in this application repository.
 
+## Install
+
+Install the `aid` CLI on macOS or Linux from the latest GitHub release:
+
+```sh
+curl -fsSL https://github.com/JMRBDev/ai-directory/releases/latest/download/install.sh | sh
+```
+
+Install a specific version (the tag must exist):
+
+```sh
+curl -fsSL https://github.com/JMRBDev/ai-directory/releases/latest/download/install.sh | sh -s -- v0.1.0
+```
+
+The installer detects your OS and architecture, downloads the matching binary, verifies its SHA-256 checksum against the published `aid-checksums.txt`, and installs it to `/usr/local/bin` (or `$AID_INSTALL_DIR` when set). If `/usr/local/bin` is not writable and `~/.local/bin` exists, it installs there instead. The existing binary is kept as `aid.previous`.
+
+Once installed, upgrade later with `aid self-update`.
+
+> Note: release binaries are not notarized. If macOS blocks `aid` on first run, open it once with `xattr -d com.apple.quarantine /usr/local/bin/aid`.
+
 ## Stack
 
 - Turborepo and pnpm workspaces

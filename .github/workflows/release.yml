@@ -48,6 +48,7 @@ jobs:
           BIN="apps/cli/dist/aid-linux-x64"
           chmod +x "$BIN"
           VERSION=$(node -p "require('./package.json').version")
+          sh -n install.sh
           "$BIN" --version | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$'
           "$BIN" --help | grep -E 'self-update'
           "$BIN" __selfcheck --expected-version "$VERSION" | grep '"ok":true'
@@ -65,13 +66,21 @@ jobs:
 
       - name: Publish the GitHub release
         run: |
-          # GitHub computes a sha256 digest for each uploaded asset automatically;
-          # self-update reads that digest to verify the download before swapping.
+          set -euo pipefail
+          cd apps/cli/dist
+          # Publish a checksums file alongside the binaries so the installer can
+          # verify downloads without parsing the GitHub API.
+          sha256sum aid-darwin-arm64 aid-darwin-x64 aid-linux-x64 aid-windows-x64.exe > aid-checksums.txt
+          cd "$GITHUB_WORKSPACE"
+          # GitHub also computes a sha256 digest for each uploaded asset
+          # automatically; self-update reads that digest to verify downloads.
           gh release create "$GITHUB_REF_NAME" \
             apps/cli/dist/aid-darwin-arm64 \
             apps/cli/dist/aid-darwin-x64 \
             apps/cli/dist/aid-linux-x64 \
             apps/cli/dist/aid-windows-x64.exe \
+            apps/cli/dist/aid-checksums.txt \
+            install.sh \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --notes "AI Directory $GITHUB_REF_NAME"
