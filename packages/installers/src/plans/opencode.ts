@@ -1,21 +1,15 @@
 import { dirname, join, relative } from 'node:path';
-import { writeFileAtomic } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/contracts';
 import { readToolManifest, type ResourceVersion } from '@ai-directory/registry';
-import { applyEdits, modify } from 'jsonc-parser';
-import { hashContent } from '../hashing.js';
 import type { InstallOptions, InstallResult } from '../install-types.js';
 import {
-  assertInstallPlansAvailable,
   destinationForFile,
-  hashInstallPlans,
   openCodePluginModule,
   projectFiles,
   resourceDestination,
+  runInstallPlans,
   safeDestination,
-  selectHashes,
   withExecutableMode,
-  writeInstallPlans,
   type InstallFile,
   type InstallPlan,
   type PreparedText,
@@ -23,9 +17,9 @@ import {
 import { toPosixPath } from '../paths.js';
 import { currentFile } from '../file-snapshots.js';
 import {
+  addOpenCodeInstructions,
   openCodeConfigPath,
   openCodeInstallRoot,
-  readOpenCodeInstructions,
 } from '../opencode-config.js';
 
 function createOpenCodePlan(
@@ -192,52 +186,14 @@ async function prepareOpenCodeInstructions(
   options: InstallOptions,
 ): Promise<PreparedText> {
   const path = await openCodeConfigPath(root, options);
-  const entries = resources.map((resource) =>
-    ({
-      resource: resourceKey(resource.resource),
-      entry: toPosixPath(relative(
-        dirname(path),
-        resourceDestination(root, resource),
-      )),
-    }),
-  );
-  const current = await currentFile(path);
-
-  const currentInstructions = current === null ? undefined : readOpenCodeInstructions(current, path);
-
-  const instructions = currentInstructions === undefined
-    ? []
-    : [...currentInstructions];
-
-  const ownership = entries.flatMap(({ resource, entry }) => {
-    if (instructions.includes(entry)) return [];
-    instructions.push(entry);
-    return [{
-      path,
-      key: resource,
-      hash: hashContent(entry),
-      created: current === null,
-    }];
-  });
-
-  if (current === null) {
-    return {
-      path,
-      content: `${JSON.stringify({ instructions }, null, 2)}\n`,
-      ownership,
-    };
-  }
-
-  return {
-    path,
-    content: applyEdits(
-      current,
-      modify(current, ['instructions'], instructions, {
-        formattingOptions: { insertSpaces: true, tabSize: 2 },
-      }),
-    ),
-    ownership,
-  };
+  const entries = resources.map((resource) => ({
+    key: resourceKey(resource.resource),
+    entry: toPosixPath(relative(
+      dirname(path),
+      resourceDestination(root, resource),
+    )),
+  }));
+  return addOpenCodeInstructions(path, await currentFile(path), entries);
 }
 
 export async function installOpenCodeResources(
@@ -259,38 +215,15 @@ export async function installOpenCodeResources(
       )
     : undefined;
 
-  await assertInstallPlansAvailable(plans, options);
-  await writeInstallPlans(plans, options.dryRun ?? false);
-
-  if (config && !options.dryRun) {
-    await writeFileAtomic(config.path, config.content);
-  }
-
-  const fileHashes = await hashInstallPlans(plans);
-
-  return plans.map((plan) => {
-    const result: InstallResult = {
-      destination: plan.destination,
-      files: plan.files.map((file) => file.path),
-      skippedFiles: plan.skippedFiles,
-      paths: [
-        ...plan.files.map((file) => file.destination),
-        ...(plan.resource.resource.type === 'rules' && config ? [config.path] : []),
-      ],
-      ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
-      shared: config?.ownership?.filter((ownership) =>
-        ownership.key === resourceKey(plan.resource.resource),
-      ),
-    };
-    if (options.dryRun) {
-      result.changes = [
-        ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
-        ...(plan.resource.resource.type === 'rules' && config
-          ? [{ path: config.path, content: config.content }]
-          : []),
-      ];
-    }
-    return result;
-  });
+  const isRulePlan = (plan: InstallPlan) => plan.resource.resource.type === 'rules' && config !== undefined;
+  return runInstallPlans(
+    plans,
+    options,
+    config ? [config] : [],
+    (plan) => config?.ownership?.filter((ownership) =>
+      ownership.key === resourceKey(plan.resource.resource),
+    ) ?? [],
+    (plan) => plan.destination,
+    (plan) => isRulePlan(plan) && config ? [{ path: config.path, content: config.content }] : [],
+  );
 }

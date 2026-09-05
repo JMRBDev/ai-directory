@@ -1,7 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["bun-types"]
+    "types": ["node"],
+    "paths": {
+      "@ai-directory/config": ["../../packages/config/src/index.ts"],
+      "@ai-directory/contracts": ["../../packages/contracts/src/index.ts"],
+      "@ai-directory/installers": ["../../packages/installers/src/index.ts"],
+      "@ai-directory/registry": ["../../packages/registry/src/index.ts"],
+      "@ai-directory/server-core": ["../../packages/server-core/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }

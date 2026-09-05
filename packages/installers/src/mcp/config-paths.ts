@@ -4,6 +4,7 @@ import type { ConfigScope } from '@ai-directory/config';
 import { resolveHarnessPaths, type Harness } from '../harnesses.js';
 import { pickOpenCodeConfig } from '../opencode-config.js';
 import type { InstallOptions } from '../install-types.js';
+import { mcpUnsupportedError } from './entries.js';
 
 type ConfigPathResolver = (root: string, options: InstallOptions) => string | Promise<string>;
 
@@ -12,7 +13,6 @@ const projectConfigPaths = {
   opencode: async (cwd: string) =>
     pickOpenCodeConfig([join(cwd, 'opencode.jsonc'), join(cwd, 'opencode.json')]),
   codex: (cwd: string) => join(cwd, '.codex', 'config.toml'),
-  pi: (cwd: string) => join(cwd, '.mcp.json'),
 } satisfies Partial<Record<Harness, ConfigPathResolver>>;
 
 const userConfigPaths = {
@@ -23,8 +23,6 @@ const userConfigPaths = {
   },
   codex: (home: string, options: InstallOptions) =>
     join(resolveHarnessPaths('codex', options).config, 'config.toml'),
-  pi: (home: string, options: InstallOptions) =>
-    join(resolveHarnessPaths('pi', options).config, 'mcp.json'),
 } satisfies Partial<Record<Harness, ConfigPathResolver>>;
 
 export function supportsMcp(harness: Harness): boolean {
@@ -38,7 +36,7 @@ export async function mcpConfigPath(
 ): Promise<string> {
   const resolvers = scope === 'project' ? projectConfigPaths : userConfigPaths;
   if (!(harness in resolvers)) {
-    throw new Error(`MCP servers are not supported by ${harness}.`);
+    throw new Error(mcpUnsupportedError(harness));
   }
   // SAFETY: the `in` guard narrows harness to a key of the resolvers record.
   const resolver = resolvers[harness as keyof typeof resolvers];

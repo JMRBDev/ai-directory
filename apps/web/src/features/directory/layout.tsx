@@ -3,7 +3,7 @@ import { TooltipProvider } from '../../components/ui/tooltip';
 import { Toaster } from '../../components/ui/sonner';
 import { useDirectory } from './context';
 import { DirectoryProvider } from './directory-provider';
-import { ChangesSheet, InstalledSheet, PublishSheet, SettingsSheet } from './sheets';
+import { BatchSheet, InstalledSheet, SettingsSheet } from './sheets';
 import { SiteHeader } from './site-header';
 
 export function RootLayout() {
@@ -28,10 +28,9 @@ function WorkspaceSheets() {
 
   return (
     <>
-      <ChangesSheet open={sheet === 'changes'} onOpenChange={(open) => setSheet(open ? 'changes' : null)} />
       <InstalledSheet open={sheet === 'installed'} onOpenChange={(open) => setSheet(open ? 'installed' : null)} />
       <SettingsSheet open={sheet === 'settings'} onOpenChange={(open) => setSheet(open ? 'settings' : null)} />
-      <PublishSheet open={sheet === 'publish'} onOpenChange={(open) => setSheet(open ? 'publish' : null)} />
+      <BatchSheet open={sheet === 'batch'} onOpenChange={(open) => setSheet(open ? 'batch' : null)} />
     </>
   );
 }

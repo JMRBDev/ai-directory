@@ -1,18 +1,20 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
-import { Separator } from '../../components/ui/separator';
 import { cn } from '../../lib/utils';
 import { useDirectory } from './context';
 import { TooltipIconButton } from './shared';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { HardDriveIcon, MoreVerticalIcon, PackageIcon, PlayListAddIcon, RefreshIcon, Settings01Icon, Upload04Icon } from '@hugeicons/core-free-icons';
+import { Download01Icon, HardDriveIcon, MoreVerticalIcon, PackageIcon, RefreshIcon, Settings01Icon } from '@hugeicons/core-free-icons';
 
 export function SiteHeader() {
-  const { setSheet, staged, refreshRegistry } = useDirectory();
+  const { setSheet, refreshRegistry, selection, installations } = useDirectory();
   const [refreshing, setRefreshing] = useState(false);
+  const installedIds = new Set(installations.map((item) => item.resource));
+  const pendingCount = selection.filter((entry) => !installedIds.has(entry.id)).length;
 
   async function refresh() {
     if (refreshing) return;
@@ -26,8 +28,6 @@ export function SiteHeader() {
       setRefreshing(false);
     }
   }
-
-  const changeCount = Object.keys(staged).length;
 
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
@@ -46,16 +46,16 @@ export function SiteHeader() {
             <TooltipIconButton label="Installed resources" onClick={() => setSheet('installed')}>
               <HugeiconsIcon icon={HardDriveIcon} />
             </TooltipIconButton>
+            <Button variant="ghost" size="sm" className="relative" onClick={() => setSheet('batch')} aria-label={pendingCount > 0 ? `Batch install, ${pendingCount} selected` : 'Batch install'}>
+              <HugeiconsIcon icon={Download01Icon} />
+              Batch
+              {pendingCount > 0 && (
+                <Badge variant="default" className="ml-1 tabular-nums">{pendingCount}</Badge>
+              )}
+            </Button>
             <TooltipIconButton label="Settings" onClick={() => setSheet('settings')}>
               <HugeiconsIcon icon={Settings01Icon} />
             </TooltipIconButton>
-            <Separator orientation="vertical" className="mx-1 h-5" />
-            <Button variant="outline" size="sm" onClick={() => setSheet('publish')}>
-              <HugeiconsIcon icon={Upload04Icon} data-icon="inline-start" /> Publish
-            </Button>
-            <Button variant={changeCount > 0 ? 'default' : 'outline'} size="sm" onClick={() => setSheet('changes')}>
-              <HugeiconsIcon icon={PlayListAddIcon} data-icon="inline-start" /> Changes{changeCount > 0 && <span className="tabular-nums">· {changeCount}</span>}
-            </Button>
           </div>
           <div className="sm:hidden">
             <DropdownMenu>
@@ -71,11 +71,8 @@ export function SiteHeader() {
                 <DropdownMenuItem onClick={() => setSheet('installed')}>
                   <HugeiconsIcon icon={HardDriveIcon} /> Installed resources
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSheet('publish')}>
-                  <HugeiconsIcon icon={Upload04Icon} /> Publish resource
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSheet('changes')}>
-                  <HugeiconsIcon icon={PlayListAddIcon} /> Changes{changeCount > 0 ? ` · ${changeCount}` : ''}
+                <DropdownMenuItem onClick={() => setSheet('batch')}>
+                  <HugeiconsIcon icon={Download01Icon} /> Batch install{pendingCount > 0 ? ` (${pendingCount})` : ''}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setSheet('settings')}>
                   <HugeiconsIcon icon={Settings01Icon} /> Settings

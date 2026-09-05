@@ -5,16 +5,23 @@ import {
   type ConfigScope,
 } from '@ai-directory/config';
 import {
+  assertInstalledFor,
   readInstallationManifest,
   type Harness,
   type InstallationManifest,
   type InstallationPackRecord,
   type InstallationRecord,
   type LocalResource,
+  type McpOperation,
+  type ResourceOperation,
   type ResourcePackOperation,
 } from '@ai-directory/installers';
 import { resourceKey } from '@ai-directory/contracts';
-import { readRegistrySourceResource, type RegistrySource } from '@ai-directory/registry';
+import {
+  readRegistrySourceResource,
+  type RegistrySource,
+  type RemoteResourceResult,
+} from '@ai-directory/registry';
 import type { ServerOptions } from './types.js';
 
 export async function readInstallationRecords(
@@ -98,6 +105,82 @@ export function installationPackOperation(
 
 export function isMcpResource(resource: string): boolean {
   return resource.includes('/mcp-servers/');
+}
+
+export function resolveInstallScope(resource: string, scope?: ConfigScope): ConfigScope {
+  return isMcpResource(resource) ? (scope ?? 'user') : 'user';
+}
+
+export function templatePackFor(loaded: RemoteResourceResult): ResourcePackOperation | undefined {
+  if (loaded.resource.resource.type !== 'templates') return undefined;
+  return {
+    version: loaded.resource.version,
+    resources: loaded.resources.map((entry) => ({
+      resource: resourceKey(entry.resource),
+      version: entry.version,
+    })),
+  };
+}
+
+export function makeFileInstallOperation(
+  resource: string,
+  harnesses: Harness[],
+  loaded: RemoteResourceResult,
+  version?: string,
+): ResourceOperation {
+  const operation: ResourceOperation = {
+    resource,
+    harnesses,
+    action: 'install',
+    resources: loaded.resources,
+    warningResources: [loaded.resource, ...loaded.resources],
+  };
+  if (version !== undefined) operation.version = version;
+  const pack = templatePackFor(loaded);
+  if (pack) operation.pack = pack;
+  return operation;
+}
+
+export function makeMcpInstallOperation(
+  resource: string,
+  harnesses: Harness[],
+  scope: ConfigScope,
+  loaded: RemoteResourceResult,
+  version?: string,
+): McpOperation {
+  const operation: McpOperation = {
+    resource,
+    harnesses,
+    action: 'install',
+    resources: loaded.resources,
+    warningResources: [loaded.resource, ...loaded.resources],
+    scope,
+  };
+  if (version !== undefined) operation.version = version;
+  return operation;
+}
+
+export async function makeFileUninstallOperations(
+  resource: string,
+  harnesses: Harness[],
+  resourceIds: (resource: string, harness: Harness) => Promise<string[]> | string[],
+  manifest: InstallationManifest,
+): Promise<ResourceOperation[]> {
+  const operations: ResourceOperation[] = [];
+  for (const harness of harnesses) {
+    const ids = await resourceIds(resource, harness);
+    assertInstalledFor(manifest, ids, [harness], resource);
+    const operation: ResourceOperation = {
+      resource,
+      harnesses: [harness],
+      action: 'uninstall',
+      resourceIds: ids,
+    };
+    const pack = installationPackOperation(manifest, resource, harness);
+    if (pack) operation.pack = pack;
+    operations.push(operation);
+  }
+  return operations;
 }
 
 export function installManifestPath(

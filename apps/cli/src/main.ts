@@ -1,33 +1,26 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { cancel, intro, isCancel, select } from '@clack/prompts';
 import { defineCommand, runCommand, runMain, showUsage, type CommandDef } from 'citty';
 import { isInteractiveTerminal } from './helpers';
 import { check, list, show } from './commands/read';
-import { create } from './commands/create';
-import { submit, validate } from './commands/publish';
 import { install, installed, uninstall, update } from './commands/install';
 import { harness } from './commands/harness';
-import { doctor, setup } from './commands/setup';
+import { setup } from './commands/setup';
+import { doctor } from './commands/doctor';
 import { configClear, configGet, configList, configPath, configSet } from './commands/config';
 import { web } from './commands/web';
-import { selfUpdate } from './commands/self-update';
-import { selfcheck } from './commands/selfcheck';
 import { version } from './version';
 
 const interactiveCommands = {
   install,
   list,
   show,
-  create,
-  validate,
-  submit,
   update,
   uninstall,
   installed,
   setup,
   doctor,
-  'self-update': selfUpdate,
 } satisfies Record<string, CommandDef<any>>;
 
 async function runInteractiveMain(): Promise<void> {
@@ -39,15 +32,11 @@ async function runInteractiveMain(): Promise<void> {
       { value: 'install', label: 'Install a resource' },
       { value: 'list', label: 'Browse resources' },
       { value: 'show', label: 'View resource details' },
-      { value: 'create', label: 'Create a resource' },
-      { value: 'validate', label: 'Validate a resource' },
-      { value: 'submit', label: 'Submit a resource' },
       { value: 'update', label: 'Update an installed resource' },
       { value: 'uninstall', label: 'Uninstall a resource' },
       { value: 'installed', label: 'List installed resources' },
       { value: 'setup', label: 'Configure the registry' },
       { value: 'doctor', label: 'Check the setup' },
-      { value: 'self-update', label: 'Update AI Directory' },
       { value: 'exit', label: 'Exit' },
     ],
   });
@@ -89,9 +78,6 @@ const main = defineCommand({
     list,
     show,
     check,
-    create,
-    validate,
-    submit,
     install,
     installed,
     update,
@@ -101,8 +87,6 @@ const main = defineCommand({
     setup,
     doctor,
     config,
-    'self-update': selfUpdate,
-    __selfcheck: selfcheck,
   },
   async run({ rawArgs }) {
     if (rawArgs.length === 0) {

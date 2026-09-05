@@ -1,36 +1,30 @@
-import type { ResourceSummary } from '@ai-directory/contracts';
+import { resourceKey, type ResourceSummary } from '@ai-directory/contracts';
 import { Link } from '@tanstack/react-router';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../components/ui/card';
-import { detailPath, type Action } from '../../lib/types';
-import { cn } from '../../lib/utils';
+import { detailPath } from '../../lib/types';
+import { useDirectory } from './context';
 import { badgeTone } from './shared';
 import { updatedLabel } from './model';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Tick02Icon } from '@hugeicons/core-free-icons';
+import { Cancel01Icon, PlayListAddIcon, Tick02Icon } from '@hugeicons/core-free-icons';
 
 export function CatalogCard({
   resource,
   installed,
   presentLocally,
-  stagedAction,
-  onStage,
 }: {
   resource: ResourceSummary;
   installed: boolean;
   presentLocally: boolean;
-  stagedAction: Action | undefined;
-  onStage: () => void;
 }) {
+  const { selection, toggleSelected } = useDirectory();
+  const id = resourceKey(resource);
+  const selected = selection.some((entry) => entry.id === id);
+
   return (
-    <Card
-      className={cn(
-        'transition-colors',
-        stagedAction === 'install' && 'ring-primary',
-        stagedAction === 'uninstall' && 'ring-destructive',
-      )}
-    >
+    <Card>
       <CardHeader>
         <CardTitle className="min-w-0">
           <Link className="block truncate hover:text-primary" to={detailPath(resource)}>
@@ -57,20 +51,26 @@ export function CatalogCard({
           )}
           {!installed && presentLocally && <span className="shrink-0">· Local</span>}
         </p>
-        <Button
-          variant={stagedAction ? 'secondary' : 'outline'}
-          size="sm"
-          aria-pressed={stagedAction !== undefined}
-          onClick={onStage}
-        >
-          {stagedAction === 'install'
-            ? 'Staged'
-            : stagedAction === 'uninstall'
-              ? 'Removal staged'
-              : installed
-                ? 'Remove'
-                : 'Install'}
-        </Button>
+        {installed ? (
+          <Button
+            render={<Link to={detailPath(resource)} />}
+            variant="secondary"
+            size="sm"
+          >
+            Manage
+          </Button>
+        ) : (
+          <Button
+            variant={selected ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => toggleSelected(id)}
+            aria-pressed={selected}
+            aria-label={selected ? `Remove ${id} from batch install` : `Add ${id} to batch install`}
+          >
+            <HugeiconsIcon icon={selected ? Cancel01Icon : PlayListAddIcon} data-icon="inline-start" />
+            {selected ? 'Remove' : 'Add'}
+          </Button>
+        )}
       </CardFooter>
     </Card>
   );

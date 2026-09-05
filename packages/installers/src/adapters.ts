@@ -2,7 +2,6 @@ import type { Harness } from './harnesses.js';
 import { installClaudeCodeResources } from './plans/claude-code.js';
 import { installOpenCodeResources } from './plans/opencode.js';
 import { installCodexResources } from './plans/codex.js';
-import { installPiResources } from './plans/pi.js';
 import type { InstallOptions, InstallResult } from './install-types.js';
 import type { ResourceVersion } from '@ai-directory/registry';
 
@@ -59,25 +58,10 @@ const codexInstaller: HarnessAdapter = {
   install: installCodexResources,
 };
 
-const piInstaller: HarnessAdapter = {
-  harness: 'pi',
-  installation: 'native-filesystem',
-  capabilities: {
-    skills: 'native',
-    agents: 'translated',
-    rules: 'configured',
-    'mcp-servers': 'configured',
-    plugins: 'translated',
-    tools: 'translated',
-  },
-  install: installPiResources,
-};
-
 const harnessAdapters = {
   'claude-code': claudeCodeInstaller,
   opencode: openCodeInstaller,
   codex: codexInstaller,
-  pi: piInstaller,
 } satisfies Record<Harness, HarnessAdapter>;
 
 function isAdapterKey(value: string): value is keyof typeof harnessAdapters {

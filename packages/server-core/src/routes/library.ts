@@ -52,7 +52,7 @@ export function registerLibraryRoutes({ app, options, cwd }: RouteContext): void
 
       return context.json(response);
     } catch (caught) {
-      return context.json({ error: errorMessage(caught) }, 400);
+      return context.json({ error: errorMessage(caught) }, 500);
     }
   });
 }

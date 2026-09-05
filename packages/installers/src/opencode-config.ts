@@ -1,9 +1,12 @@
 import { join } from 'node:path';
 import { configuredPath, pathExists } from '@ai-directory/config';
-import { parse } from 'jsonc-parser';
+import { applyEdits, modify, parse } from 'jsonc-parser';
 import { z } from 'zod';
 import { resolveHarnessPaths } from './harnesses.js';
 import type { InstallOptions } from './install-types.js';
+import type { PreparedText } from './install-plans.js';
+import type { SharedOwnership } from './install-types.js';
+import { hashContent } from './hashing.js';
 
 const openCodeConfigSchema = z.object({
   instructions: z.array(z.string()).optional(),
@@ -74,4 +77,43 @@ export async function openCodeConfigPath(
 
 export function openCodeInstallRoot(options: InstallOptions): string {
   return resolveHarnessPaths('opencode', options).root;
+}
+
+function writeInstructionsConfig(current: string | null, instructions: string[]): string {
+  if (current === null) {
+    return `${JSON.stringify({ instructions }, null, 2)}\n`;
+  }
+
+  return applyEdits(
+    current,
+    modify(current, ['instructions'], instructions, {
+      formattingOptions: { insertSpaces: true, tabSize: 2 },
+    }),
+  );
+}
+
+export async function addOpenCodeInstructions(
+  path: string,
+  current: string | null,
+  entries: Array<{ key: string; entry: string }>,
+): Promise<PreparedText> {
+  const instructions = current === null ? [] : [...(readOpenCodeInstructions(current, path) ?? [])];
+  const ownership: SharedOwnership[] = [];
+
+  for (const { key, entry } of entries) {
+    if (instructions.includes(entry)) continue;
+    instructions.push(entry);
+    ownership.push({ path, key, hash: hashContent(entry), created: current === null });
+  }
+
+  return { path, content: writeInstructionsConfig(current, instructions), ownership };
+}
+
+export async function removeOpenCodeInstructions(
+  path: string,
+  current: string,
+  keep: (entry: string) => boolean,
+): Promise<string> {
+  const currentInstructions = readOpenCodeInstructions(current, path) ?? [];
+  return writeInstructionsConfig(current, currentInstructions.filter(keep));
 }

@@ -37,6 +37,7 @@ import {
   type InstallationRecord,
 } from './installation-records.js';
 import type { InstallChange, InstallOptions, SharedOwnership } from './install-types.js';
+import { resourceIdsOf } from './operation-options.js';
 import { pathsOverlap } from './paths.js';
 import type {
   PlannedResourceChange,
@@ -85,29 +86,7 @@ function classifyChange(
   return before === after ? null : 'modified';
 }
 
-function operationInstallOptions(
-  options: ResourceChangeOptions,
-  force: boolean,
-  dryRun = false,
-  installationOwner?: string,
-): InstallOptions {
-  const result: InstallOptions = { force, dryRun };
-  if (options.cwd) result.cwd = options.cwd;
-  if (options.homeDirectory) result.homeDirectory = options.homeDirectory;
-  if (options.scope) result.scope = options.scope;
-  if (options.environment) result.environment = options.environment;
-  if (installationOwner) result.installationOwner = installationOwner;
-
-  return result;
-}
-
-function dependencyOptionsFrom(options: ResourceChangeOptions): ToolDependencyOptions {
-  const result: ToolDependencyOptions = {};
-  if (options.cwd) result.cwd = options.cwd;
-  if (options.environment) result.environment = options.environment;
-  if (options.dependencyCommandRunner) result.commandRunner = options.dependencyCommandRunner;
-  return result;
-}
+import { dependencyOptionsFrom, operationInstallOptions } from './operation-options.js';
 
 function mergeSharedOwnership(
   existing: SharedOwnership[] | undefined,
@@ -159,9 +138,7 @@ function fullyRemovedResourceIds(
 ): string[] {
   const removedOwners = new Map<string, Set<string>>();
   for (const operation of operations.filter((item) => item.action === 'uninstall')) {
-    const resourceIds = operation.resourceIds
-      ?? operation.resources?.map((resource) => resourceKey(resource.resource))
-      ?? [];
+    const resourceIds = resourceIdsOf(operation);
     for (const harness of operation.harnesses) {
       for (const resource of resourceIds) {
         const key = `${harness}:${resource}`;
@@ -191,9 +168,7 @@ function fullyRemovedResourceIds(
   return [...new Set(
     operations
       .filter((operation) => operation.action === 'uninstall')
-      .flatMap((operation) =>
-        operation.resourceIds ?? operation.resources?.map((resource) => resourceKey(resource.resource)) ?? [],
-      ),
+      .flatMap((operation) => resourceIdsOf(operation)),
   )].filter((resource) => !installedResourceIds.has(resource) && !installingResourceIds.has(resource));
 }
 
@@ -284,7 +259,7 @@ export async function planResourceOperations(
   const processedPackStale = new Set<string>();
 
   for (const operation of operations) {
-    const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
+    const resourceIds = resourceIdsOf(operation);
     warnings.push(...requestWarnings(operation.warningResources ?? operation.resources ?? []));
     const manifestPath = installationManifestPath(options);
     const manifest = await readInstallationManifest(manifestPath);
@@ -567,7 +542,7 @@ export async function applyResourceOperations(
                 );
               }
             } else {
-              const resourceIds = operation.resourceIds ?? operation.resources?.map((item) => resourceKey(item.resource)) ?? [];
+              const resourceIds = resourceIdsOf(operation);
               const manifest = await readInstallationManifest(manifestPath);
               const records = manifest.installations.filter(
                 (record) =>

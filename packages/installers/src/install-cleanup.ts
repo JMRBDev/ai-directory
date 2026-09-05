@@ -1,9 +1,9 @@
 import { rm, rmdir } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isMissingPathError, writeFileAtomic } from '@ai-directory/config';
-import { applyEdits, modify } from 'jsonc-parser';
 import { parseMarketplace, removeCodexMarketplacePlugin } from './codex-marketplace.js';
 import { hashContent, hashFile } from './hashing.js';
+import { removeMarkedBlock, ruleBlockMarkers } from './managed-block.js';
 import type { InstallChange, InstallOptions } from './install-types.js';
 import { isPluginBundleType, selectHashes } from './install-plans.js';
 import {
@@ -16,6 +16,7 @@ import {
   openCodeConfigPath,
   openCodeInstallRoot,
   readOpenCodeInstructions,
+  removeOpenCodeInstructions,
 } from './opencode-config.js';
 import { currentFile } from './file-snapshots.js';
 import { isPathWithin, toPosixPath } from './paths.js';
@@ -116,10 +117,6 @@ async function ownedInstallationFiles(
     files.delete(configPath);
   }
 
-  if (type === 'rules' && record.harness === 'pi') {
-    files.delete(record.destination);
-  }
-
   return [...files];
 }
 
@@ -142,9 +139,6 @@ async function removeSharedConfiguration(
   } else if (record.harness === 'codex') {
     const change = await removeCodexGuidance(record, options);
     return change ? [change] : [];
-  } else if (record.harness === 'pi') {
-    const change = await removePiGuidance(record, options);
-    return change ? [change] : [];
   }
 
   return [];
@@ -160,67 +154,18 @@ async function removeOpenCodeInstruction(
 
   if (current === null) return null;
 
-  const currentInstructions = readOpenCodeInstructions(current, path);
-  if (!currentInstructions) return null;
-
   const entry = toPosixPath(relative(dirname(path), record.destination));
-  if (!currentInstructions.includes(entry)) return null;
+  const currentInstructions = readOpenCodeInstructions(current, path);
+  if (!currentInstructions?.includes(entry)) return null;
 
   const ownership = record.shared?.find((item) => item.path === path && item.key === record.resource);
   if (record.shared && !ownership) return null;
 
-  const content = applyEdits(
-    current,
-    modify(
-      current,
-      ['instructions'],
-      currentInstructions.filter((value) => value !== entry),
-      { formattingOptions: { insertSpaces: true, tabSize: 2 } },
-    ),
-  );
+  const content = await removeOpenCodeInstructions(path, current, (value) => value !== entry);
 
   return {
     path,
     content: ownership?.created && isEmptyOpenCodeConfig(content) ? null : content,
-  };
-}
-
-async function removePiGuidance(
-  record: InstallationRecord,
-  options: InstallOptions,
-): Promise<InstallChange | null> {
-  const current = await currentFile(record.destination);
-
-  if (current === null) return null;
-
-  const key = record.resource;
-  const startMarker = `<!-- ai-directory:rule:${key} -->`;
-  const endMarker = `<!-- /ai-directory:rule:${key} -->`;
-  const start = current.indexOf(startMarker);
-  const end = current.indexOf(endMarker);
-
-  if (start === -1 && end === -1) return null;
-
-  if ((start === -1) !== (end === -1) || end < start) {
-    throw new Error(`Pi managed rule block is malformed: ${key}`);
-  }
-
-  const ownership = record.shared?.find((item) => item.path === record.destination && item.key === key);
-  if (record.shared && !ownership) return null;
-
-  const block = current.slice(start, end + endMarker.length);
-  if (ownership && hashContent(block) !== ownership.hash && !options.force) {
-    throw new Error(`Pi managed rule block was modified: ${key}. Use --force to continue.`);
-  }
-
-  const before = current.slice(0, start);
-  const after = current.slice(end + endMarker.length);
-  const cleanedBefore = before.endsWith('\n\n') ? before.slice(0, -1) : before;
-  const cleanedAfter = after.startsWith('\n') ? after.slice(1) : after;
-  const content = `${cleanedBefore}${cleanedAfter}`;
-  return {
-    path: record.destination,
-    content: ownership?.created && content.trim() === '' ? null : content,
   };
 }
 
@@ -233,30 +178,20 @@ async function removeCodexGuidance(
   if (current === null) return null;
 
   const key = record.resource;
-  const startMarker = `<!-- ai-directory:rule:${key} -->`;
-  const endMarker = `<!-- /ai-directory:rule:${key} -->`;
-  const start = current.indexOf(startMarker);
-  const end = current.indexOf(endMarker);
-
-  if (start === -1 && end === -1) return null;
-
-  if ((start === -1) !== (end === -1) || end < start) {
-    throw new Error(`Codex managed rule block is malformed: ${key}`);
-  }
-
+  const { start, end } = ruleBlockMarkers(key);
+  const blockStart = current.indexOf(start);
   const ownership = record.shared?.find((item) => item.path === record.destination && item.key === key);
   if (record.shared && !ownership) return null;
 
-  const block = current.slice(start, end + endMarker.length);
-  if (ownership && hashContent(block) !== ownership.hash && !options.force) {
+  const block = blockStart === -1
+    ? undefined
+    : current.slice(blockStart, current.indexOf(end) + end.length);
+  if (ownership && block !== undefined && hashContent(block) !== ownership.hash && !options.force) {
     throw new Error(`Codex managed rule block was modified: ${key}. Use --force to continue.`);
   }
 
-  const before = current.slice(0, start);
-  const after = current.slice(end + endMarker.length);
-  const cleanedBefore = before.endsWith('\n\n') ? before.slice(0, -1) : before;
-  const cleanedAfter = after.startsWith('\n') ? after.slice(1) : after;
-  const content = `${cleanedBefore}${cleanedAfter}`;
+  const { content, removed } = removeMarkedBlock(current, key, 'Codex managed rule block is malformed');
+  if (!removed) return null;
   return {
     path: record.destination,
     content: ownership?.created && content.trim() === '' ? null : content,

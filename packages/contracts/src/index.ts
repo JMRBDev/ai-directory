@@ -27,6 +27,16 @@ const templateResourceIdSchema = resourceIdSchema.refine(
   'Templates cannot contain nested templates',
 );
 
+export const pluginManifestSchema = z
+  .object({
+    name: slugSchema,
+    description: z.string().min(1).optional(),
+    version: resourceVersionSchema.optional(),
+  })
+  .passthrough();
+
+export type PluginManifest = z.infer<typeof pluginManifestSchema>;
+
 export const templateManifestSchema = z.object({
   name: slugSchema,
   description: z.string().min(1),
@@ -39,16 +49,6 @@ export const templateManifestSchema = z.object({
     )
     .min(1),
 });
-
-export const pluginManifestSchema = z
-  .object({
-    name: slugSchema,
-    description: z.string().min(1).optional(),
-    version: resourceVersionSchema.optional(),
-  })
-  .passthrough();
-
-export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 
 const toolPathSchema = z.string().min(1).refine((value) => {
   const normalized = value.replaceAll('\\', '/');
@@ -177,8 +177,8 @@ export type ResourceSummary = z.infer<typeof resourceSummarySchema>;
 export type RegistryIndex = z.infer<typeof registryIndexSchema>;
 export type TemplateManifest = z.infer<typeof templateManifestSchema>;
 
-export type Harness = 'claude-code' | 'opencode' | 'codex' | 'pi';
-export const harnessSchema = z.enum(['claude-code', 'opencode', 'codex', 'pi']);
+export type Harness = 'claude-code' | 'opencode' | 'codex';
+export const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
 export const HARNESS_IDS: readonly Harness[] = harnessSchema.options;
 export const HARNESS_ID_LIST = HARNESS_IDS.join(', ');
 
@@ -203,46 +203,4 @@ export function resourceEntryFiles(type: ResourceType): readonly string[] {
 
 export function resourceKey(resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>): string {
   return `${resource.owner}/${resource.type}/${resource.name}`;
-}
-
-export type DetectedResource = {
-  type: ResourceType;
-  entryFile: string;
-  root: string;
-  name: string;
-};
-
-export function detectResourceRoots(
-  paths: readonly string[],
-  fallbackName?: string,
-): DetectedResource[] {
-  const detected = new Map<string, DetectedResource>();
-
-  for (const path of paths) {
-    const normalized = path.replaceAll('\\', '/');
-
-    for (const type of resourceTypeSchema.options) {
-      for (const entryFile of resourceEntryFiles(type)) {
-        if (normalized !== entryFile && !normalized.endsWith(`/${entryFile}`)) continue;
-
-        const root = normalized.slice(0, normalized.length - entryFile.length).replace(/\/$/, '');
-        const key = `${type}\u0000${root}`;
-        if (detected.has(key)) continue;
-
-        const segments = root ? root.split('/') : [];
-        detected.set(key, {
-          type,
-          entryFile,
-          root,
-          name: segments.at(-1) ?? fallbackName ?? '',
-        });
-      }
-    }
-  }
-
-  return [...detected.values()].sort((left, right) =>
-    left.root === right.root
-      ? left.type.localeCompare(right.type)
-      : left.root.localeCompare(right.root),
-  );
 }

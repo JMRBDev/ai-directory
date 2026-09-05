@@ -1,22 +1,20 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { pathExists, writeFileAtomic } from '@ai-directory/config';
+import { pathExists } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/contracts';
 import type { ResourceVersion } from '@ai-directory/registry';
 import { prepareCodexMarketplace } from '../codex-marketplace.js';
 import { hashContent } from '../hashing.js';
 import { resolveHarnessPaths } from '../harnesses.js';
+import { ruleBlock, upsertMarkedBlock } from '../managed-block.js';
 import type { InstallOptions, InstallResult, SharedOwnership } from '../install-types.js';
 import {
-  assertInstallPlansAvailable,
   createPluginPlan,
-  hashInstallPlans,
   isPluginBundle,
   projectFiles,
+  runInstallPlans,
   safeDestination,
-  selectHashes,
   toolExecutablePaths,
-  writeInstallPlans,
   type InstallPlan,
   type PreparedText,
 } from '../install-plans.js';
@@ -173,32 +171,14 @@ function upsertCodexRule(
   force: boolean,
 ): string {
   const key = resourceKey(resource.resource);
-  const startMarker = `<!-- ai-directory:rule:${key} -->`;
-  const endMarker = `<!-- /ai-directory:rule:${key} -->`;
-  const start = contents.indexOf(startMarker);
-  const end = contents.indexOf(endMarker);
-
-  if ((start === -1) !== (end === -1) || (start !== -1 && end < start)) {
-    throw new Error(`Codex managed rule block is malformed: ${key}`);
-  }
-
-  const block = codexRuleBlock(resource);
-
-  if (start !== -1 && end !== -1) {
-    if (!force) {
-      throw new Error(`Codex rule is already installed: ${key}. Use --force to overwrite.`);
-    }
-
-    return `${contents.slice(0, start)}${block}${contents.slice(end + endMarker.length)}`;
-  }
-
-  const separator = contents.length === 0
-    ? ''
-    : contents.endsWith('\n')
-      ? '\n'
-      : '\n\n';
-
-  return `${contents}${separator}${block}\n`;
+  return upsertMarkedBlock(
+    contents,
+    key,
+    codexRuleBlock(resource),
+    force,
+    'Codex rule is already installed',
+    'Codex managed rule block is malformed',
+  );
 }
 
 function codexRuleBlock(resource: ResourceVersion): string {
@@ -208,12 +188,7 @@ function codexRuleBlock(resource: ResourceVersion): string {
     throw new Error(`Rule is missing RULE.md: ${resourceKey(resource.resource)}`);
   }
 
-  const key = resourceKey(resource.resource);
-  return [
-    `<!-- ai-directory:rule:${key} -->`,
-    entry.content.endsWith('\n') ? entry.content : `${entry.content}\n`,
-    `<!-- /ai-directory:rule:${key} -->`,
-  ].join('\n');
+  return ruleBlock(resourceKey(resource.resource), entry.content);
 }
 
 export async function installCodexResources(
@@ -235,55 +210,26 @@ export async function installCodexResources(
     ? await prepareCodexMarketplace(paths.marketplacePath, plugins, options.force ?? false)
     : undefined;
 
-  await assertInstallPlansAvailable(plans, options);
-  await writeInstallPlans(plans, options.dryRun ?? false);
-
-  if (guidance && !options.dryRun) {
-    await writeFileAtomic(guidance.path, guidance.content);
-  }
-
-  if (marketplace && !options.dryRun) {
-    await writeFileAtomic(marketplace.path, marketplace.content);
-  }
-
-  const fileHashes = await hashInstallPlans(plans);
-
-  return plans.map((plan) => {
-    const isPlugin = isPluginBundle(plan.resource);
-    const result: InstallResult = {
-      destination:
-        plan.resource.resource.type === 'rules' && guidance
-          ? guidance.path
-          : plan.destination,
-      files: plan.files.map((file) => file.path),
-      skippedFiles: plan.skippedFiles,
-      paths: [
-        ...plan.files.map((file) => file.destination),
-        ...(plan.resource.resource.type === 'rules' && guidance ? [guidance.path] : []),
-        ...(isPlugin && marketplace ? [marketplace.path] : []),
-      ],
-      ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
-      shared: [
-        ...(guidance?.ownership?.filter((ownership) =>
-          ownership.key === resourceKey(plan.resource.resource),
-        ) ?? []),
-        ...(marketplace?.ownership?.filter((ownership) =>
-          ownership.key === resourceKey(plan.resource.resource),
-        ) ?? []),
-      ],
-    };
-    if (options.dryRun) {
-      result.changes = [
-        ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
-        ...(plan.resource.resource.type === 'rules' && guidance
-          ? [{ path: guidance.path, content: guidance.content }]
-          : []),
-        ...(isPlugin && marketplace
-          ? [{ path: marketplace.path, content: marketplace.content }]
-          : []),
-      ];
-    }
-    return result;
-  });
+  const extras = [guidance, marketplace].filter((extra) => extra !== undefined);
+  const sharedOwnership = (plan: InstallPlan) => [
+    ...(guidance?.ownership?.filter((ownership) =>
+      ownership.key === resourceKey(plan.resource.resource),
+    ) ?? []),
+    ...(marketplace?.ownership?.filter((ownership) =>
+      ownership.key === resourceKey(plan.resource.resource),
+    ) ?? []),
+  ];
+  const isRulePlan = (plan: InstallPlan) => plan.resource.resource.type === 'rules' && guidance !== undefined;
+  const isMarketplacePlan = (plan: InstallPlan) => isPluginBundle(plan.resource) && marketplace !== undefined;
+  return runInstallPlans(
+    plans,
+    options,
+    extras,
+    sharedOwnership,
+    (plan) => isRulePlan(plan) && guidance ? guidance.path : plan.destination,
+    (plan) => [
+      ...(isRulePlan(plan) && guidance ? [{ path: guidance.path, content: guidance.content }] : []),
+      ...(isMarketplacePlan(plan) && marketplace ? [{ path: marketplace.path, content: marketplace.content }] : []),
+    ],
+  );
 }

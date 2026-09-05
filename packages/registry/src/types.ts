@@ -58,54 +58,6 @@ export type RegistryValidationResult = {
   issues: string[];
 };
 
-export type PublishResourceOptions = {
-  indexPath: string;
-  sourceDirectory: string;
-  resourceId: string;
-  version: string;
-  description?: string;
-};
-
-export type PublishResourceResult = {
-  resource: ResourceSummary;
-  packageDirectory: string;
-  files: string[];
-};
-
-export interface ResourceDirectoryValidationOptions {
-  sourceDirectory: string;
-  resourceId: string;
-  version: string;
-  description?: string;
-}
-
-export type ResourceDirectoryValidationResult = {
-  sourceDirectory: string;
-  resource: Pick<ResourceSummary, 'owner' | 'type' | 'name'>;
-  entryFile: ResourceFile;
-  files: ResourceFile[];
-  description: string;
-};
-
-export type SubmitResourceOptions = Omit<PublishResourceOptions, 'indexPath'> & {
-  indexPath?: string;
-  repositoryUrl?: string;
-  baseBranch?: string;
-  branch?: string;
-  remote?: string;
-  title?: string;
-  body?: string;
-  commandRunner?: CommandRunner;
-};
-
-export type SubmitResourceResult = {
-  resource: ResourceSummary;
-  branch: string;
-  commit: string;
-  pullRequestUrl: string;
-  files: string[];
-};
-
 export type CachedRegistry = {
   get(source: RegistrySource): Promise<RegistrySnapshot>;
   refresh(): Promise<void>;

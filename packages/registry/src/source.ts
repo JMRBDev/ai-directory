@@ -16,6 +16,7 @@ import type {
   RemoteResourceResult,
 } from './types.js';
 import { validateRemoteRegistry, validateRegistry } from './validate.js';
+import { assertSafeRepositoryUrl } from './git.js';
 
 export function resolveRegistrySource(options: RegistrySourceOptions): RegistrySource {
   if (options.indexPath?.trim()) {
@@ -23,9 +24,11 @@ export function resolveRegistrySource(options: RegistrySourceOptions): RegistryS
   }
 
   if (options.repositoryUrl?.trim()) {
+    const repositoryUrl = options.repositoryUrl.trim();
+    assertSafeRepositoryUrl(repositoryUrl);
     return {
       type: 'remote',
-      repositoryUrl: options.repositoryUrl.trim(),
+      repositoryUrl,
       baseBranch: options.baseBranch?.trim() || 'main',
     };
   }

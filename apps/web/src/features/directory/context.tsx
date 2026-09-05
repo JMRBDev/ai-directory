@@ -1,7 +1,12 @@
 import { createContext, useContext } from 'react';
 import { api } from '../../lib/api';
-import type { Harness, HarnessManagerStatus, InstallScope, LocalResource, StagedItem, StagedMap } from '../../lib/types';
-import type { PlanData, SheetName } from './model';
+import type { Harness, HarnessManagerStatus, InstallScope, LocalResource } from '../../lib/types';
+import type { SheetName } from './model';
+
+export type BatchEntry = {
+  id: string;
+  harnesses: Harness[];
+};
 
 export type DirectoryContextValue = {
   installations: NonNullable<Awaited<ReturnType<typeof api.installed>>['installations']>;
@@ -11,26 +16,16 @@ export type DirectoryContextValue = {
   homeDirectory: string | undefined;
   localLoading: boolean;
   harnessDetection: HarnessManagerStatus[] | undefined;
-  staged: StagedMap;
   harnesses: Harness[];
   scope: InstallScope;
   sheet: SheetName;
-  plan: PlanData | undefined;
-  planLoading: boolean;
-  planError: string | undefined;
-  force: boolean;
-  removeDependencies: boolean;
-  busy: boolean;
+  selection: BatchEntry[];
   setSheet: (sheet: SheetName) => void;
   setHarnesses: (harnesses: Harness[]) => void;
   setScope: (scope: InstallScope) => void;
-  setForce: (force: boolean) => void;
-  setRemoveDependencies: (remove: boolean) => void;
-  stage: (item: StagedItem) => void;
-  updateStage: (item: StagedItem) => void;
-  unstage: (key: string) => void;
-  clear: () => void;
-  applyChanges: () => void;
+  toggleSelected: (id: string) => void;
+  setEntryHarnesses: (id: string, harnesses: Harness[]) => void;
+  clearSelection: () => void;
   refreshRegistry: () => Promise<void>;
 };
 

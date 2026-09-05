@@ -9,20 +9,14 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "release:build": "pnpm build && pnpm --filter @ai-directory/cli build:darwin:arm64 && pnpm --filter @ai-directory/cli build:darwin:x64 && pnpm --filter @ai-directory/cli build:linux:x64 && pnpm --filter @ai-directory/cli build:windows:x64",
     "dev": "turbo run dev --filter=@ai-directory/api --filter=@ai-directory/web",
-    "lint": "oxlint",
-    "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean"
   },
   "devDependencies": {
-    "@oxlint/plugins": "1.78.0",
     "@types/node": "^26.2.0",
-    "oxlint": "1.78.0",
     "tsx": "^4.23.12",
     "turbo": "^2.10.9",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "typescript": "^6.0.3"
   }
 }

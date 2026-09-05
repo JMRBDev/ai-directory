@@ -1,12 +1,13 @@
 import { defineCommand } from 'citty';
 import { resourceKey } from '@ai-directory/contracts';
+import { applyMcpOperations, applyResourceOperations } from '@ai-directory/installers';
 import {
-  applyMcpOperations,
-  applyResourceOperations,
-  type McpOperation,
-  type ResourceOperation,
-} from '@ai-directory/installers';
-import { installManifestPath, isMcpResource } from '@ai-directory/server-core';
+  installManifestPath,
+  isMcpResource,
+  makeFileInstallOperation,
+  makeMcpInstallOperation,
+  resolveInstallScope,
+} from '@ai-directory/server-core';
 import { readRegistrySourceResource } from '@ai-directory/registry';
 import {
   getRegistrySource,
@@ -17,19 +18,19 @@ import {
   reportError,
   withInteractiveForce,
 } from '../../helpers';
-import { promptHarnesses, promptResource } from '../../prompts';
+import { promptHarnesses, promptResources } from '../../prompts';
 import { ensureToolDependencies } from './shared';
 
 export const install = defineCommand({
   meta: {
     name: 'install',
-    description: 'Install a resource for one or more coding harnesses',
+    description: 'Install one or more resources for one or more coding harnesses',
   },
   args: {
     resource: {
       type: 'positional',
       default: '',
-      description: 'Resource ID: owner/type/name',
+      description: 'Resource ID: owner/type/name (repeat for more than one)',
     },
     harness: {
       type: 'string',
@@ -74,11 +75,21 @@ export const install = defineCommand({
     try {
       const interactiveTerminal = isInteractiveTerminal();
       const source = getRegistrySource(args.index, args.repository, args.base);
-      const resourceArgument = args.resource.trim();
-      const resource = resourceArgument || (
-        interactiveTerminal ? await promptResource(source) : undefined
-      );
-      if (!resource) throw new Error('Resource ID is required. Pass it as the positional argument.');
+      // SAFETY: citty parses every positional into `args._`; the named
+      // `resource` positional holds the first one.
+      const positionalExtras = (args as unknown as { _: string[] })._ ?? [];
+      const resourceArguments = positionalExtras
+        .map((item) => item.trim())
+        .filter((item) => item && !item.startsWith('-'))
+        .filter((item, index, items) => items.indexOf(item) === index);
+      const selected = resourceArguments.length > 0
+        ? resourceArguments
+        : interactiveTerminal
+          ? await promptResources(source)
+          : undefined;
+      if (!selected || selected.length === 0) {
+        throw new Error('Resource ID is required. Pass one or more positional arguments.');
+      }
       const explicitHarnesses = hasHarnessArgument(rawArgs);
       const harnesses = explicitHarnesses
         ? parseHarnesses(args.harness, rawArgs)
@@ -88,71 +99,64 @@ export const install = defineCommand({
 
       if (!harnesses) throw new Error('Select at least one harness.');
 
-      const loaded = await readRegistrySourceResource(source, resource, args.version);
-      const result = loaded.resource;
-
-      const resources = loaded.resources;
-      const scope = isMcpResource(resource) ? parseScope(args.scope) : 'user';
-
-      for (const resource of [result, ...resources]) {
-        if (resource.resource.reviewStatus === 'unreviewed') {
-          console.warn(
-            `Warning: ${resourceKey(resource.resource)}@${resource.version} has not been reviewed.`,
-          );
+      const scopeValue = parseScope(args.scope);
+      // One atomic plan: resolve every resource first so a single apply call
+      // plans, conflicts-checks, and installs the whole batch. Fail fast —
+      // nothing is written unless the full plan applies.
+      const fileTargets: Array<{ resource: string; loaded: Awaited<ReturnType<typeof readRegistrySourceResource>> }> = [];
+      const mcpTargets: Array<{ resource: string; loaded: Awaited<ReturnType<typeof readRegistrySourceResource>>; scope: ReturnType<typeof parseScope> }> = [];
+      for (const resource of selected) {
+        const loaded = await readRegistrySourceResource(source, resource, args.version);
+        const scope = resolveInstallScope(resource, scopeValue);
+        const versions = [loaded.resource, ...loaded.resources];
+        for (const version of versions) {
+          if (version.resource.reviewStatus === 'unreviewed') {
+            console.warn(
+              `Warning: ${resourceKey(version.resource)}@${version.version} has not been reviewed.`,
+            );
+          }
+        }
+        if (isMcpResource(resource)) {
+          mcpTargets.push({ resource, loaded, scope });
+        } else {
+          fileTargets.push({ resource, loaded });
         }
       }
 
+      if (fileTargets.length > 0 && mcpTargets.length > 0) {
+        throw new Error('Install MCP servers and file resources in separate commands.');
+      }
+
       const installDependencies = await ensureToolDependencies(
-        [result, ...resources],
+        [...fileTargets, ...mcpTargets].flatMap((target) => [target.loaded.resource, ...target.loaded.resources]),
         isInteractiveTerminal(),
         args['install-dependencies'] ?? false,
       );
 
-      const manifestPath = installManifestPath(isMcpResource(resource) ? scope : 'user');
-      const interactive = interactiveTerminal && (!resourceArgument || !explicitHarnesses);
+      const interactive = interactiveTerminal && (resourceArguments.length === 0 || !explicitHarnesses);
+      const manifestPath = installManifestPath(
+        mcpTargets.length > 0 ? mcpTargets[0]?.scope ?? 'user' : 'user',
+      );
 
       const applied = await withInteractiveForce(
         interactive,
         args.force ?? false,
         async (force) => {
-          if (isMcpResource(resource)) {
-            const operation: McpOperation = {
-              resource,
-              harnesses,
-              action: 'install',
-              resources,
-              warningResources: [result, ...resources],
-              scope,
-            };
-            if (args.version !== undefined) operation.version = args.version;
-
+          if (mcpTargets.length > 0) {
+            const scope = mcpTargets[0]?.scope ?? 'user';
             return applyMcpOperations(
-              [operation],
+              mcpTargets.map((target) =>
+                makeMcpInstallOperation(target.resource, harnesses, scope, target.loaded, args.version),
+              ),
               { cwd: process.cwd() },
               force,
             );
           }
 
-          const operation: ResourceOperation = {
-            resource,
-            harnesses,
-            action: 'install',
-            resources,
-            warningResources: [result, ...resources],
-          };
-          if (args.version !== undefined) operation.version = args.version;
-          if (result.resource.type === 'templates') {
-            operation.pack = {
-              version: result.version,
-              resources: resources.map((entry) => ({
-                resource: resourceKey(entry.resource),
-                version: entry.version,
-              })),
-            };
-          }
-
           return applyResourceOperations(
-            [operation],
+            fileTargets.map((target) =>
+              makeFileInstallOperation(target.resource, harnesses, target.loaded, args.version),
+            ),
             { cwd: process.cwd(), installDependencies },
             force,
           );
@@ -179,15 +183,10 @@ export const install = defineCommand({
         console.warn(`Note: ${warning}`);
       }
 
-      if (result.resource.type === 'templates') {
-        console.log(
-          `Installed ${resourceKey(result.resource)}@${result.version} with ${resources.length} resource(s) for ${harnesses.join(', ')}.`,
-        );
-      } else {
-        console.log(
-          `Installed ${resourceKey(result.resource)}@${result.version} for ${harnesses.join(', ')}.`,
-        );
-      }
+      const names = [...fileTargets, ...mcpTargets].map((target) =>
+        `${resourceKey(target.loaded.resource.resource)}@${target.loaded.resource.version}`,
+      );
+      console.log(`Installed ${names.join(', ')} for ${harnesses.join(', ')}.`);
       console.log(`Tracked in: ${manifestPath}`);
     } catch (error) {
       reportError(error);

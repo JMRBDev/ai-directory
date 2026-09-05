@@ -1,17 +1,13 @@
-import { confirm, isCancel, select } from '@clack/prompts';
+import { confirm, isCancel } from '@clack/prompts';
 import { defineCommand } from 'citty';
 import { harnessSchema, HARNESS_ID_LIST } from '@ai-directory/contracts';
 import {
   inspectHarness,
   installHarness,
   inspectHarnesses,
-  inspectPiMcpAdapter,
-  installPiMcpAdapter,
   uninstallHarness,
-  uninstallPiMcpAdapter,
   updateHarness,
   type HarnessStatus,
-  type PiMcpAdapterStatus,
 } from '@ai-directory/installers';
 import { cancelled, isInteractiveTerminal, reportError } from '../helpers';
 
@@ -129,115 +125,18 @@ function managementCommand(action: keyof typeof actionDescriptions) {
   });
 }
 
-export const harnessPiMcpAdapter = defineCommand({
-  meta: {
-    name: 'pi-mcp-adapter',
-    description: 'Manage the Pi MCP adapter extension',
-  },
-  args: {
-    action: {
-      type: 'positional',
-      default: '',
-      description: 'Action: status, install, or uninstall',
-    },
-    yes: {
-      type: 'boolean',
-      description: 'Run without a confirmation prompt (scripts and CI)',
-    },
-  },
-  async run({ args }) {
-    try {
-      const action = args.action.trim() || (
-        isInteractiveTerminal() ? await promptAction() : ''
-      );
-      const options = { cwd: process.cwd() };
-
-      if (action === 'install') {
-        await requestAdapterConsent('install', args.yes ?? false);
-        const result = await installPiMcpAdapter(options);
-        console.log(
-          `Installed the Pi MCP adapter${result.version ? ` ${result.version}` : ''}. Restart Pi to activate it.`,
-        );
-        return;
-      }
-
-      if (action === 'uninstall') {
-        await requestAdapterConsent('uninstall', args.yes ?? false);
-        const result = await uninstallPiMcpAdapter(options);
-        console.log(
-          `Uninstalled the Pi MCP adapter${result.version ? ` (${result.version})` : ''}. Restart Pi to apply the change.`,
-        );
-        return;
-      }
-
-      const status = await inspectPiMcpAdapter(options);
-      printAdapterStatus(status);
-    } catch (error) {
-      reportError(error);
-    }
-  },
-});
-
-async function promptAction(): Promise<string> {
-  const answer = await select({
-    message: 'What do you want to do with the Pi MCP adapter?',
-    options: [
-      { value: 'status', label: 'Check status' },
-      { value: 'install', label: 'Install' },
-      { value: 'uninstall', label: 'Uninstall' },
-    ],
-  });
-  if (isCancel(answer)) throw cancelled('Operation cancelled.');
-  return answer;
-}
-
-async function requestAdapterConsent(
-  action: 'install' | 'uninstall',
-  hasYesFlag: boolean,
-): Promise<void> {
-  const command = action === 'install'
-    ? 'pi install npm:pi-mcp-adapter'
-    : 'pi uninstall npm:pi-mcp-adapter';
-
-  if (!isInteractiveTerminal()) {
-    if (!hasYesFlag) {
-      throw new Error(`Pass --yes to ${action} the Pi MCP adapter in a script. Command: ${command}.`);
-    }
-    return;
-  }
-
-  const answer = await confirm({
-    message: `${action === 'install' ? 'Install' : 'Uninstall'} the Pi MCP adapter with ${command}?`,
-    initialValue: action === 'install',
-  });
-
-  if (isCancel(answer) || !answer) throw cancelled('Operation cancelled.');
-}
-
-function printAdapterStatus(status: PiMcpAdapterStatus): void {
-  if (status.installed) {
-    console.log(`Pi MCP adapter: installed${status.version ? ` v${status.version}` : ''}`);
-    console.log(`Uninstall: ${status.uninstallCommand}`);
-  } else {
-    console.log('Pi MCP adapter: not installed');
-    console.log(`Install: ${status.installCommand}`);
-    console.log('Pi does not support MCP servers without this community extension.');
-  }
-}
-
 export const harness = defineCommand({
   meta: {
     name: 'harness',
     description: 'Manage agent harnesses on this machine',
   },
   run({ rawArgs }) {
-    if (rawArgs.length === 0) throw new Error('Pass a harness action: list, install, update, uninstall, or pi-mcp-adapter.');
+    if (rawArgs.length === 0) throw new Error('Pass a harness action: list, install, update, or uninstall.');
   },
   subCommands: {
     list: harnessList,
     install: managementCommand('install'),
     update: managementCommand('update'),
     uninstall: managementCommand('uninstall'),
-    'pi-mcp-adapter': harnessPiMcpAdapter,
   },
 });

@@ -1,12 +1,12 @@
 import { chmod } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathExists, writeFileAtomic } from '@ai-directory/config';
 import { resourceKey } from '@ai-directory/contracts';
 import { readToolManifest, type ResourceFile, type ResourceVersion } from '@ai-directory/registry';
 import { hashContent } from './hashing.js';
 import type { Harness } from './harnesses.js';
-import type { InstallOptions, SharedOwnership } from './install-types.js';
-import { pathsOverlap } from './paths.js';
+import type { InstallOptions, InstallResult, SharedOwnership } from './install-types.js';
+import { isPathWithin, pathsOverlap } from './paths.js';
 
 export type InstallPlan = {
   resource: ResourceVersion;
@@ -114,9 +114,8 @@ export function withExecutableMode(file: InstallFile, executable: boolean): Inst
 
 export function safeDestination(root: string, resourcePath: string): string {
   const destination = resolve(root, resourcePath);
-  const relativePath = relative(resolve(root), destination);
 
-  if (!relativePath || isAbsolute(relativePath) || relativePath.startsWith('..')) {
+  if (!isPathWithin(destination, resolve(root))) {
     throw new Error(`Unsafe resource file path: ${resourcePath}`);
   }
 
@@ -205,4 +204,53 @@ export function selectHashes(
   }
 
   return selected;
+}
+
+export type SharedConfigExtra = {
+  path: string;
+  content: string;
+  appliesToPlan: (plan: InstallPlan) => boolean;
+  ownershipForPlan: (plan: InstallPlan) => SharedOwnership[];
+  destinationOverride?: (plan: InstallPlan) => string | undefined;
+};
+
+export async function runInstallPlans(
+  plans: InstallPlan[],
+  options: InstallOptions,
+  extras: PreparedText[] = [],
+  sharedForPlan: (plan: InstallPlan) => SharedOwnership[] = () => [],
+  destinationForPlan: (plan: InstallPlan) => string = (plan) => plan.destination,
+  extraChangesForPlan: (plan: InstallPlan) => Array<{ path: string; content: string }> = () => [],
+): Promise<InstallResult[]> {
+  await assertInstallPlansAvailable(plans, options);
+  await writeInstallPlans(plans, options.dryRun ?? false);
+
+  for (const extra of extras) {
+    if (!options.dryRun) {
+      await writeFileAtomic(extra.path, extra.content);
+    }
+  }
+
+  const fileHashes = await hashInstallPlans(plans);
+
+  return plans.map((plan) => {
+    const extraChanges = extraChangesForPlan(plan);
+    const extraPaths = extraChanges.map((change) => change.path);
+    const result: InstallResult = {
+      destination: destinationForPlan(plan),
+      files: plan.files.map((file) => file.path),
+      skippedFiles: plan.skippedFiles,
+      paths: [...plan.files.map((file) => file.destination), ...extraPaths],
+      ownedPaths: plan.files.map((file) => file.destination),
+      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
+      shared: sharedForPlan(plan),
+    };
+    if (options.dryRun) {
+      result.changes = [
+        ...plan.files.map((file) => ({ path: file.destination, content: file.content })),
+        ...extraChanges,
+      ];
+    }
+    return result;
+  });
 }

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { cn } from '../../lib/utils';
-import type { Action, LocalResource, StagedItem } from '../../lib/types';
+import { api, type InstallRequest } from '../../lib/api';
+import type { LocalResource } from '../../lib/types';
 import { ErrorMessage, LoadingCards, SheetFrame } from './common';
 import { useDirectory } from './context';
 import { parseHarnessFilter, parseSourceFilter, type HarnessFilter, type SourceFilter } from './model';
@@ -18,7 +20,6 @@ const harnessOptions = [
   { value: 'claude-code', label: 'Claude Code' },
   { value: 'opencode', label: 'OpenCode' },
   { value: 'codex', label: 'Codex' },
-  { value: 'pi', label: 'Pi' },
 ] as const;
 
 const sourceOptions = [
@@ -32,33 +33,42 @@ function selectedLabel<T extends string>(options: ReadonlyArray<{ value: T; labe
 }
 
 export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { localResources, localError, localLoading, localRegistryError, homeDirectory, staged, harnesses, stage, unstage } = useDirectory();
+  const { localResources, localError, localLoading, localRegistryError } = useDirectory();
   const queryClient = useQueryClient();
   const [harnessFilter, setHarnessFilter] = useState<HarnessFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const visibleResources = localResources.filter((resource) => {
     const matchesHarness = harnessFilter === 'all' || resource.harness === harnessFilter;
     const matchesSource = sourceFilter === 'all' || (sourceFilter === 'registry' ? resource.resource !== undefined : resource.resource === undefined);
     return matchesHarness && matchesSource;
   });
 
-  function stageLocal(resource: LocalResource, action: Action) {
-    if (!resource.resource) return;
-    const id = resource.resource;
-    const key = `${id}\u0000${resource.harness}`;
-    if (staged[key]) {
-      unstage(key);
-      return;
+  function refresh() {
+    void queryClient.invalidateQueries({ queryKey: ['installed'] });
+    void queryClient.invalidateQueries({ queryKey: ['local-resources'] });
+  }
+
+  async function act(key: string, resource: LocalResource, action: 'install' | 'uninstall') {
+    if (!resource.resource || busyKey) return;
+    setBusyKey(key);
+    try {
+      if (action === 'install') {
+        const body: InstallRequest = resource.type === 'mcp-servers'
+          ? { resource: resource.resource, harnesses: [resource.harness], scope: resource.scope ?? 'user' }
+          : { resource: resource.resource, harnesses: [resource.harness] };
+        await api.install(body);
+        toast.success(`Updated ${resource.resource}.`);
+      } else {
+        await api.uninstall(resource.resource, [resource.harness], resource.type === 'mcp-servers' ? (resource.scope ?? 'user') : undefined);
+        toast.success(`Uninstalled ${resource.resource}.`);
+      }
+      refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'The action failed.');
+    } finally {
+      setBusyKey(null);
     }
-    const item: StagedItem = {
-      key,
-      resource: id,
-      type: resource.type,
-      action,
-      harnesses: [resource.harness ?? harnesses[0] ?? 'claude-code'],
-    };
-    if (resource.type === 'mcp-servers') item.scope = resource.scope ?? 'user';
-    stage(item);
   }
 
   return (
@@ -95,16 +105,14 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
             <Card className="gap-0 py-0">
               <ul className="divide-y px-4">
                 {visibleResources.map((resource) => {
-                  const key = resource.resource ? `${resource.resource}\u0000${resource.harness}` : '';
+                  const key = `${resource.harness}-${resource.path}`;
                   return (
                     <LocalResourceRow
-                      key={`${resource.harness}-${resource.path}`}
+                      key={key}
                       resource={resource}
-                      homeDirectory={homeDirectory}
-                      staged={key ? staged[key] : undefined}
-                      onInstall={() => stageLocal(resource, 'install')}
-                      onUninstall={() => stageLocal(resource, 'uninstall')}
-                      onDiscard={() => key && unstage(key)}
+                      busy={busyKey === key}
+                      onInstall={() => void act(key, resource, 'install')}
+                      onUninstall={() => void act(key, resource, 'uninstall')}
                     />
                   );
                 })}

@@ -16,7 +16,7 @@ import { Search01Icon } from '@hugeicons/core-free-icons';
 
 export function CatalogPage() {
   const registry = useQuery<RegistryResponse>({ queryKey: ['registry'], queryFn: api.registry });
-  const { installations, localResources, staged, harnesses, stage, unstage } = useDirectory();
+  const { installations, localResources } = useDirectory();
   const resources = useMemo(
     () => registry.data?.index?.resources.filter((resource) => resource.lifecycleStatus === 'active') ?? [],
     [registry.data],
@@ -44,12 +44,6 @@ export function CatalogPage() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visible = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  function select(resource: (typeof resources)[number]) {
-    const id = resourceKey(resource);
-    if (staged[id]) return unstage(id);
-    stage({ key: id, resource: id, type: resource.type, action: installedIds.has(id) ? 'uninstall' : 'install', harnesses: [...harnesses] });
-  }
 
   function clearFilters() {
     setQuery('');
@@ -104,10 +98,8 @@ export function CatalogPage() {
                         <CatalogCard
                           key={id}
                           resource={resource}
-                          stagedAction={staged[id]?.action}
                           installed={installedIds.has(id)}
                           presentLocally={localIds.has(`${resource.type}/${resource.name}`)}
-                          onStage={() => select(resource)}
                         />
                       );
                     })}
@@ -127,7 +119,7 @@ export function CatalogPage() {
                   <DirectoryEmpty
                     icon={<HugeiconsIcon icon={Search01Icon} />}
                     title={typeResources.length === 0 ? `No ${RESOURCE_TYPE_LABELS[activeType].toLowerCase()}s yet` : 'No matching resources'}
-                    description={typeResources.length === 0 ? 'Publish a resource to add it to this registry.' : 'Try a different search or filter.'}
+                    description={typeResources.length === 0 ? 'Add resources to the registry repository to list them here.' : 'Try a different search or filter.'}
                   />
                 </div>
               )}
@@ -144,7 +136,7 @@ function PageIntro() {
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 id="catalog-title" className="text-2xl font-semibold tracking-tight">Catalog</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Browse the registry, then apply staged changes together from Changes.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Browse the registry, then install directly to this machine.</p>
       </div>
     </div>
   );

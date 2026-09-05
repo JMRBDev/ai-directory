@@ -5,13 +5,12 @@ import {
   assertInstalledFor,
   planResourceOperations,
   readInstallationManifest,
-  type ResourceOperation,
 } from '@ai-directory/installers';
 import {
-  installManifestPath,
-  installationPackOperation,
   installationResourceIds,
+  installManifestPath,
   isMcpResource,
+  makeFileUninstallOperations,
 } from '@ai-directory/server-core';
 import {
   getRegistrySource,
@@ -112,25 +111,12 @@ export const uninstall = defineCommand({
             );
           }
 
-          const operations: ResourceOperation[] = [];
-          for (const harness of harnesses) {
-            const installedResourceIds = await installationResourceIds(
-              resource,
-              source,
-              manifest,
-              [harness],
-            );
-            assertInstalledFor(manifest, installedResourceIds, [harness], resource);
-            const operation: ResourceOperation = {
-              resource,
-              harnesses: [harness],
-              action: 'uninstall',
-              resourceIds: installedResourceIds,
-            };
-            const pack = installationPackOperation(manifest, resource, harness);
-            if (pack) operation.pack = pack;
-            operations.push(operation);
-          }
+          const operations = await makeFileUninstallOperations(
+            resource,
+            harnesses,
+            (id, harness) => installationResourceIds(id, source, manifest, [harness]),
+            manifest,
+          );
 
           const plan = await planResourceOperations(operations, { cwd: process.cwd() }, force);
           let removeDependencies = args['remove-dependencies'] ?? false;

@@ -34,16 +34,25 @@ export async function executeCommand(
   }
 }
 
+export function assertSafeRepositoryUrl(repositoryUrl: string): void {
+  const trimmed = repositoryUrl.trim();
+  if (!trimmed) throw new Error('Registry repository URL is required.');
+  if (trimmed.startsWith('-')) {
+    throw new Error(`Unsafe registry repository URL: ${repositoryUrl}`);
+  }
+}
+
 export async function clonePartialRepository(
   runner: CommandRunner,
   repositoryUrl: string,
   destination: string,
   baseBranch: string,
 ): Promise<void> {
+  assertSafeRepositoryUrl(repositoryUrl);
   await executeCommand(
     runner,
     'git',
-    ['clone', '--filter=blob:none', '--no-checkout', '--branch', baseBranch, repositoryUrl, destination],
+    ['clone', '--filter=blob:none', '--no-checkout', '--branch', baseBranch, '--', repositoryUrl, destination],
     dirname(destination),
   );
   await executeCommand(runner, 'git', ['sparse-checkout', 'init', '--no-cone'], destination);

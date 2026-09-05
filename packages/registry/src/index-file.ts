@@ -7,7 +7,7 @@ import {
   resourceVersionSchema,
   type RegistryIndex,
 } from '@ai-directory/contracts';
-import { isMissingPathError, listFilesUnder, writeFileAtomic } from '@ai-directory/config';
+import { isMissingPathError, listFilesUnder } from '@ai-directory/config';
 import { readTemplateManifest } from './manifests.js';
 import { resourceDirectory } from './paths.js';
 import type { ResourceFile, ResourceVersion } from './types.js';
@@ -40,10 +40,6 @@ export async function readRegistryIndex(filePath: string): Promise<RegistryIndex
   }
 
   return result.data;
-}
-
-export async function writeRegistryIndex(indexPath: string, index: RegistryIndex): Promise<void> {
-  await writeFileAtomic(indexPath, `${JSON.stringify(index, null, 2)}\n`);
 }
 
 export async function readResourceVersion(

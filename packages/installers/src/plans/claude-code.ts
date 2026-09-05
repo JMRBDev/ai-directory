@@ -3,16 +3,13 @@ import type { ResourceVersion } from '@ai-directory/registry';
 import { resolveHarnessPaths } from '../harnesses.js';
 import type { InstallOptions, InstallResult } from '../install-types.js';
 import {
-  assertInstallPlansAvailable,
   createPluginPlan,
   destinationForFile,
-  hashInstallPlans,
   isPluginBundle,
   projectFiles,
   resourceDestination,
-  selectHashes,
+  runInstallPlans,
   toolExecutablePaths,
-  writeInstallPlans,
   type InstallPlan,
 } from '../install-plans.js';
 
@@ -59,23 +56,5 @@ export async function installClaudeCodeResources(
   const root = claudeCodeInstallRoot(options);
   const plans = resources.map((resource) => createClaudeCodePlan(root, resource));
 
-  await assertInstallPlansAvailable(plans, options);
-  await writeInstallPlans(plans, options.dryRun ?? false);
-
-  const fileHashes = await hashInstallPlans(plans);
-
-  return plans.map((plan) => {
-    const result: InstallResult = {
-      destination: plan.destination,
-      files: plan.files.map((file) => file.path),
-      skippedFiles: plan.skippedFiles,
-      paths: plan.files.map((file) => file.destination),
-      ownedPaths: plan.files.map((file) => file.destination),
-      fileHashes: selectHashes(plan.files.map((file) => file.destination), fileHashes),
-    };
-    if (options.dryRun) {
-      result.changes = plan.files.map((file) => ({ path: file.destination, content: file.content }));
-    }
-    return result;
-  });
+  return runInstallPlans(plans, options);
 }

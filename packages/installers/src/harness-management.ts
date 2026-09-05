@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { resolve, sep } from 'node:path';
 import type { Harness, ToolPackageManager } from '@ai-directory/contracts';
 import {
@@ -12,7 +13,9 @@ import {
 import { errorMessage } from './errors.js';
 import { findExecutable, getHarnessDefinition } from './harnesses.js';
 
-export type HarnessManagementOptions = ToolDependencyOptions;
+export type HarnessManagementOptions = ToolDependencyOptions & {
+  homeDirectory?: string;
+};
 
 export type HarnessOrigin = 'npm' | 'homebrew' | 'native';
 
@@ -61,7 +64,8 @@ function runnerFor(options: HarnessManagementOptions): DependencyCommandRunner {
 }
 
 function runnerEnvironment(options: HarnessManagementOptions): NodeJS.ProcessEnv {
-  return { ...process.env, ...options.environment };
+  const home = options.homeDirectory ? resolve(options.homeDirectory) : homedir();
+  return { ...process.env, HOME: home, ...options.environment };
 }
 
 async function probeChannel(
@@ -216,7 +220,7 @@ export async function inspectHarness(harness: Harness, options: HarnessManagemen
 
 export async function inspectHarnesses(options: HarnessManagementOptions = {}): Promise<HarnessStatus[]> {
   return Promise.all(
-    (['claude-code', 'opencode', 'codex', 'pi'] as const).map((harness) => inspectHarness(harness, options)),
+    (['claude-code', 'opencode', 'codex'] as const).map((harness) => inspectHarness(harness, options)),
   );
 }
 

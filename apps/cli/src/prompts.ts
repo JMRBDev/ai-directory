@@ -8,7 +8,7 @@ import {
   type AutocompleteMultiSelectOptions,
   type TextOptions,
 } from '@clack/prompts';
-import { resourceKey, type DetectedResource } from '@ai-directory/contracts';
+import { resourceKey } from '@ai-directory/contracts';
 import type {
   InstallationPackRecord,
   InstallationRecord,
@@ -19,23 +19,11 @@ import type {
 import { installationResourceIds } from '@ai-directory/server-core';
 import { readRegistrySourceIndex, type RegistrySource } from '@ai-directory/registry';
 import { cancelled } from './helpers';
-import { parseTemplateComponents, type TemplateComponent } from './scaffold';
-
-export const resourceTypeOptions = [
-  { value: 'skills' as const, label: 'Skill', hint: 'Reusable instructions and workflows' },
-  { value: 'agents' as const, label: 'Agent', hint: 'A reusable specialist agent' },
-  { value: 'rules' as const, label: 'Rules', hint: 'Guidance applied to coding work' },
-  { value: 'mcp-servers' as const, label: 'MCP Server', hint: 'A Model Context Protocol server' },
-  { value: 'templates' as const, label: 'Resource pack', hint: 'A pack of existing resources' },
-  { value: 'plugins' as const, label: 'Plugin', hint: 'A self-contained bundle of components' },
-  { value: 'tools' as const, label: 'Tool', hint: 'A command-line tool with harness adapters' },
-];
 
 export const harnessOptions = [
   { value: 'claude-code' as const, label: 'Claude Code', hint: 'Anthropic coding harness' },
   { value: 'opencode' as const, label: 'OpenCode', hint: 'OpenCode agent harness' },
   { value: 'codex' as const, label: 'Codex', hint: 'OpenAI coding agent' },
-  { value: 'pi' as const, label: 'Pi', hint: 'Pi coding agent' },
 ];
 
 export async function promptRequiredText(
@@ -57,63 +45,16 @@ export async function promptRequiredText(
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer.trim();
 }
 
-export async function promptResourceType() {
-  const answer = await select({
-    message: 'What kind of resource are you creating?',
-    options: resourceTypeOptions,
-  });
-
-  return isCancel(answer) ? cancelled('Operation cancelled.') : answer;
-}
-
-export async function promptDetectedResource(
-  candidates: DetectedResource[],
-): Promise<DetectedResource | undefined> {
-  const answer = await select({
-    message: 'Which resource do you want to publish?',
-    options: candidates.map((candidate, index) => ({
-      value: index,
-      label: candidate.root,
-      hint: `${candidate.entryFile} · ${candidate.type}`,
-    })),
-  });
-
-  if (isCancel(answer)) return cancelled('Operation cancelled.');
-  return candidates[answer];
-}
-
 export async function promptSlug(message: string, placeholder: string): Promise<string | undefined> {
   return promptRequiredText(message, placeholder);
 }
 
-export async function promptTemplateComponents(
-  source: RegistrySource,
-): Promise<TemplateComponent[] | undefined> {
-  const index = await readRegistrySourceIndex(source);
-  const resources = index.resources
-    .filter((resource) => resource.type !== 'templates' && resource.lifecycleStatus === 'active')
-    .sort((left, right) => resourceKey(left).localeCompare(resourceKey(right)));
-
-  if (resources.length === 0) {
-    throw new Error('The registry has no active resources available for a template.');
-  }
-
-  const answer = await autocompleteMultiselect({
-    message: 'Which resources should this template contain?',
-    placeholder: 'Type to filter resources',
-    options: resources.map((resource) => ({
-      value: `${resourceKey(resource)}@${resource.latestVersion}`,
-      label: resourceKey(resource),
-      hint: `v${resource.latestVersion} · ${resource.description}`,
-    })),
-    required: true,
-  });
-
-  if (isCancel(answer)) return cancelled('Operation cancelled.');
-  return parseTemplateComponents(answer.join(','));
+export async function promptResource(source: RegistrySource): Promise<string | undefined> {
+  const selected = await promptResources(source);
+  return selected?.[0];
 }
 
-export async function promptResource(source: RegistrySource): Promise<string | undefined> {
+export async function promptResources(source: RegistrySource): Promise<string[] | undefined> {
   const index = await readRegistrySourceIndex(source);
   const resources = index.resources
     .filter((resource) => resource.lifecycleStatus === 'active')
@@ -121,15 +62,15 @@ export async function promptResource(source: RegistrySource): Promise<string | u
 
   if (resources.length === 0) throw new Error('The registry has no active resources.');
 
-  const answer = await autocomplete({
-    message: 'Which resource do you want to use?',
+  const answer = await autocompleteMultiselect({
+    message: 'Which resources do you want to use?',
     placeholder: 'Type to search by name, owner, or description',
-    maxItems: 8,
     options: resources.map((resource) => ({
       value: resourceKey(resource),
       label: resourceKey(resource),
       hint: `${resource.description} · ${resource.reviewStatus}`,
     })),
+    required: true,
   });
 
   return isCancel(answer) ? cancelled('Operation cancelled.') : answer;

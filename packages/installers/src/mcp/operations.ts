@@ -4,8 +4,7 @@ import { resourceKey } from '@ai-directory/contracts';
 import { readMcpServerManifest } from '@ai-directory/registry';
 import { applyChangePlanEnvelope } from '../change-envelope.js';
 import { currentFile } from '../file-snapshots.js';
-import { fingerprintPaths, hashContent } from '../hashing.js';
-import type { Harness } from '../harnesses.js';
+import { fingerprintPaths } from '../hashing.js';
 import {
   readInstallationManifest,
   removeInstallationRecord,
@@ -17,16 +16,12 @@ import { publicOperation, requestWarnings } from '../resource-operations.js';
 import { mcpConfigPath } from './config-paths.js';
 import { isEmptyMcpConfig } from './discovery.js';
 import { envNotesFor, mcpEntryFor, validateServerName } from './entries.js';
-import { containerKey, readJsonEntry, removeJsonEntry, upsertJsonEntry } from './json-config.js';
-import { readTomlEntry, removeTomlBlock, upsertTomlBlock } from './toml-config.js';
+import { change, entryHash, readEntry, removeEntry, upsertEntry } from './entry-io.js';
 import type {
-  JsonValue,
   McpApplyResult,
   McpChange,
   McpOperation,
   McpPlan,
-  McpServerEntry,
-  RemovalResult,
 } from './types.js';
 
 export async function planMcpOperations(
@@ -285,67 +280,6 @@ function operationScope(
   options: ResourceChangeOptions,
 ): ConfigScope {
   return options.scope ?? operations[0]?.scope ?? 'user';
-}
-
-function upsertEntry(
-  harness: Harness,
-  content: string,
-  path: string,
-  server: string,
-  entry: McpServerEntry,
-): string {
-  return harness === 'codex'
-    ? upsertTomlBlock(content, server, entry)
-    : upsertJsonEntry(content, containerKey(harness), server, entry, path);
-}
-
-function readEntry(
-  harness: Harness,
-  content: string,
-  path: string,
-  server: string,
-): JsonValue | undefined {
-  return harness === 'codex'
-    ? readTomlEntry(content, server)
-    : readJsonEntry(content, containerKey(harness), server, path);
-}
-
-function removeEntry(
-  harness: Harness,
-  content: string,
-  path: string,
-  server: string,
-): RemovalResult {
-  return harness === 'codex'
-    ? removeTomlBlock(content, server)
-    : removeJsonEntry(content, containerKey(harness), server, path);
-}
-
-function change(
-  resource: string,
-  harness: Harness,
-  server: string,
-  path: string,
-  action: McpChange['action'],
-  before: JsonValue | undefined,
-  after: McpServerEntry | undefined,
-): McpChange {
-  const result: McpChange = { path, action, resource, harness, server };
-  const beforePreview = previewValue(before);
-  const afterPreview = previewValue(after);
-  if (beforePreview !== undefined) result.before = beforePreview;
-  if (afterPreview !== undefined) result.after = afterPreview;
-  return result;
-}
-
-function previewValue(value: JsonValue | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  const serialized = JSON.stringify(value, null, 2);
-  return serialized === undefined ? undefined : serialized;
-}
-
-function entryHash(entry: JsonValue | undefined): string {
-  return hashContent(JSON.stringify(entry ?? null));
 }
 
 async function contentFor(

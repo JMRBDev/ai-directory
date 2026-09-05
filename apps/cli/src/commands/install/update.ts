@@ -5,11 +5,12 @@ import {
   applyResourceOperations,
   assertInstalledFor,
   readInstallationManifest,
-  type ResourceOperation,
 } from '@ai-directory/installers';
 import {
   installManifestPath,
   isMcpResource,
+  makeFileInstallOperation,
+  makeMcpInstallOperation,
 } from '@ai-directory/server-core';
 import { readRegistrySourceResource } from '@ai-directory/registry';
 import {
@@ -128,41 +129,15 @@ export const update = defineCommand({
 
           if (isMcpResource(resource)) {
             const applied = await applyMcpOperations(
-              [{
-                resource,
-                harnesses: changed,
-                action: 'install',
-                resources: loaded.resources,
-                warningResources: [loaded.resource, ...loaded.resources],
-                scope,
-                version: loaded.resource.version,
-              }],
+              [makeMcpInstallOperation(resource, changed, scope, loaded, loaded.resource.version)],
               { cwd: process.cwd() },
               force,
             );
             return { applied, changed, version: loaded.resource.version, mcp: true };
           }
 
-          const operation: ResourceOperation = {
-            resource,
-            harnesses: changed,
-            action: 'install',
-            resources: loaded.resources,
-            warningResources: [loaded.resource, ...loaded.resources],
-            version: loaded.resource.version,
-          };
-          if (loaded.resource.resource.type === 'templates') {
-            operation.pack = {
-              version: loaded.resource.version,
-              resources: loaded.resources.map((entry) => ({
-                resource: resourceKey(entry.resource),
-                version: entry.version,
-              })),
-            };
-          }
-
           const applied = await applyResourceOperations(
-            [operation],
+            [makeFileInstallOperation(resource, changed, loaded, loaded.resource.version)],
             { cwd: process.cwd(), installDependencies },
             force,
           );

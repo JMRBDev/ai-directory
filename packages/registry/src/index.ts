@@ -3,8 +3,6 @@ export type {
   CommandResult,
   CommandRunner,
   PluginManifestResult,
-  PublishResourceOptions,
-  PublishResourceResult,
   RegistrySnapshot,
   RegistrySource,
   RegistrySourceOptions,
@@ -12,17 +10,14 @@ export type {
   RemoteRegistryOptions,
   RemoteResourceOptions,
   RemoteResourceResult,
-  ResourceDirectoryValidationOptions,
-  ResourceDirectoryValidationResult,
   ResourceFile,
   ResourceVersion,
-  SubmitResourceOptions,
-  SubmitResourceResult,
 } from './types.js';
 
 export { inferResourceDescription } from './content.js';
 export { readRegistryIndex, readResourceVersion, readTemplateResources } from './index-file.js';
 export { readMcpServerManifest, readPluginManifest, readTemplateManifest, readToolManifest } from './manifests.js';
+export { assertSafeRepositoryUrl } from './git.js';
 export {
   createRegistrySnapshot,
   readRemoteRegistryIndex,
@@ -36,6 +31,4 @@ export {
   resolveRegistrySource,
   validateRegistrySource,
 } from './source.js';
-export { detectResourceCandidates, publishResource, validateResourceDirectory } from './publish.js';
-export { submitResource } from './submit.js';
 export { validateRegistry, validateRemoteRegistry } from './validate.js';

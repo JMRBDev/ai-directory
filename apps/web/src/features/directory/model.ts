@@ -1,30 +1,19 @@
 import {
   harnessOptions,
   RESOURCE_TYPE_LABELS,
-  type ChangePlan,
   type Harness,
   type InstallScope,
   type LocalResource,
   type ResourceSummary,
   type ResourceType,
-  type StagedItem,
 } from '../../lib/types';
 
-export type SheetName = 'changes' | 'installed' | 'settings' | 'publish' | null;
+export type SheetName = 'installed' | 'settings' | 'batch' | null;
 export type ReviewFilter = 'all' | 'reviewed' | 'unreviewed';
 export type InstalledFilter = 'all' | 'installed' | 'not-installed';
 export type SortOption = 'updated' | 'name' | 'version';
 export type HarnessFilter = 'all' | Harness;
 export type SourceFilter = 'all' | 'registry' | 'local';
-export type DirectoryFile = File & { webkitRelativePath?: string };
-
-export type PublishReview = {
-  resource: string;
-  version: string;
-  description: string;
-  entryFile: string;
-  files: string[];
-};
 
 export const LOCAL_STATE_LABELS = {
   managed: 'Managed',
@@ -67,34 +56,6 @@ export function updatedLabel(value: string) {
     }).format(date);
 }
 
-export function mergePlans(plans: ChangePlan[]): ChangePlan {
-  return {
-    operations: plans.flatMap((plan) => plan.operations ?? []),
-    changes: plans.flatMap((plan) => plan.changes),
-    conflicts: [...new Set(plans.flatMap((plan) => plan.conflicts))],
-    warnings: [...new Set(plans.flatMap((plan) => plan.warnings))],
-    projectionNotes: [...new Set(plans.flatMap((plan) => plan.projectionNotes))],
-    dependencyRemovals: plans.flatMap((plan) => plan.dependencyRemovals ?? []),
-    fingerprint: '',
-  };
-}
-
-export function hasApplyableOperation(plan: ChangePlan) {
-  return plan.changes.length > 0 || plan.operations.some((operation) => operation.action === 'uninstall');
-}
-
-export function operationsFor(items: StagedItem[], fallbackHarnesses: Harness[], fallbackScope: InstallScope) {
-  return items.map((item) => {
-    const operation = {
-      resource: item.resource,
-      action: item.action,
-      harnesses: item.harnesses.length > 0 ? item.harnesses : fallbackHarnesses,
-    };
-    if (item.type === 'mcp-servers') return { ...operation, scope: item.scope ?? fallbackScope };
-    return operation;
-  });
-}
-
 export function reviewFilter(value: string): ReviewFilter {
   return value === 'reviewed' || value === 'unreviewed' ? value : 'all';
 }
@@ -115,10 +76,6 @@ export function resourceType(value: string): ResourceType {
   return RESOURCE_TYPES.find((option) => option.value === value)?.value ?? 'skills';
 }
 
-export function slugify(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
 export function activeResourceType(resources: Array<Pick<ResourceSummary, 'type'>>, selected?: ResourceType): ResourceType {
   return selected ?? resources[0]?.type ?? 'skills';
 }
@@ -131,13 +88,3 @@ export function parseHarnessFilter(value: string): HarnessFilter {
 export function parseSourceFilter(value: string): SourceFilter {
   return value === 'registry' || value === 'local' ? value : 'all';
 }
-
-export function groupStaged(items: StagedItem[]) {
-  return [
-    { name: 'mcp', items: items.filter((item) => item.type === 'mcp-servers') },
-    { name: 'files', items: items.filter((item) => item.type !== 'mcp-servers') },
-  ].filter((group) => group.items.length > 0);
-}
-
-export type GroupPlan = { name: string; items: StagedItem[]; plan: ChangePlan };
-export type PlanData = { plan: ChangePlan; groups: GroupPlan[] };
