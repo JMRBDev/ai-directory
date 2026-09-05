@@ -37,6 +37,8 @@ jobs:
         run: node apps/cli/dist/main.cjs --help
 
       - name: Publish to npm
+        # No NODE_AUTH_TOKEN: OIDC trusted publishing mints a short-lived
+        # token automatically. Requires npm CLI >= 11.5.1 (setup-node ships
+        # current) and a trusted publisher configured for this package on
+        # npmjs.com (GitHub Actions, this repo, publish.yml).
         run: pnpm --filter @jmrbdev/ai-directory publish --provenance --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
