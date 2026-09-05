@@ -2,7 +2,7 @@
   "name": "ai-directory",
   "private": true,
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": ">=24"

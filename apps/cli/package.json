@@ -1,6 +1,6 @@
 {
   "name": "@jmrbdev/ai-directory",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Browse a Git-backed catalog of AI dev resources and install them into your coding harnesses",
   "license": "MIT",
   "type": "module",
@@ -9,6 +9,7 @@
   },
   "files": [
     "dist",
+    "../../LICENSE",
     "!dist/**/*.map",
     "!dist/**/*.d.ts"
   ],

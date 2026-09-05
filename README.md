@@ -11,15 +11,20 @@ Two pieces, one machine:
 
 Requires Node 24 or later.
 
+For daily use, install globally. The command is `aid`:
+
 ```sh
 npm install --global @jmrbdev/ai-directory
+aid --help
 ```
 
-Or try it without installing:
+For a one-off run without installing, prefix with `npx`:
 
 ```sh
 npx @jmrbdev/ai-directory --help
 ```
+
+Both invoke the same binary with the same flags. All examples below use `aid …`; with `npx`, write `npx @jmrbdev/ai-directory …` instead.
 
 ## Point it at your registry
 
