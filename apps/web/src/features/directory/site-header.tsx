@@ -32,13 +32,18 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-5 sm:px-8">
-        <Button render={<Link to="/" />} variant="ghost" size="sm" className="-ml-2 font-semibold">
-          <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <HugeiconsIcon icon={PackageIcon} />
-          </span>
-          AI Directory
-        </Button>
-        <nav className="flex items-center gap-1" aria-label="Workspace actions">
+          <div className="flex items-center gap-1">
+            <Button render={<Link to="/" />} variant="ghost" size="sm" className="-ml-2 font-semibold">
+              <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
+                <HugeiconsIcon icon={PackageIcon} />
+              </span>
+              AI Directory
+            </Button>
+            <Button render={<Link to="/docs" />} variant="ghost" size="sm">
+              Docs
+            </Button>
+          </div>
+          <nav className="flex items-center gap-1" aria-label="Workspace actions">
           <div className="hidden items-center gap-1 sm:flex">
             <TooltipIconButton label="Refresh registry" onClick={() => void refresh()} disabled={refreshing}>
               <HugeiconsIcon icon={RefreshIcon} className={cn(refreshing && 'animate-spin')} />
