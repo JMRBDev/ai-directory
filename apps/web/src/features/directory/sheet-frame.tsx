@@ -21,7 +21,7 @@ export function SheetFrame({
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className={cn('gap-0 data-[side=right]:sm:max-w-md', className)}>
+      <SheetContent className={cn('gap-0 data-[side=right]:sm:max-w-xl', className)}>
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>

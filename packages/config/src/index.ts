@@ -9,8 +9,25 @@ export type ConfigScope = 'user' | 'project';
 export const DEFAULT_API_HOST = '127.0.0.1';
 export const DEFAULT_API_PORT = 4317;
 
+export const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
+export type ConfigHarness = z.infer<typeof harnessSchema>;
+
+export const resourceDirectoryTypeSchema = z.enum(['auto', 'skills', 'agents', 'rules', 'plugins', 'tools']);
+export type ResourceDirectoryType = z.infer<typeof resourceDirectoryTypeSchema>;
+
+const resourceDirectorySchema = z.object({
+  path: z.string().trim().min(1),
+  harness: harnessSchema.optional(),
+  type: resourceDirectoryTypeSchema.optional(),
+});
+
+export type ResourceDirectoryEntry = z.infer<typeof resourceDirectorySchema>;
+export type ResourceDirectoryScope = ConfigScope;
+export type StoredResourceDirectory = ResourceDirectoryEntry & { scope: ConfigScope };
+
 const configSchema = z.object({
   repository: z.string().trim().min(1).optional(),
+  resourceDirectories: z.array(resourceDirectorySchema).optional(),
 });
 
 export type AiDirectoryConfig = z.infer<typeof configSchema>;
@@ -198,3 +215,89 @@ export function resolveRepository(
 ): string | undefined {
   return getRepositorySetting(explicitRepository, cwd).value;
 }
+
+export function normalizeResourceDirectoryPath(path: string, homeDirectory?: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) throw new Error('Resource directory must be a non-empty path.');
+  if (trimmed.startsWith('~')) {
+    const withoutTilde = trimmed.slice(1).replace(/^[/\\]+/, '');
+    const home = homeDirectory ?? process.env.HOME ?? '~';
+    return resolve(home, withoutTilde);
+  }
+  return resolve(trimmed);
+}
+
+export function readResourceDirectories(cwd = process.cwd()): StoredResourceDirectory[] {
+  const userDirectories = readConfigFile(getConfigPath('user', cwd)).resourceDirectories ?? [];
+  const projectDirectories = readConfigFile(getConfigPath('project', cwd)).resourceDirectories ?? [];
+  const seen = new Set<string>();
+  const merged: StoredResourceDirectory[] = [];
+
+  for (const entry of [
+    ...projectDirectories.map((item) => ({ ...item, scope: 'project' as const })),
+    ...userDirectories.map((item) => ({ ...item, scope: 'user' as const })),
+  ]) {
+    const key = `${normalizeResourceDirectoryPath(entry.path)}::${entry.harness ?? ''}::${entry.type ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(entry);
+  }
+
+  return merged;
+}
+
+export async function addResourceDirectory(
+  entry: ResourceDirectoryEntry,
+  scope: ConfigScope,
+  cwd = process.cwd(),
+): Promise<{ path: string; directories: ResourceDirectoryEntry[] }> {
+  const configPath = getConfigPath(scope, cwd);
+  const current = readConfigFile(configPath);
+  const normalized = normalizeResourceDirectoryPath(entry.path);
+  const directories = [...(current.resourceDirectories ?? [])];
+  const exists = directories.some((candidate) =>
+    normalizeResourceDirectoryPath(candidate.path) === normalized
+    && (candidate.harness ?? '') === (entry.harness ?? '')
+    && (candidate.type ?? '') === (entry.type ?? ''),
+  );
+  if (exists) throw new Error(`Resource directory is already configured: ${normalized}.`);
+
+  const stored: ResourceDirectoryEntry = { path: normalized };
+  if (entry.harness !== undefined) stored.harness = entry.harness;
+  if (entry.type !== undefined) stored.type = entry.type;
+  directories.push(stored);
+  await writeConfigFile(configPath, { ...current, resourceDirectories: directories });
+
+  return { path: configPath, directories };
+}
+
+export async function removeResourceDirectory(
+  path: string,
+  scope?: ConfigScope,
+  cwd = process.cwd(),
+): Promise<{ removed: boolean; scopes: ConfigScope[] }> {
+  const normalized = normalizeResourceDirectoryPath(path);
+  const removedScopes: ConfigScope[] = [];
+  const scopes: ConfigScope[] = scope ? [scope] : ['project', 'user'];
+
+  for (const candidate of scopes) {
+    const configPath = getConfigPath(candidate, cwd);
+    const current = readConfigFile(configPath);
+    const directories = current.resourceDirectories ?? [];
+    const next = directories.filter((entry) =>
+      normalizeResourceDirectoryPath(entry.path) !== normalized,
+    );
+    if (next.length === directories.length) continue;
+    await writeConfigFile(configPath, {
+      ...current,
+      resourceDirectories: next.length > 0 ? next : undefined,
+    });
+    removedScopes.push(candidate);
+  }
+
+  return { removed: removedScopes.length > 0, scopes: removedScopes };
+}
+
+export const resourceDirectoryRequestSchema = resourceDirectorySchema.extend({
+  scope: z.enum(['user', 'project']).optional(),
+});

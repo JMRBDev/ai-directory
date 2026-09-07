@@ -70,6 +70,20 @@ export type LocalResourcesResponse = {
   homeDirectory?: string;
 };
 
+export type ResourceDirectory = {
+  path: string;
+  harness?: Harness;
+  type?: 'auto' | 'skills' | 'agents' | 'rules' | 'plugins' | 'tools';
+  scope: 'user' | 'project';
+};
+
+export type ResourceDirectoriesResponse = {
+  directories?: ResourceDirectory[];
+  savedScope?: string;
+  configPath?: string;
+  clearedScopes?: string[];
+};
+
 export function shortenHomePath(path: string, homeDir?: string) {
   if (!homeDir) return path;
   const prefix = homeDir.replace(/\/+$/u, '') + '/';

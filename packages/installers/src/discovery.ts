@@ -21,6 +21,8 @@ import {
 export type LocalResourceState = 'managed' | 'modified' | 'missing' | 'unmanaged';
 export type LocalResourceRegistryState = 'current' | 'outdated' | 'unknown';
 
+export type LocalResourceSource = 'harness' | 'custom';
+
 export type LocalResource = {
   resource?: string;
   type: ResourceKind;
@@ -30,13 +32,24 @@ export type LocalResource = {
   files: string[];
   state: LocalResourceState;
   registryState: LocalResourceRegistryState;
+  source?: LocalResourceSource;
+  sourcePath?: string;
   version?: string;
   latestVersion?: string;
   scope?: 'user' | 'project';
 };
 
+export type ExtraResourceDirectoryType = Exclude<ResourceKind, 'mcp-servers'> | 'auto';
+
+export type ExtraResourceDirectory = {
+  path: string;
+  harness?: Harness | undefined;
+  type?: ExtraResourceDirectoryType | undefined;
+};
+
 export type ResourceDiscoveryOptions = HarnessPathOptions & {
   records?: readonly InstallationRecord[];
+  resourceDirectories?: readonly ExtraResourceDirectory[];
 };
 
 export async function discoverLocalResources(
@@ -52,6 +65,16 @@ export async function discoverLocalResources(
     const location = resolveHarnessPaths(definition.harness, options);
     const candidates = await scanLocation(definition.harness, location);
 
+    discovered.push(
+      ...candidates.filter(
+        (candidate) => !matchesManagedRecord(candidate, managedRecords),
+      ),
+    );
+  }
+
+  const extraDirectories = options.resourceDirectories ?? [];
+  for (const directory of extraDirectories) {
+    const candidates = await scanExtraDirectory(directory, options);
     discovered.push(
       ...candidates.filter(
         (candidate) => !matchesManagedRecord(candidate, managedRecords),
@@ -81,7 +104,16 @@ export async function discoverLocalResources(
     });
   }
 
-  return [...managed, ...discovered].sort((left, right) =>
+  const deduped = new Map<string, LocalResource>();
+  for (const resource of [...managed, ...discovered]) {
+    const key = `${resource.harness}:${resource.path}`;
+    const previous = deduped.get(key);
+    if (!previous || (previous.source !== 'custom' && resource.source === 'custom')) {
+      deduped.set(key, resource);
+    }
+  }
+
+  return [...deduped.values()].sort((left, right) =>
     [left.type, left.name, left.harness, left.path]
       .join('\0')
       .localeCompare([right.type, right.name, right.harness, right.path].join('\0')),
@@ -161,6 +193,109 @@ async function scanLocation(
     ...(await scanFlatResources(harness, 'rules', location.rules, ['.md'])),
     ...(await scanBundles(harness, location)),
   ];
+}
+
+async function scanExtraDirectory(
+  directory: ExtraResourceDirectory,
+  options: ResourceDiscoveryOptions,
+): Promise<LocalResource[]> {
+  const normalized = resolve(directory.path);
+  if (!(await pathExists(normalized))) return [];
+  const harnessCandidates = getHarnessDefinitions().map((definition) => definition.harness);
+  const harnesses = directory.harness ? [directory.harness] : harnessCandidates;
+  const requestedType = directory.type && directory.type !== 'auto' ? directory.type : undefined;
+  const resources: LocalResource[] = [];
+
+  for (const harness of harnesses) {
+    const location = resolveHarnessPaths(harness, options);
+    if (requestedType) {
+      resources.push(...(await scanTypedDirectory(harness, requestedType, normalized, location)));
+    } else {
+      resources.push(...(await scanCustomSkills(harness, normalized)));
+      resources.push(...(await scanCustomFlatResources(harness, 'agents', normalized, location, ['.toml', '.md'])));
+      resources.push(...(await scanCustomFlatResources(harness, 'rules', normalized, location, ['.md'])));
+      resources.push(...(await scanCustomBundles(harness, normalized, location)));
+    }
+  }
+
+  return resources;
+}
+
+async function scanTypedDirectory(
+  harness: Harness,
+  type: ExtraResourceDirectoryType,
+  root: string,
+  location: HarnessLocation,
+): Promise<LocalResource[]> {
+  if (type === 'skills') return scanCustomSkills(harness, root);
+  if (type === 'agents') {
+    return scanCustomFlatResources(harness, 'agents', root, location, harness === 'codex' ? ['.toml', '.md'] : ['.md']);
+  }
+  if (type === 'rules') return scanCustomFlatResources(harness, 'rules', root, location, ['.md']);
+  if (type === 'auto') return scanCustomBundles(harness, root, location);
+  return scanCustomBundles(harness, root, location, type);
+}
+
+async function scanCustomSkills(harness: Harness, root: string): Promise<LocalResource[]> {
+  const resources = await scanSkills(harness, root);
+  return withCustomSource(resources, root);
+}
+
+async function scanCustomFlatResources(
+  harness: Harness,
+  type: 'agents' | 'rules',
+  root: string,
+  _location: HarnessLocation,
+  extensions: string[],
+): Promise<LocalResource[]> {
+  const typeRoot = join(root, type);
+  const candidates = [
+    ...(await scanFlatResources(harness, type, root, extensions)),
+    ...(await scanFlatResources(harness, type, typeRoot, extensions)),
+  ];
+  return withCustomSource(candidates, root);
+}
+
+async function scanCustomBundles(
+  harness: Harness,
+  root: string,
+  location: HarnessLocation,
+  only?: 'plugins' | 'tools',
+): Promise<LocalResource[]> {
+  const nested = harness === 'opencode'
+    ? await scanBundles(harness, { ...location, root })
+    : await scanBundleDirectories(harness, root);
+  return withCustomSource(only ? nested.filter((resource) => resource.type === only) : nested, root);
+}
+
+async function scanFlatEntries(
+  harness: Harness,
+  type: ExtraResourceDirectoryType,
+  root: string,
+  location: HarnessLocation,
+): Promise<LocalResource[]> {
+  if (type === 'auto') {
+    return [
+      ...(await scanCustomSkills(harness, root)),
+      ...(await scanCustomFlatResources(harness, 'agents', root, location, ['.toml', '.md'])),
+      ...(await scanCustomFlatResources(harness, 'rules', root, location, ['.md'])),
+      ...(await scanCustomBundles(harness, root, location)),
+    ];
+  }
+  if (type === 'skills') return scanCustomSkills(harness, root);
+  if (type === 'agents' || type === 'rules') {
+    const extensions = type === 'agents' && harness === 'codex' ? ['.toml', '.md'] : ['.md'];
+    return scanCustomFlatResources(harness, type, root, location, extensions);
+  }
+  return scanCustomBundles(harness, root, location, type);
+}
+
+function withCustomSource(resources: LocalResource[], root: string): LocalResource[] {
+  return resources.map((resource) => ({
+    ...resource,
+    source: 'custom' as const,
+    sourcePath: root,
+  }));
 }
 
 async function scanBundles(

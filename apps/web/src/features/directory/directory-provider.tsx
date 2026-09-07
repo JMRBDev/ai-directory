@@ -46,6 +46,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
 
   const installationsQuery = useQuery({ queryKey: ['installed'], queryFn: api.installed });
   const localResourcesQuery = useQuery({ queryKey: ['local-resources'], queryFn: api.localResources });
+  const resourceDirectoriesQuery = useQuery({ queryKey: ['resource-directories'], queryFn: api.resourceDirectories });
   const harnessQuery = useQuery({ queryKey: ['harness-detection'], queryFn: api.harnesses });
 
   function setHarnesses(next: Harness[]) {
@@ -66,6 +67,11 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     localError: localResourcesQuery.error instanceof Error ? localResourcesQuery.error.message : localResourcesQuery.error ? 'Could not scan local resources.' : undefined,
     localRegistryError: localResourcesQuery.data?.registryError,
     homeDirectory: localResourcesQuery.data?.homeDirectory,
+    resourceDirectories: resourceDirectoriesQuery.data?.directories ?? [],
+    resourceDirectoriesError: resourceDirectoriesQuery.error instanceof Error
+      ? resourceDirectoriesQuery.error.message
+      : resourceDirectoriesQuery.error ? 'Could not load custom directories.' : undefined,
+    resourceDirectoriesLoading: resourceDirectoriesQuery.isFetching,
     localLoading: localResourcesQuery.isFetching,
     harnessDetection: harnessQuery.data?.harnesses,
     harnesses,
