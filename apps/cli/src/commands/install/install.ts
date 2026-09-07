@@ -10,12 +10,14 @@ import {
 } from '@ai-directory/server-core';
 import { readRegistrySourceResource } from '@ai-directory/registry';
 import {
+  getRegistryEndpoint,
   getRegistrySource,
   hasHarnessArgument,
   isInteractiveTerminal,
   parseHarnesses,
   parseScope,
   reportError,
+  splitRegistrySuffix,
   withInteractiveForce,
 } from '../../helpers';
 import { promptHarnesses, promptResources } from '../../prompts';
@@ -52,6 +54,10 @@ export const install = defineCommand({
       type: 'string',
       description: 'Git repository URL; uses a temporary sparse checkout',
     },
+    registry: {
+      type: 'string',
+      description: 'Registry id to install from; defaults to the highest-priority registry',
+    },
     base: {
       type: 'string',
       default: 'main',
@@ -74,7 +80,11 @@ export const install = defineCommand({
   async run({ args, rawArgs }) {
     try {
       const interactiveTerminal = isInteractiveTerminal();
-      const source = getRegistrySource(args.index, args.repository, args.base);
+      const endpoint = args.registry?.trim() || args.repository?.trim() || args.index?.trim()
+        ? { id: args.registry?.trim() || 'override', source: getRegistrySource(args.index, args.repository, args.base, args.registry) }
+        : getRegistryEndpoint(undefined);
+      const source = endpoint.source;
+      const registryId = endpoint.id === 'override' ? args.registry?.trim() || undefined : endpoint.id;
       // SAFETY: citty parses every positional into `args._`; the named
       // `resource` positional holds the first one.
       const positionalExtras = (args as unknown as { _: string[] })._ ?? [];
@@ -103,11 +113,15 @@ export const install = defineCommand({
       // One atomic plan: resolve every resource first so a single apply call
       // plans, conflicts-checks, and installs the whole batch. Fail fast —
       // nothing is written unless the full plan applies.
-      const fileTargets: Array<{ resource: string; loaded: Awaited<ReturnType<typeof readRegistrySourceResource>> }> = [];
-      const mcpTargets: Array<{ resource: string; loaded: Awaited<ReturnType<typeof readRegistrySourceResource>>; scope: ReturnType<typeof parseScope> }> = [];
+      const fileTargets: Array<{ resource: string; loaded: Awaited<ReturnType<typeof readRegistrySourceResource>>; registry: string }> = [];
+      const mcpTargets: Array<{ resource: string; loaded: Awaited<ReturnType<typeof readRegistrySourceResource>>; scope: ReturnType<typeof parseScope>; registry: string }> = [];
       for (const resource of selected) {
-        const loaded = await readRegistrySourceResource(source, resource, args.version);
-        const scope = resolveInstallScope(resource, scopeValue);
+        const { id, registry } = splitRegistrySuffix(resource);
+        const target = registry ?? registryId ?? endpoint.id;
+        const resolved = endpoint.id === 'override' && !target ? source : getRegistryEndpoint(target).source;
+        const activeRegistry = target === 'override' ? undefined : target;
+        const loaded = await readRegistrySourceResource(resolved, id, args.version);
+        const scope = resolveInstallScope(id, scopeValue);
         const versions = [loaded.resource, ...loaded.resources];
         for (const version of versions) {
           if (version.resource.reviewStatus === 'unreviewed') {
@@ -116,10 +130,10 @@ export const install = defineCommand({
             );
           }
         }
-        if (isMcpResource(resource)) {
-          mcpTargets.push({ resource, loaded, scope });
+        if (isMcpResource(id)) {
+          mcpTargets.push({ resource: id, loaded, scope, registry: activeRegistry ?? endpoint.id });
         } else {
-          fileTargets.push({ resource, loaded });
+          fileTargets.push({ resource: id, loaded, registry: activeRegistry ?? endpoint.id });
         }
       }
 
@@ -146,7 +160,7 @@ export const install = defineCommand({
             const scope = mcpTargets[0]?.scope ?? 'user';
             return applyMcpOperations(
               mcpTargets.map((target) =>
-                makeMcpInstallOperation(target.resource, harnesses, scope, target.loaded, args.version),
+                makeMcpInstallOperation(target.resource, harnesses, scope, target.loaded, args.version, target.registry),
               ),
               { cwd: process.cwd() },
               force,
@@ -155,7 +169,7 @@ export const install = defineCommand({
 
           return applyResourceOperations(
             fileTargets.map((target) =>
-              makeFileInstallOperation(target.resource, harnesses, target.loaded, args.version),
+              makeFileInstallOperation(target.resource, harnesses, target.loaded, args.version, target.registry),
             ),
             { cwd: process.cwd(), installDependencies },
             force,

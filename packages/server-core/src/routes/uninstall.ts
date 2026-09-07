@@ -1,10 +1,12 @@
 import { applyMcpOperations, applyResourceOperations, readInstallationManifest } from '@ai-directory/installers';
-import { registrySource } from '../environment.js';
+import { registryEndpointFor } from '../environment.js';
 import {
   installationResourceIds,
   installManifestPath,
   isMcpResource,
   makeFileUninstallOperations,
+  pinnedRegistryId,
+  readInstallationRecords,
   resolveInstallScope,
 } from '../installations.js';
 import { changeOptions } from '../planning.js';
@@ -28,12 +30,15 @@ export function registerUninstallRoute({ app, options, cwd }: RouteContext): voi
 
     try {
       const request = parseResourceRequest(rawRequest);
+      const records = await readInstallationRecords(options.homeDirectory, cwd);
+      const pinned = pinnedRegistryId(request.resource, records);
+      const endpoint = registryEndpointFor(options, cwd, pinned);
       const isMcp = isMcpResource(request.resource);
       const scope = resolveInstallScope(request.resource, request.scope);
       const manifest = await readInstallationManifest(
         installManifestPath(scope, options, cwd),
       );
-      const source = registrySource(options, cwd);
+      const source = endpoint.source;
       const resourceIds = await installationResourceIds(
         request.resource,
         source,

@@ -36,6 +36,30 @@ export type RemoteRegistryOptions = {
   commandRunner?: CommandRunner;
 };
 
+export type AggregatedRegistryIdentity = {
+  id: string;
+  url?: string;
+  branch?: string;
+};
+
+export type AggregatedResourceSummary = {
+  summary: ResourceSummary;
+  registry: AggregatedRegistryIdentity;
+};
+
+export type AggregatedResourceEntry = {
+  resource: string;
+  type: ResourceSummary['type'];
+  entries: AggregatedResourceSummary[];
+  primary: AggregatedResourceSummary;
+};
+
+export type AggregatedRegistryResult = {
+  entries: AggregatedResourceEntry[];
+  registries: AggregatedRegistryIdentity[];
+  errors: Array<{ registry: AggregatedRegistryIdentity; error: string }>;
+};
+
 export type RegistrySource =
   | { type: 'local'; indexPath: string }
   | { type: 'remote'; repositoryUrl: string; baseBranch: string };

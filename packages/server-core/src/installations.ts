@@ -64,9 +64,11 @@ export function localResourceFromMcpRecord(record: InstallationRecord): LocalRes
   return resource;
 }
 
+export type RegistryResolver = (registryId: string | undefined) => RegistrySource;
+
 export async function installationResourceIds(
   resource: string,
-  source: RegistrySource | undefined,
+  source: RegistrySource | RegistryResolver | undefined,
   manifest?: InstallationManifest,
   harnesses?: Harness[],
 ): Promise<string[]> {
@@ -83,8 +85,37 @@ export async function installationResourceIds(
     throw new Error('A registry source is required to inspect this template.');
   }
 
-  const loaded = await readRegistrySourceResource(source, resource);
+  // Templates resolve inside their own registry in v1. Cross-registry
+  // template dependencies stay out of scope until pinning matures.
+  const resolved = typeof source === 'function' ? source(undefined) : source;
+  const loaded = await readRegistrySourceResource(resolved, resource);
   return loaded.resources.map((item) => resourceKey(item.resource));
+}
+
+export function pinnedRegistryId(
+  resource: string,
+  records: readonly { resource: string; registry?: string | undefined }[],
+): string | undefined {
+  const pinned = records.find((record) => record.resource === resource)?.registry;
+  return pinned?.trim() ? pinned : undefined;
+}
+
+export function pinnedRegistryResolver(
+  resource: string,
+  records: readonly { resource: string; registry?: string | undefined }[],
+  fallback: RegistrySource,
+  resolveId: (id: string) => RegistrySource,
+): RegistryResolver {
+  const pinned = pinnedRegistryId(resource, records);
+  return (registryId: string | undefined) => {
+    const id = registryId?.trim() ? registryId : pinned;
+    if (!id) return fallback;
+    try {
+      return resolveId(id);
+    } catch {
+      return fallback;
+    }
+  };
 }
 
 export function installationPackOperation(
@@ -127,6 +158,7 @@ export function makeFileInstallOperation(
   harnesses: Harness[],
   loaded: RemoteResourceResult,
   version?: string,
+  registry?: string,
 ): ResourceOperation {
   const operation: ResourceOperation = {
     resource,
@@ -135,6 +167,7 @@ export function makeFileInstallOperation(
     resources: loaded.resources,
     warningResources: [loaded.resource, ...loaded.resources],
   };
+  if (registry) operation.registry = registry;
   if (version !== undefined) operation.version = version;
   const pack = templatePackFor(loaded);
   if (pack) operation.pack = pack;
@@ -147,6 +180,7 @@ export function makeMcpInstallOperation(
   scope: ConfigScope,
   loaded: RemoteResourceResult,
   version?: string,
+  registry?: string,
 ): McpOperation {
   const operation: McpOperation = {
     resource,
@@ -156,6 +190,7 @@ export function makeMcpInstallOperation(
     warningResources: [loaded.resource, ...loaded.resources],
     scope,
   };
+  if (registry) operation.registry = registry;
   if (version !== undefined) operation.version = version;
   return operation;
 }

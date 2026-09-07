@@ -53,6 +53,7 @@ export function publicOperation(operation: {
   action: 'install' | 'uninstall';
   version?: string;
   scope?: ConfigScope;
+  registry?: string;
 }): typeof operation {
   const result: typeof operation = {
     resource: operation.resource,
@@ -61,6 +62,7 @@ export function publicOperation(operation: {
   };
   if (operation.version !== undefined) result.version = operation.version;
   if (operation.scope !== undefined) result.scope = operation.scope;
+  if (operation.registry !== undefined) result.registry = operation.registry;
 
   return result;
 }
@@ -529,6 +531,7 @@ export async function applyResourceOperations(
                   installations,
                   installer.harness,
                   operation.pack ? operation.resource : undefined,
+                  operation.registry ? { id: operation.registry } : undefined,
                 );
                 const saved = await saveInstallationRecords(
                   manifestPath,

@@ -180,7 +180,7 @@ export async function applyMcpOperations(
                 (item) => item.path === path && item.key === resourceId,
               );
 
-              records.push({
+              const record: InstallationRecord = {
                 resource: resourceId,
                 version: resource.version,
                 harness,
@@ -196,7 +196,9 @@ export async function applyMcpOperations(
                 kind: 'mcp',
                 scope,
                 installedAt: new Date().toISOString(),
-              });
+              };
+              if (operation.registry) record.registry = operation.registry;
+              records.push(record);
             }
 
             await writeFileAtomic(path, content);

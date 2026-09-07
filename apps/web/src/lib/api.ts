@@ -22,6 +22,7 @@ type JsonRequestBody = { [key: string]: JsonValue };
 
 export const API_PATHS = {
   registry: '/api/registry',
+  registries: '/api/registries',
   resource: '/api/registry/resource',
   installed: '/api/installed',
   localResources: '/api/local-resources',
@@ -56,9 +57,22 @@ export type InstallRequest = {
   resource: string;
   harnesses: Harness[];
   scope?: InstallScope;
+  registry?: string;
+};
+
+export type RegistryInput = {
+  id: string;
+  url: string;
+  branch?: string;
+  scope?: InstallScope;
 };
 
 export const api = {
+  registryAdd: (body: RegistryInput) => jsonRequest<{ registries: ConfigResponse['registries'] }>(API_PATHS.registries, body),
+  registryRemove: (id: string, scope?: string) => request<{ registries: ConfigResponse['registries'] }>(
+    `${API_PATHS.registries}?id=${encodeURIComponent(id)}${scope ? `&scope=${encodeURIComponent(scope)}` : ''}`,
+    { method: 'DELETE' },
+  ),
   resourceDirectories: () => request<ResourceDirectoriesResponse>(API_PATHS.resourceDirectories),
   resourceDirectoryAdd: (body: ResourceDirectoryInput) => jsonRequest<ResourceDirectoriesResponse>(API_PATHS.resourceDirectories, body),
   resourceDirectoryRemove: (path: string, scope?: string) => request<ResourceDirectoriesResponse>(
@@ -66,9 +80,10 @@ export const api = {
     { method: 'DELETE' },
   ),
   registry: () => request<RegistryResponse>(API_PATHS.registry),
-  resource: (owner: string, type: string, name: string) => request<ResourceResponse>(
-    `${API_PATHS.resource}/${encodeURIComponent(owner)}/${encodeURIComponent(type)}/${encodeURIComponent(name)}`,
+  resource: (owner: string, type: string, name: string, registry?: string) => request<ResourceResponse>(
+    `${API_PATHS.resource}/${encodeURIComponent(owner)}/${encodeURIComponent(type)}/${encodeURIComponent(name)}${registry ? `?registry=${encodeURIComponent(registry)}` : ''}`,
   ),
+  registries: () => request<{ registries: ConfigResponse['registries'] }>('/api/registries'),
   installed: () => request<{ installations?: Installation[] }>(API_PATHS.installed),
   localResources: () => request<LocalResourcesResponse>(API_PATHS.localResources),
   harnesses: () => request<{ harnesses: HarnessManagerStatus[] }>(API_PATHS.harnesses),

@@ -20,13 +20,13 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const harnessesRef = useRef(harnesses);
   harnessesRef.current = harnesses;
 
-  function toggleSelected(id: string) {
+  function toggleSelected(id: string, registry?: string | undefined) {
     setSelection((current) => {
       if (current.some((entry) => entry.id === id)) {
         return current.filter((entry) => entry.id !== id);
       }
       const defaults = harnessesFor(harnessesRef.current);
-      return [...current, { id, harnesses: defaults }];
+      return [...current, { id, harnesses: defaults, ...(registry ? { registry } : {}) }];
     });
   }
 

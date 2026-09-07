@@ -19,6 +19,9 @@ const resourceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/resources/$owner/$type/$name',
   component: ResourcePage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    registry: typeof search.registry === 'string' ? search.registry : undefined,
+  }),
 });
 
 const routeTree = rootRoute.addChildren([indexRoute, docsRoute, resourceRoute]);

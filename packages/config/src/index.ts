@@ -25,8 +25,19 @@ export type ResourceDirectoryEntry = z.infer<typeof resourceDirectorySchema>;
 export type ResourceDirectoryScope = ConfigScope;
 export type StoredResourceDirectory = ResourceDirectoryEntry & { scope: ConfigScope };
 
+const registryEntrySchema = z.object({
+  id: z.string().trim().min(1).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Registry id must be a lowercase slug.'),
+  url: z.string().trim().min(1),
+  branch: z.string().trim().min(1).optional(),
+  enabled: z.boolean().optional(),
+});
+
+export type RegistryEntry = z.infer<typeof registryEntrySchema>;
+export type StoredRegistryEntry = RegistryEntry & { scope: ConfigScope };
+
 const configSchema = z.object({
   repository: z.string().trim().min(1).optional(),
+  registries: z.array(registryEntrySchema).optional(),
   resourceDirectories: z.array(resourceDirectorySchema).optional(),
 });
 
@@ -214,6 +225,110 @@ export function resolveRepository(
   cwd = process.cwd(),
 ): string | undefined {
   return getRepositorySetting(explicitRepository, cwd).value;
+}
+
+export function normalizeRegistryId(id: string): string {
+  const trimmed = id.trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed)) {
+    throw new Error('Registry id must be a lowercase slug, for example company or team-tools.');
+  }
+  return trimmed;
+}
+
+export function readRegistryEntries(cwd = process.cwd()): StoredRegistryEntry[] {
+  const result: StoredRegistryEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const scope of ['project', 'user'] as const) {
+    const config = readConfigFile(getConfigPath(scope, cwd));
+    const legacy = config.repository?.trim();
+    if (legacy && !seen.has('default')) {
+      seen.add('default');
+      result.push({ id: 'default', url: legacy, scope });
+    }
+    for (const entry of config.registries ?? []) {
+      const id = normalizeRegistryId(entry.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const stored: StoredRegistryEntry = { id, url: entry.url.trim(), scope };
+      if (entry.branch?.trim()) stored.branch = entry.branch.trim();
+      if (entry.enabled === false) stored.enabled = false;
+      result.push(stored);
+    }
+  }
+
+  return result;
+}
+
+export function resolveRegistryEntry(
+  id: string | undefined,
+  cwd = process.cwd(),
+): StoredRegistryEntry | undefined {
+  const entries = readRegistryEntries(cwd).filter((entry) => entry.enabled !== false);
+  if (!id?.trim()) return entries[0];
+  const normalized = normalizeRegistryId(id);
+  return entries.find((entry) => entry.id === normalized);
+}
+
+export async function addRegistryEntry(
+  entry: RegistryEntry,
+  scope: ConfigScope,
+  cwd = process.cwd(),
+): Promise<{ path: string; registries: RegistryEntry[] }> {
+  const id = normalizeRegistryId(entry.id);
+  const url = entry.url.trim();
+  if (!url) throw new Error('Registry URL cannot be empty.');
+  const configPath = getConfigPath(scope, cwd);
+  const current = readConfigFile(configPath);
+  const registries = [...(current.registries ?? [])];
+  const legacy = current.repository?.trim();
+  if (legacy && !registries.some((candidate) => normalizeRegistryId(candidate.id) === 'default')) {
+    registries.unshift({ id: 'default', url: legacy });
+  }
+  if (registries.some((candidate) => normalizeRegistryId(candidate.id) === id)) {
+    throw new Error(`Registry id is already configured: ${id}.`);
+  }
+  if (registries.some((candidate) => candidate.url.trim() === url)) {
+    throw new Error(`Registry URL is already configured: ${url}.`);
+  }
+  const stored: RegistryEntry = { id, url };
+  if (entry.branch?.trim()) stored.branch = entry.branch.trim();
+  if (entry.enabled === false) stored.enabled = false;
+  registries.push(stored);
+  await writeConfigFile(configPath, { ...current, registries });
+
+  return { path: configPath, registries };
+}
+
+export async function removeRegistryEntry(
+  id: string,
+  scope?: ConfigScope,
+  cwd = process.cwd(),
+): Promise<{ removed: boolean; scopes: ConfigScope[] }> {
+  const normalized = normalizeRegistryId(id);
+  const removedScopes: ConfigScope[] = [];
+  const scopes: ConfigScope[] = scope ? [scope] : ['project', 'user'];
+
+  for (const candidate of scopes) {
+    const configPath = getConfigPath(candidate, cwd);
+    const current = readConfigFile(configPath);
+    const registries = current.registries ?? [];
+    const next = registries.filter((entry) => normalizeRegistryId(entry.id) !== normalized);
+    const legacyMatches = current.repository?.trim() && normalized === 'default'
+      && !registries.some((entry) => normalizeRegistryId(entry.id) === 'default');
+    if (next.length === registries.length && !legacyMatches) continue;
+    const patch: AiDirectoryConfig = { ...current };
+    if (next.length > 0) {
+      patch.registries = next;
+    } else {
+      delete patch.registries;
+    }
+    if (legacyMatches) delete patch.repository;
+    await writeConfigFile(configPath, patch);
+    removedScopes.push(candidate);
+  }
+
+  return { removed: removedScopes.length > 0, scopes: removedScopes };
 }
 
 export function normalizeResourceDirectoryPath(path: string, homeDirectory?: string): string {

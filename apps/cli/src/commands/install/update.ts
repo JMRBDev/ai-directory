@@ -14,9 +14,11 @@ import {
 } from '@ai-directory/server-core';
 import { readRegistrySourceResource } from '@ai-directory/registry';
 import {
+  getRegistryEndpoint,
   getRegistrySource,
   isInteractiveTerminal,
   reportError,
+  splitRegistrySuffix,
   withInteractiveForce,
 } from '../../helpers';
 import { ensureToolDependencies, resolveInstalledTarget } from './shared';
@@ -52,6 +54,10 @@ export const update = defineCommand({
       type: 'string',
       description: 'Git repository URL; uses a temporary sparse checkout',
     },
+    registry: {
+      type: 'string',
+      description: 'Registry id to update from; defaults to the pinned install registry',
+    },
     base: {
       type: 'string',
       default: 'main',
@@ -73,8 +79,19 @@ export const update = defineCommand({
   },
   async run({ args, rawArgs }) {
     try {
-      const resourceArgument = args.resource.trim();
-      const source = getRegistrySource(args.index, args.repository, args.base);
+      const { id: requestedId, registry: suffixRegistry } = splitRegistrySuffix(args.resource.trim());
+      const resourceArgument = requestedId;
+      const registryOverride = args.registry?.trim() || suffixRegistry;
+      // Update never auto-switches source. Without an explicit registry it
+      // stays on the pinned install registry, else the top priority one.
+      const { pinnedRegistryId, readInstallationRecords } = await import('@ai-directory/server-core');
+      const installRecords = await readInstallationRecords();
+      const pinned = pinnedRegistryId(resourceArgument, installRecords);
+      const effectiveRegistry = registryOverride ?? pinned;
+      const endpoint = effectiveRegistry
+        ? getRegistryEndpoint(effectiveRegistry)
+        : { id: 'default', source: getRegistrySource(args.index, args.repository, args.base) };
+      const source = endpoint.source;
       const target = await resolveInstalledTarget(
         resourceArgument,
         args.scope,
@@ -98,7 +115,7 @@ export const update = defineCommand({
             isInteractiveTerminal(),
             args['install-dependencies'] ?? false,
           );
-          const existing = harnesses.map((harness) =>
+          const existing = harnesses.map((harness: Harness) =>
             loaded.resources.map((entry) =>
               manifest.installations.find(
                 (record) =>
@@ -129,7 +146,7 @@ export const update = defineCommand({
 
           if (isMcpResource(resource)) {
             const applied = await applyMcpOperations(
-              [makeMcpInstallOperation(resource, changed, scope, loaded, loaded.resource.version)],
+              [makeMcpInstallOperation(resource, changed, scope, loaded, loaded.resource.version, endpoint.id === 'default' ? undefined : endpoint.id)],
               { cwd: process.cwd() },
               force,
             );
@@ -137,7 +154,7 @@ export const update = defineCommand({
           }
 
           const applied = await applyResourceOperations(
-            [makeFileInstallOperation(resource, changed, loaded, loaded.resource.version)],
+            [makeFileInstallOperation(resource, changed, loaded, loaded.resource.version, endpoint.id === 'default' ? undefined : endpoint.id)],
             { cwd: process.cwd(), installDependencies },
             force,
           );

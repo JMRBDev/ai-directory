@@ -11,10 +11,9 @@ import {
 } from '@ai-directory/config';
 import { discoverLocalResources, enrichLocalResources, errorMessage } from '@ai-directory/installers';
 import type { ExtraResourceDirectory, LocalResource, ResourceDiscoveryOptions } from '@ai-directory/installers';
-import { registrySource } from '../environment.js';
 import { jsonBody } from '../http.js';
 import { localResourceFromMcpRecord, readInstallationRecords } from '../installations.js';
-import { cachedRegistry } from '../planning.js';
+import { aggregatedRegistry } from '../planning.js';
 import { resourceDirectorySchema } from '../requests.js';
 import type { RouteContext } from '../types.js';
 
@@ -118,8 +117,14 @@ export function registerLibraryRoutes({ app, options, cwd }: RouteContext): void
 
       if (merged.some((resource) => resource.resource)) {
         try {
-          const snapshot = await cachedRegistry.get(registrySource(options, cwd));
-          enriched = enrichLocalResources(merged, await snapshot.readIndex());
+          const aggregated = await aggregatedRegistry(options, cwd);
+          enriched = enrichLocalResources(merged, {
+            schemaVersion: 1,
+            resources: aggregated.entries.map((entry) => entry.primary.summary),
+          });
+          if (aggregated.errors.length > 0) {
+            registryError = aggregated.errors.map((entry) => `${entry.registry.id}: ${entry.error}`).join('; ');
+          }
         } catch (caught) {
           registryError = errorMessage(caught);
         }

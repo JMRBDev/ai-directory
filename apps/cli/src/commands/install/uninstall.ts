@@ -13,6 +13,7 @@ import {
   makeFileUninstallOperations,
 } from '@ai-directory/server-core';
 import {
+  getRegistryEndpoint,
   getRegistrySource,
   isInteractiveTerminal,
   reportError,
@@ -47,6 +48,10 @@ export const uninstall = defineCommand({
       type: 'string',
       description: 'Git repository URL for template resources',
     },
+    registry: {
+      type: 'string',
+      description: 'Registry id for template resources; defaults to the pinned install registry',
+    },
     base: {
       type: 'string',
       default: 'main',
@@ -72,6 +77,7 @@ export const uninstall = defineCommand({
       const resourceArgument = args.resource.trim();
       const source = (() => {
         try {
+          if (args.registry?.trim()) return getRegistryEndpoint(args.registry).source;
           return getRegistrySource(args.index, args.repository, args.base);
         } catch {
           return undefined;

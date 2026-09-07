@@ -18,11 +18,14 @@ const harnessListSchema = z
   })
   .pipe(z.array(harnessSchema).min(1));
 
+const registryIdSchema = z.string().trim().min(1).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional();
+
 const resourceRequestObjectSchema = z.object({
   resource: z.string().trim().min(1),
   harnesses: harnessListSchema.optional(),
   version: z.string().trim().min(1).optional(),
   scope: configScopeSchema.optional(),
+  registry: registryIdSchema,
   force: z.boolean().default(false),
 });
 
@@ -36,6 +39,7 @@ export type ResourceRequestData = {
   harnesses: Harness[];
   version?: string;
   scope?: ConfigScope;
+  registry?: string;
   force: boolean;
   installDependencies: boolean;
   removeDependencies: boolean;
@@ -46,6 +50,7 @@ function resourceRequestFrom(data: {
   harnesses?: Harness[] | undefined;
   version?: string | undefined;
   scope?: ConfigScope | undefined;
+  registry?: string | undefined;
   force: boolean;
   installDependencies?: boolean | undefined;
   removeDependencies?: boolean | undefined;
@@ -59,6 +64,7 @@ function resourceRequestFrom(data: {
   };
   if (data.version !== undefined) result.version = data.version;
   if (data.scope !== undefined) result.scope = data.scope;
+  if (data.registry !== undefined) result.registry = data.registry;
 
   return result;
 }
@@ -108,6 +114,7 @@ function requestErrorMessage(issues: z.ZodIssue[]): string {
         ? 'version must be a string.'
         : 'version must be a non-empty string.';
     }
+    if (field === 'registry') return 'registry must be a lowercase slug, for example company.';
     if (field === 'force' || field === 'installDependencies' || field === 'removeDependencies') {
       return field + ' must be a boolean.';
     }

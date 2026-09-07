@@ -14,14 +14,19 @@ export function CatalogCard({
   resource,
   installed,
   presentLocally,
+  registryCount,
+  registryChoices,
 }: {
   resource: ResourceSummary;
   installed: boolean;
   presentLocally: boolean;
+  registryCount?: number;
+  registryChoices?: Array<{ id: string; version: string }>;
 }) {
   const { selection, toggleSelected } = useDirectory();
   const id = resourceKey(resource);
   const selected = selection.some((entry) => entry.id === id);
+  const otherSources = Math.max(0, (registryCount ?? 1) - 1);
 
   return (
     <Card>
@@ -39,6 +44,14 @@ export function CatalogCard({
         )}
       </CardHeader>
       <CardContent className="line-clamp-2 text-muted-foreground">{resource.description}</CardContent>
+      {otherSources > 0 && (
+        <CardContent className="-mt-2 text-xs text-muted-foreground">
+          Also in {otherSources} other {otherSources === 1 ? 'registry' : 'registries'}
+          {registryChoices && registryChoices.length > 0
+            ? `: ${registryChoices.map((entry) => `${entry.id} v${entry.version}`).join(', ')}`
+            : ''}. Priority registry shown.
+        </CardContent>
+      )}
       <CardFooter className="mt-auto justify-between gap-3 border-t">
         <p className="flex min-w-0 items-center gap-2 text-muted-foreground">
           <span className="truncate">

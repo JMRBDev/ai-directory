@@ -1,13 +1,12 @@
 import { defineCommand } from 'citty';
-import { getRepositorySetting } from '@ai-directory/config';
+import { readRegistryEntries } from '@ai-directory/config';
 import type { HarnessDetection } from '@ai-directory/installers';
 import { detectHarnesses } from '@ai-directory/installers';
 import { readRemoteRegistryIndex } from '@ai-directory/registry';
 
 interface RegistryDiagnostics {
   ok: boolean;
-  repository: string | null;
-  source: string;
+  registries: Array<{ id: string; url: string; branch: string; resourceCount?: number; error?: string }>;
   branch: string;
   resourceCount?: number;
   activeCount?: number;
@@ -26,6 +25,10 @@ export const doctor = defineCommand({
       type: 'string',
       description: 'Registry Git URL override',
     },
+    registry: {
+      type: 'string',
+      description: 'Registry id to check; defaults to all registries',
+    },
     base: {
       type: 'string',
       default: 'main',
@@ -37,41 +40,60 @@ export const doctor = defineCommand({
     },
   },
   async run({ args }) {
-    const setting = getRepositorySetting(args.repository);
+    const entries = args.repository?.trim()
+      ? [{ id: 'override', url: args.repository.trim(), scope: 'user' as const }]
+      : readRegistryEntries().filter((entry) =>
+        !args.registry?.trim() || entry.id === args.registry.trim().toLowerCase(),
+      );
     const diagnostics: RegistryDiagnostics = {
       ok: false,
-      repository: setting.value ?? null,
-      source: setting.source,
+      registries: [],
       branch: args.base ?? 'main',
       harnesses: await detectHarnesses(),
     };
 
-    if (!setting.value) {
+    if (entries.length === 0) {
       diagnostics.error = 'No registry repository is configured. Run aid setup.';
     } else {
-      try {
-        const index = await readRemoteRegistryIndex({
-          repositoryUrl: setting.value,
-          baseBranch: args.base,
-        });
-        diagnostics.ok = true;
-        diagnostics.resourceCount = index.resources.length;
-        diagnostics.activeCount = index.resources.filter(
-          (resource) => resource.lifecycleStatus === 'active',
-        ).length;
-        diagnostics.unreviewedCount = index.resources.filter(
-          (resource) => resource.reviewStatus === 'unreviewed',
-        ).length;
-      } catch (error) {
-        diagnostics.error = error instanceof Error ? error.message : String(error);
+      let total = 0;
+      let active = 0;
+      let unreviewed = 0;
+      for (const entry of entries) {
+        const branch = args.repository?.trim() ? (args.base ?? 'main') : entry.branch ?? args.base ?? 'main';
+        try {
+          const index = await readRemoteRegistryIndex({
+            repositoryUrl: entry.url,
+            baseBranch: branch,
+          });
+          diagnostics.registries.push({ id: entry.id, url: entry.url, branch, resourceCount: index.resources.length });
+          total += index.resources.length;
+          active += index.resources.filter((resource) => resource.lifecycleStatus === 'active').length;
+          unreviewed += index.resources.filter((resource) => resource.reviewStatus === 'unreviewed').length;
+        } catch (error) {
+          diagnostics.registries.push({
+            id: entry.id,
+            url: entry.url,
+            branch,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      diagnostics.ok = diagnostics.registries.some((entry) => entry.error === undefined);
+      diagnostics.resourceCount = total;
+      diagnostics.activeCount = active;
+      diagnostics.unreviewedCount = unreviewed;
+      if (!diagnostics.ok) {
+        diagnostics.error = diagnostics.registries.map((entry) => `${entry.id}: ${entry.error}`).join('; ');
       }
     }
 
     if (args.json) {
       console.log(JSON.stringify(diagnostics, null, 2));
     } else {
-      console.log(`Repository: ${diagnostics.repository ?? 'not configured'}`);
-      console.log(`Source: ${diagnostics.source}`);
+      for (const registry of diagnostics.registries) {
+        console.log(`Registry ${registry.id}: ${registry.url} (branch ${registry.branch})`);
+      }
+      if (diagnostics.registries.length === 0) console.log('Registries: not configured');
       console.log(`Branch: ${diagnostics.branch}`);
       console.log('Harnesses:');
 

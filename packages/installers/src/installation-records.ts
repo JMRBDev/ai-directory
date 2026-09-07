@@ -34,6 +34,8 @@ export const installationRecordSchema = z.object({
   owners: z.array(z.string().min(1)).min(1).optional(),
   kind: z.enum(['files', 'mcp']).optional(),
   scope: z.enum(['user', 'project']).optional(),
+  registry: z.string().trim().min(1).optional(),
+  registryUrl: z.string().trim().min(1).optional(),
   installedAt: z.string().min(1),
 });
 
@@ -179,6 +181,7 @@ export function createInstallationRecords(
   installations: InstallResult[],
   harness: Harness,
   owner?: string,
+  registry?: { id?: string; url?: string },
 ): InstallationRecord[] {
   const installedAt = new Date().toISOString();
 
@@ -199,6 +202,8 @@ export function createInstallationRecords(
       owners: [owner ?? resourceKey(resource.resource)],
       installedAt,
     };
+    if (registry?.id) record.registry = registry.id;
+    if (registry?.url) record.registryUrl = registry.url;
     if (installation.shared && installation.shared.length > 0) {
       record.shared = installation.shared;
     }

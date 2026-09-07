@@ -2,8 +2,7 @@ import { defineCommand } from 'citty';
 import { normalizeResourceDirectoryPath, readResourceDirectories } from '@ai-directory/config';
 import { discoverLocalResources, enrichLocalResources, type ExtraResourceDirectory } from '@ai-directory/installers';
 import { localResourceFromMcpRecord, readInstallationRecords } from '@ai-directory/server-core';
-import { readRegistrySourceIndex } from '@ai-directory/registry';
-import { getRegistrySource, reportError } from '../../helpers';
+import { aggregatedRegistries, reportError } from '../../helpers';
 
 export const installed = defineCommand({
   meta: {
@@ -35,10 +34,11 @@ export const installed = defineCommand({
       resources = [...resources, ...mcpResources];
 
       try {
-        resources = enrichLocalResources(
-          resources,
-          await readRegistrySourceIndex(getRegistrySource()),
-        );
+        const aggregated = await aggregatedRegistries();
+        resources = enrichLocalResources(resources, {
+          schemaVersion: 1,
+          resources: aggregated.entries.map((entry) => entry.primary.summary),
+        });
       } catch {
         // Local discovery remains useful when the registry is unavailable.
       }
