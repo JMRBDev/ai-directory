@@ -12,9 +12,17 @@ import type {
 
 export type ResourceDirectoryInput = {
   path: string;
-  harness?: Harness;
-  type?: 'auto' | 'skills' | 'agents' | 'rules' | 'plugins' | 'tools';
   scope?: InstallScope;
+};
+
+export type BrowseDirectoriesResponse = {
+  base: string;
+  displayBase: string;
+  parent?: string;
+  home: string;
+  entries: Array<{ path: string; displayPath: string; name: string; resourceCount: number }>;
+  truncated: boolean;
+  search?: string;
 };
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -78,6 +86,12 @@ export const api = {
   resourceDirectoryRemove: (path: string, scope?: string) => request<ResourceDirectoriesResponse>(
     `${API_PATHS.resourceDirectories}?path=${encodeURIComponent(path)}${scope ? `&scope=${encodeURIComponent(scope)}` : ''}`,
     { method: 'DELETE' },
+  ),
+  browseDirectories: (base?: string, search?: string) => request<BrowseDirectoriesResponse>(
+    `${API_PATHS.resourceDirectories.replace('/resource-directories', '/browse-directories')}?${[
+      base ? `base=${encodeURIComponent(base)}` : '',
+      search?.trim() ? `search=${encodeURIComponent(search.trim())}` : '',
+    ].filter(Boolean).join('&')}`,
   ),
   registry: () => request<RegistryResponse>(API_PATHS.registry),
   resource: (owner: string, type: string, name: string, registry?: string) => request<ResourceResponse>(

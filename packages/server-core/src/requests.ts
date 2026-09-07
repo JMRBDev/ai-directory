@@ -94,8 +94,6 @@ export const configRequestSchema = z.object({
 
 export const resourceDirectorySchema = z.object({
   path: z.string().trim().min(1),
-  harness: harnessSchema.optional(),
-  type: z.enum(['auto', 'skills', 'agents', 'rules', 'plugins', 'tools']).optional(),
   scope: configScopeSchema.optional(),
 });
 

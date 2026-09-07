@@ -1,17 +1,17 @@
-import { useMemo, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Autocomplete } from '@base-ui/react/autocomplete';
 import { Accordion } from '../../components/ui/accordion';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { Field, FieldLabel } from '../../components/ui/field';
-import { Input } from '../../components/ui/input';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '../../components/ui/input-group';
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '../../components/ui/input-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { cn } from '../../lib/utils';
-import { api, type InstallRequest, type ResourceDirectoryInput } from '../../lib/api';
+import { api, type BrowseDirectoriesResponse, type InstallRequest, type ResourceDirectoryInput } from '../../lib/api';
 import { harnessLabel, harnessOptions, RESOURCE_TYPE_LABELS, shortenHomePath, type Harness, type InstallScope, type LocalResource } from '../../lib/types';
 import { ErrorMessage, SheetFrame } from './common';
 import { useDirectory } from './context';
@@ -19,7 +19,7 @@ import { installScope, parseHarnessFilter, parseInstalledGroup, parseSourceFilte
 import { LocalResourceRow } from './local-resource-row';
 import { DirectoryEmpty } from './shared';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { Folder01Icon, HardDriveIcon, InfoIcon, PlusSignIcon, RefreshIcon, Search01Icon } from '@hugeicons/core-free-icons';
+import { ArrowUp01Icon, Folder01Icon, HardDriveIcon, Home01Icon, InfoIcon, PlusSignIcon, RefreshIcon, Search01Icon } from '@hugeicons/core-free-icons';
 
 const harnessFilterOptions = [
   { value: 'all', label: 'All harnesses' },
@@ -40,24 +40,23 @@ const groupOptions: Array<{ value: InstalledGroup; label: string }> = [
   { value: 'unmanaged', label: 'Unmanaged' },
 ];
 
-const directoryTypeOptions = [
-  { value: 'auto', label: 'Auto-detect' },
-  { value: 'skills', label: 'Skills' },
-  { value: 'agents', label: 'Agents' },
-  { value: 'rules', label: 'Rules' },
-  { value: 'plugins', label: 'Plugins' },
-  { value: 'tools', label: 'Tools' },
-] as const;
-
-const directoryHarnessOptions = [
-  { value: 'auto', label: 'All harnesses' },
-  ...harnessOptions,
-] as const;
-
 const directoryScopeOptions = [
   { value: 'user', label: 'User' },
   { value: 'project', label: 'Project' },
 ] as const;
+
+type BrowseItem = { path: string; displayPath: string; name: string; resourceCount: number };
+
+// Home-relative paths render with the immutable ~/ addon, so the input
+// holds just the part after home. Absolute paths outside home are kept
+// as typed. joinHomePath rejoins the relative form for submit.
+function joinHomePath(relativePath: string): string {
+  const trimmed = relativePath.trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith('~')) return trimmed;
+  if (trimmed.startsWith('/')) return trimmed;
+  return `~/${trimmed.replace(/^\/+/, '')}`;
+}
 
 function selectedLabel<T extends string>(options: ReadonlyArray<{ value: T; label: string }>, value: T): string {
   return options.find((option) => option.value === value)?.label ?? value;
@@ -102,9 +101,28 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
   const [busyGroup, setBusyGroup] = useState<Harness | null>(null);
   const [removingPath, setRemovingPath] = useState<string | null>(null);
   const [directoryPath, setDirectoryPath] = useState('');
-  const [directoryType, setDirectoryType] = useState<ResourceDirectoryInput['type']>('auto');
-  const [directoryHarness, setDirectoryHarness] = useState<'auto' | Harness>('auto');
   const [directoryScope, setDirectoryScope] = useState<InstallScope>('user');
+  const [browseBase, setBrowseBase] = useState<string | undefined>(undefined);
+  const [browseSearch, setBrowseSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Debounce the recursive search so every keystroke does not fan out a
+  // filesystem walk. 250ms feels instant but collapses fast typing.
+  useEffect(() => {
+    if (browseSearch.trim().length < 2) {
+      setDebouncedSearch('');
+      return;
+    }
+    const timer = window.setTimeout(() => setDebouncedSearch(browseSearch.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [browseSearch]);
+  const browse = useQuery<BrowseDirectoriesResponse>({
+    queryKey: ['browse-directories', browseBase ?? 'home', tab, debouncedSearch],
+    queryFn: () => api.browseDirectories(browseBase, debouncedSearch || undefined),
+    enabled: open && tab === 'folders',
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const browseInputRef = useRef<HTMLInputElement | null>(null);
 
   const stats = useMemo(() => ({
     total: localResources.length,
@@ -163,11 +181,61 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
     void queryClient.invalidateQueries({ queryKey: ['resource-directories'] });
   }
 
+  // The breadcrumb bar is the source of truth for where we browse and
+  // never follows the staged input. A house rule applies: the list always
+  // shows the base folder and the input always shows the staged path, even
+  // when they differ (for example a leaf staged from home).
+  const browseHome = browse.data?.home;
+  useEffect(() => {
+    if (tab === 'folders' && browseHome && browseBase === undefined) {
+      setBrowseBase(browseHome);
+    }
+  }, [tab, browseHome, browseBase]);
+  const browseBaseLabel = browse.data?.displayBase ?? (browseBase ? shortenHomePath(browseBase, homeDirectory) : '…');
+
+  const browseItems: BrowseItem[] = useMemo(
+    () => (browse.data?.entries ?? []).map((entry) => ({
+      path: entry.path,
+      displayPath: entry.displayPath,
+      name: entry.name,
+      resourceCount: entry.resourceCount,
+    })),
+    [browse.data],
+  );
+
+  // Picking a row stages the path in the input and clears the search so
+  // the list returns to the browsed level. Home paths stage relative
+  // (the ~/ addon renders the prefix); anything outside home (for example
+  // /tmp) stages absolute so it is never mangled. Drill-in via double click.
+  const relativeToHome = useMemo(() => {
+    const home = browse.data?.home ?? homeDirectory;
+    return (path: string) => {
+      if (home && (path === home || path.startsWith(`${home}/`))) {
+        return path.slice(home.length).replace(/^\/+/, '');
+      }
+      return path;
+    };
+  }, [browse.data?.home, homeDirectory]);
+  const isAbsoluteStaged = directoryPath.trim().startsWith('/');
+
+  function pickBrowseItem(item: BrowseItem) {
+    setDirectoryPath(relativeToHome(item.path));
+    setBrowseSearch('');
+    setDebouncedSearch('');
+    browseInputRef.current?.focus();
+  }
+
+  function drillBrowseItem(item: BrowseItem) {
+    setDirectoryPath(relativeToHome(item.path));
+    setBrowseSearch('');
+    setDebouncedSearch('');
+    setBrowseBase(item.path);
+    browseInputRef.current?.focus();
+  }
+
   const addDirectoryMutation = useMutation({
-    mutationFn: () => {
-      const body: ResourceDirectoryInput = { path: directoryPath.trim(), scope: directoryScope };
-      if (directoryType && directoryType !== 'auto') body.type = directoryType;
-      if (directoryHarness !== 'auto') body.harness = directoryHarness;
+    mutationFn: (path: string) => {
+      const body: ResourceDirectoryInput = { path: path.trim(), scope: directoryScope };
       return api.resourceDirectoryAdd(body);
     },
     onSuccess: () => {
@@ -177,6 +245,14 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not add the directory.'),
   });
+
+  function submitDirectoryPath(path: string) {
+    const trimmed = path.trim();
+    if (!trimmed || addDirectoryMutation.isPending) return;
+    setBrowseSearch('');
+    setDebouncedSearch('');
+    void addDirectoryMutation.mutateAsync(trimmed);
+  }
 
   async function removeDirectory(path: string) {
     if (removingPath) return;
@@ -383,7 +459,8 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
         </TabsContent>
         <TabsContent value="folders" className="mt-4 flex flex-col gap-4">
           <p className="text-xs text-muted-foreground">
-            Extra folders scanned alongside the harness defaults. Each folder keeps its own scope, harness, and type.
+            Extra folders scanned alongside the harness defaults. Just a path. Type and harness are detected from the
+            files inside, and every harness can use what it understands.
           </p>
           {resourceDirectoriesError && <ErrorMessage message={resourceDirectoriesError} />}
           {resourceDirectoriesLoading ? (
@@ -392,7 +469,10 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
             <Card className="gap-0 py-0">
               <ul className="divide-y px-4">
                 {resourceDirectories.map((directory) => {
-                  const count = localResources.filter((resource) => resource.sourcePath === directory.path).length;
+                  const matches = localResources.filter((resource) => resource.sourcePath === directory.path);
+                  const count = new Map(matches.map((resource) => [resource.path, true])).size;
+                  const kinds = [...new Set(matches.map((resource) => RESOURCE_TYPE_LABELS[resource.type]))];
+                  const harnesses = [...new Set(matches.map((resource) => resource.harness))];
                   return (
                     <li key={`${directory.scope}:${directory.path}`} className="flex items-start justify-between gap-3 py-3">
                       <div className="min-w-0 flex-1">
@@ -400,8 +480,14 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
                           {shortenHomePath(directory.path, homeDirectory)}
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
-                          {directory.scope} · {directory.harness ?? 'all harnesses'} · {directory.type ?? 'auto'} · {count} {count === 1 ? 'resource' : 'resources'}
+                          {directory.scope} · {count} {count === 1 ? 'resource' : 'resources'}
+                          {kinds.length > 0 ? ` · ${kinds.join(', ')}` : ''}
                         </p>
+                        {harnesses.length > 0 && (
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                            Readable by {harnesses.map(harnessLabel).join(', ')}
+                          </p>
+                        )}
                         <FolderPreview path={directory.path} resources={localResources} />
                       </div>
                       <Button
@@ -422,50 +508,149 @@ export function InstalledSheet({ open, onOpenChange }: { open: boolean; onOpenCh
             <DirectoryEmpty
               icon={<HugeiconsIcon icon={Folder01Icon} />}
               title="No custom folders yet"
-              description="Add the folder below. It appears here and its resources join the Resources tab."
+              description="Pick a folder below. It appears here and its resources join the Resources tab."
             />
           )}
           <Card className="gap-3 p-4">
             <div>
               <p className="text-sm font-medium">Add a folder</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Use auto-detect unless the folder holds one type.</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                We scan it and its subfolders and figure out skills, agents, rules, plugins, and tools ourselves.
+              </p>
             </div>
             <Field>
               <FieldLabel htmlFor="custom-directory-path">Folder path</FieldLabel>
-              <Input
-                id="custom-directory-path"
-                placeholder="~/work/shared-skills"
+              <Autocomplete.Root
+                items={browseItems}
                 value={directoryPath}
-                onChange={(event) => setDirectoryPath(event.target.value)}
-              />
+                onValueChange={(value, details) => {
+                  // Home paths stage relative (the ~/ addon renders the
+                  // prefix). Anything outside home stages absolute as typed.
+                  // Item values are absolute, so relativize only under home.
+                  const home = browse.data?.home ?? homeDirectory;
+                  const relative = home && (value === home || value.startsWith(`${home}/`))
+                    ? value.slice(home.length).replace(/^\/+/, '')
+                    : value;
+                  setDirectoryPath(relative);
+                  // The same keystrokes drive the recursive server search.
+                  // Typing never moves the browse base, so the one-level
+                  // list stays put when there is no search yet.
+                  setBrowseSearch(relative);
+                  // A row click commits the item value into the input first;
+                  // stage it and keep the list where it is.
+                  if (details.reason === 'item-press') {
+                    const match = browseItems.find((item) => item.path === value);
+                    if (match) pickBrowseItem(match);
+                  }
+                }}
+                autoHighlight={false}
+                openOnInputClick
+                mode="list"
+                itemToStringValue={(item: BrowseItem) => relativeToHome(item.path)}
+              >
+                <InputGroup>
+                  <Autocomplete.Input
+                    id="custom-directory-path"
+                    ref={browseInputRef}
+                    data-slot="input-group-control"
+                    placeholder="work/shared-skills"
+                    aria-describedby="custom-directory-path-hint"
+                    className="flex-1 rounded-none border-0 bg-transparent font-mono shadow-none ring-0 focus-visible:ring-0 aria-invalid:ring-0 dark:bg-transparent"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        submitDirectoryPath(isAbsoluteStaged ? directoryPath : joinHomePath(directoryPath));
+                      }
+                    }}
+                  />
+                  <InputGroupAddon>
+                    <InputGroupText className="font-mono">{isAbsoluteStaged ? '¦' : '~/'}</InputGroupText>
+                  </InputGroupAddon>
+                </InputGroup>
+                <p id="custom-directory-path-hint" className="text-[11px] text-muted-foreground">
+                  {isAbsoluteStaged
+                    ? 'Absolute path. It will be added exactly as shown.'
+                    : 'Relative to your home folder. We expand it to the full path when you add it.'}
+                </p>
+                <Autocomplete.Portal>
+                  <Autocomplete.Positioner sideOffset={4} className="z-50 outline-none">
+                    <Autocomplete.Popup className="max-h-64 w-(--anchor-width) overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+                      <div className="flex items-center gap-1 border-b border-border px-1.5 pb-1 text-[11px] text-muted-foreground">
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Go to home folder"
+                          onClick={() => {
+                            if (browse.data?.home) {
+                              setBrowseBase(browse.data.home);
+                              browseInputRef.current?.focus();
+                            }
+                          }}
+                        >
+                          <HugeiconsIcon icon={Home01Icon} />
+                        </Button>
+                        <span className="min-w-0 flex-1 truncate font-mono" title={browse.data?.base ?? browseBase}>
+                          {browseBaseLabel}
+                        </span>
+                        {browse.data?.parent && (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Go up one folder"
+                            onClick={() => {
+                              setBrowseBase(browse.data?.parent);
+                              browseInputRef.current?.focus();
+                            }}
+                          >
+                            <HugeiconsIcon icon={ArrowUp01Icon} />
+                          </Button>
+                        )}
+                        {browse.isFetching && <span>Loading…</span>}
+                      </div>
+                      <Autocomplete.Empty className="px-2 py-3 text-xs text-muted-foreground">
+                        {browse.isPending || browse.isFetching
+                          ? 'Searching folders…'
+                          : browse.error
+                            ? 'Could not list folders.'
+                            : debouncedSearch
+                              ? `No folders matching “${debouncedSearch}” under ${browseBaseLabel}. Press Enter to add this path.`
+                              : 'No subfolders here. Press Enter to add this path.'}
+                      </Autocomplete.Empty>
+                      <Autocomplete.List className="outline-none">
+                        {(item: BrowseItem) => (
+                          <Autocomplete.Item
+                            key={item.path}
+                            value={item}
+                            className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                            onClick={() => pickBrowseItem(item)}
+                            onDoubleClick={() => drillBrowseItem(item)}
+                          >
+                            <HugeiconsIcon icon={Folder01Icon} className="size-3.5 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{item.name}</span>
+                              <span className="block truncate font-mono text-[11px] text-muted-foreground tabular-nums">
+                                {item.displayPath}
+                              </span>
+                            </span>
+                          </Autocomplete.Item>
+                        )}
+                      </Autocomplete.List>
+                    </Autocomplete.Popup>
+                  </Autocomplete.Positioner>
+                </Autocomplete.Portal>
+              </Autocomplete.Root>
             </Field>
-            <div className="grid grid-cols-3 gap-2">
-              <Field>
-                <FieldLabel htmlFor="custom-directory-type">Type</FieldLabel>
-                <Select value={directoryType ?? 'auto'} onValueChange={(value) => { if (value === 'auto' || value === 'skills' || value === 'agents' || value === 'rules' || value === 'plugins' || value === 'tools') setDirectoryType(value); }}>
-                  <SelectTrigger id="custom-directory-type" className="w-full"><SelectValue>{selectedLabel(directoryTypeOptions, directoryType ?? 'auto')}</SelectValue></SelectTrigger>
-                  <SelectContent>{directoryTypeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="custom-directory-harness">Harness</FieldLabel>
-                <Select value={directoryHarness} onValueChange={(value) => { if (value === 'auto' || value === 'claude-code' || value === 'opencode' || value === 'codex') setDirectoryHarness(value); }}>
-                  <SelectTrigger id="custom-directory-harness" className="w-full"><SelectValue>{selectedLabel(directoryHarnessOptions, directoryHarness)}</SelectValue></SelectTrigger>
-                  <SelectContent>{directoryHarnessOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="custom-directory-scope">Scope</FieldLabel>
-                <Select value={directoryScope} onValueChange={(value) => { if (value !== null) setDirectoryScope(installScope(value)); }}>
-                  <SelectTrigger id="custom-directory-scope" className="w-full"><SelectValue>{selectedLabel(directoryScopeOptions, directoryScope)}</SelectValue></SelectTrigger>
-                  <SelectContent>{directoryScopeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-                </Select>
-              </Field>
-            </div>
+            <Field>
+              <FieldLabel htmlFor="custom-directory-scope">Save scope</FieldLabel>
+              <Select value={directoryScope} onValueChange={(value) => { if (value !== null) setDirectoryScope(installScope(value)); }}>
+                <SelectTrigger id="custom-directory-scope" className="w-full max-w-44"><SelectValue>{selectedLabel(directoryScopeOptions, directoryScope)}</SelectValue></SelectTrigger>
+                <SelectContent>{directoryScopeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
             <div>
               <Button
                 size="sm"
-                onClick={() => void addDirectoryMutation.mutateAsync()}
+                onClick={() => submitDirectoryPath(isAbsoluteStaged ? directoryPath : joinHomePath(directoryPath))}
                 disabled={!directoryPath.trim() || addDirectoryMutation.isPending}
               >
                 <HugeiconsIcon icon={PlusSignIcon} data-icon="inline-start" />

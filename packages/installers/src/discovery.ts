@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve } from 'node:path';
-import { isMissingPathError, listFilesUnder, pathExists } from '@ai-directory/config';
+import { isMissingPathError, isUnreadablePathError, listFilesUnder, pathExists } from '@ai-directory/config';
 import type { RegistryIndex } from '@ai-directory/contracts';
 import { resourceKey } from '@ai-directory/contracts';
 import { isResourceVersionOutdated } from '@ai-directory/registry';
@@ -39,12 +39,10 @@ export type LocalResource = {
   scope?: 'user' | 'project';
 };
 
-export type ExtraResourceDirectoryType = Exclude<ResourceKind, 'mcp-servers'> | 'auto';
-
+// Custom directories are path-only. Harness attribution is inferred from
+// folder layout at scan time, never asked from the user.
 export type ExtraResourceDirectory = {
   path: string;
-  harness?: Harness | undefined;
-  type?: ExtraResourceDirectoryType | undefined;
 };
 
 export type ResourceDiscoveryOptions = HarnessPathOptions & {
@@ -74,9 +72,9 @@ export async function discoverLocalResources(
 
   const extraDirectories = options.resourceDirectories ?? [];
   for (const directory of extraDirectories) {
-    const candidates = await scanExtraDirectory(directory, options);
+    const limited = await scanCustomDirectory(directory.path, options);
     discovered.push(
-      ...candidates.filter(
+      ...limited.filter(
         (candidate) => !matchesManagedRecord(candidate, managedRecords),
       ),
     );
@@ -195,102 +193,261 @@ async function scanLocation(
   ];
 }
 
-async function scanExtraDirectory(
-  directory: ExtraResourceDirectory,
+// Custom directory scan. Rules:
+// - Direct shape: <root>/<skill-name>/SKILL.md and loose name.md files.
+// - Nested shape: <root>/<group>/<skill-name>/SKILL.md, two levels only.
+// - Reports are attached to every harness only when their layout cannot be
+//   told apart; harness-shaped layouts (skills/, agents/, rules/, plugins/,
+//   tools/, .claude-plugin/, .codex-plugin/) attribute to that harness.
+// - The custom root itself is never reported, even if it looks like a skill.
+const MAX_CUSTOM_DEPTH = 2;
+
+async function scanCustomDirectory(
+  root: string,
   options: ResourceDiscoveryOptions,
 ): Promise<LocalResource[]> {
-  const normalized = resolve(directory.path);
+  const normalized = resolve(root);
   if (!(await pathExists(normalized))) return [];
-  const harnessCandidates = getHarnessDefinitions().map((definition) => definition.harness);
-  const harnesses = directory.harness ? [directory.harness] : harnessCandidates;
-  const requestedType = directory.type && directory.type !== 'auto' ? directory.type : undefined;
-  const resources: LocalResource[] = [];
+  const found = await scanCustomTree(normalized, normalized, 0, options);
 
-  for (const harness of harnesses) {
-    const location = resolveHarnessPaths(harness, options);
-    if (requestedType) {
-      resources.push(...(await scanTypedDirectory(harness, requestedType, normalized, location)));
-    } else {
-      resources.push(...(await scanCustomSkills(harness, normalized)));
-      resources.push(...(await scanCustomFlatResources(harness, 'agents', normalized, location, ['.toml', '.md'])));
-      resources.push(...(await scanCustomFlatResources(harness, 'rules', normalized, location, ['.md'])));
-      resources.push(...(await scanCustomBundles(harness, normalized, location)));
+  const seen = new Set<string>();
+  return found.filter((resource) => {
+    const key = `${resource.harness}:${resource.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function scanCustomTree(
+  root: string,
+  dir: string,
+  depth: number,
+  _options: ResourceDiscoveryOptions,
+): Promise<LocalResource[]> {
+  const resources: LocalResource[] = [];
+  const harnessHits = await scanHarnessShapedDirectory(dir, root);
+  resources.push(...harnessHits);
+  resources.push(...(await scanDirectCustomResources(dir, root)));
+
+  if (depth < MAX_CUSTOM_DEPTH) {
+    for (const entry of await readDirectory(dir)) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      const child = join(dir, entry.name);
+      if (await looksLikeCustomResource(child, dir)) continue;
+      resources.push(...(await scanCustomTree(root, child, depth + 1, _options)));
     }
   }
 
   return resources;
 }
 
-async function scanTypedDirectory(
-  harness: Harness,
-  type: ExtraResourceDirectoryType,
-  root: string,
-  location: HarnessLocation,
-): Promise<LocalResource[]> {
-  if (type === 'skills') return scanCustomSkills(harness, root);
-  if (type === 'agents') {
-    return scanCustomFlatResources(harness, 'agents', root, location, harness === 'codex' ? ['.toml', '.md'] : ['.md']);
+// Resources described directly by one folder: SKILL.md inside, a flat
+// name.md file, or a plugin/tool bundle marker. The folder itself, not the
+// parent, becomes the resource path.
+async function scanDirectCustomResources(dir: string, root: string): Promise<LocalResource[]> {
+  const out: LocalResource[] = [];
+  const entries = await readDirectory(dir);
+
+  const skillDirs: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const child = join(dir, entry.name);
+    // One level only: a direct child holding SKILL.md is a skill. Anything
+    // deeper belongs to the recursive walk, not to a listing here, so a
+    // huge tree (home folder, repo root) can never stall the scan.
+    let direct: string[];
+    try {
+      const raw = await readdir(child, { withFileTypes: true });
+      direct = raw.filter((item) => item.isFile()).map((item) => item.name);
+    } catch {
+      continue;
+    }
+    if (direct.includes('SKILL.md')) skillDirs.push(child);
   }
-  if (type === 'rules') return scanCustomFlatResources(harness, 'rules', root, location, ['.md']);
-  if (type === 'auto') return scanCustomBundles(harness, root, location);
-  return scanCustomBundles(harness, root, location, type);
+  for (const child of skillDirs) {
+    const files = await listFilesUnder(child).catch(() => [] as string[]);
+    if (files.length === 0) continue;
+    const name = basename(child);
+    for (const harness of customCandidateHarnesses(dir, root)) {
+      out.push({
+        type: 'skills',
+        name,
+        harness,
+        path: child,
+        files,
+        state: 'unmanaged',
+        registryState: 'unknown',
+        source: 'custom',
+        sourcePath: root,
+      });
+    }
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || extname(entry.name).toLowerCase() !== '.md') continue;
+    const stem = basename(entry.name, extname(entry.name));
+    if (stem.toLowerCase() === 'skill' || stem.toUpperCase() === 'SKILL') continue;
+    const kinds = dir === root ? (['agents', 'rules'] as const) : (['skills', 'agents', 'rules'] as const);
+    for (const kind of kinds) {
+      if (kind === 'skills') {
+        for (const harness of customCandidateHarnesses(dir, root)) {
+          out.push({
+            type: 'skills',
+            name: stem,
+            harness,
+            path: join(dir, entry.name),
+            files: [join(dir, entry.name)],
+            state: 'unmanaged',
+            registryState: 'unknown',
+            source: 'custom',
+            sourcePath: root,
+          });
+        }
+        break;
+      }
+      const peer = await scanFlatResources('claude-code', kind, dir, [extname(entry.name)]);
+      const match = peer.find((candidate) => candidate.path === join(dir, entry.name));
+      if (!match) continue;
+      for (const harness of customCandidateHarnesses(dir, root)) {
+        out.push({
+          ...match,
+          harness,
+          source: 'custom',
+          sourcePath: root,
+        });
+      }
+      break;
+    }
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const child = join(dir, entry.name);
+    if (skillDirs.includes(child)) continue;
+    // One level only, same reason as above: markers must sit directly in
+    // the child folder, never somewhere deeper in its tree.
+    let direct: string[];
+    try {
+      const raw = await readdir(child, { withFileTypes: true });
+      direct = raw.filter((item) => item.isFile()).map((item) => item.name);
+    } catch {
+      continue;
+    }
+    const type = direct.includes('TOOL.md')
+      ? 'tools'
+      : direct.includes('plugin.json') && await hasPluginMarker(child)
+        ? 'plugins'
+        : undefined;
+    if (!type) continue;
+    const files = await listFilesUnder(child).catch(() => [] as string[]);
+    if (files.length === 0) continue;
+    for (const harness of customCandidateHarnesses(dir, root)) {
+      out.push({
+        type,
+        name: entry.name,
+        harness,
+        path: child,
+        files,
+        state: 'unmanaged',
+        registryState: 'unknown',
+        source: 'custom',
+        sourcePath: root,
+      });
+    }
+  }
+
+  return out;
 }
 
-async function scanCustomSkills(harness: Harness, root: string): Promise<LocalResource[]> {
-  const resources = await scanSkills(harness, root);
-  return withCustomSource(resources, root);
-}
-
-async function scanCustomFlatResources(
-  harness: Harness,
-  type: 'agents' | 'rules',
-  root: string,
-  _location: HarnessLocation,
-  extensions: string[],
-): Promise<LocalResource[]> {
-  const typeRoot = join(root, type);
+async function hasPluginMarker(dir: string): Promise<boolean> {
   const candidates = [
-    ...(await scanFlatResources(harness, type, root, extensions)),
-    ...(await scanFlatResources(harness, type, typeRoot, extensions)),
+    join(dir, '.claude-plugin', 'plugin.json'),
+    join(dir, '.codex-plugin', 'plugin.json'),
   ];
-  return withCustomSource(candidates, root);
+  const checks = await Promise.all(candidates.map((path) => pathExists(path)));
+  return checks.some(Boolean);
 }
 
-async function scanCustomBundles(
-  harness: Harness,
-  root: string,
-  location: HarnessLocation,
-  only?: 'plugins' | 'tools',
-): Promise<LocalResource[]> {
-  const nested = harness === 'opencode'
-    ? await scanBundles(harness, { ...location, root })
-    : await scanBundleDirectories(harness, root);
-  return withCustomSource(only ? nested.filter((resource) => resource.type === only) : nested, root);
-}
+// A folder that already looks like a harness layout gets a single harness
+// attribution: top-level skills/, agents/, rules/, plugins/, tools/, or a
+// plugin marker directly inside the folder. Shallow checks only: a
+// recursive listing here would walk the whole tree on every level.
+async function scanHarnessShapedDirectory(dir: string, root: string): Promise<LocalResource[]> {
+  const out: LocalResource[] = [];
+  const entries = await readDirectory(dir);
+  const names = new Set(entries.map((entry) => entry.name));
+  const shaped = names.has('skills') || names.has('agents') || names.has('rules')
+    || names.has('plugins') || names.has('tools')
+    || await hasPluginMarker(dir);
+  if (!shaped) return out;
 
-async function scanFlatEntries(
-  harness: Harness,
-  type: ExtraResourceDirectoryType,
-  root: string,
-  location: HarnessLocation,
-): Promise<LocalResource[]> {
-  if (type === 'auto') {
-    return [
-      ...(await scanCustomSkills(harness, root)),
-      ...(await scanCustomFlatResources(harness, 'agents', root, location, ['.toml', '.md'])),
-      ...(await scanCustomFlatResources(harness, 'rules', root, location, ['.md'])),
-      ...(await scanCustomBundles(harness, root, location)),
-    ];
+  for (const harness of getHarnessDefinitions().map((definition) => definition.harness)) {
+    const location = customLocationFor(harness, dir);
+    if (names.has('skills')) out.push(...withSource(await scanSkills(harness, join(dir, 'skills')), root));
+    if (names.has('agents')) {
+      out.push(...withSource(
+        await scanFlatResources(harness, 'agents', join(dir, 'agents'), harness === 'codex' ? ['.toml', '.md'] : ['.md']),
+        root,
+      ));
+    }
+    if (names.has('rules')) {
+      out.push(...withSource(await scanFlatResources(harness, 'rules', join(dir, 'rules'), ['.md']), root));
+    }
+    out.push(...withSource(
+      (await scanBundles(harness, location)).filter((candidate) => candidate.path.startsWith(dir)),
+      root,
+    ));
   }
-  if (type === 'skills') return scanCustomSkills(harness, root);
-  if (type === 'agents' || type === 'rules') {
-    const extensions = type === 'agents' && harness === 'codex' ? ['.toml', '.md'] : ['.md'];
-    return scanCustomFlatResources(harness, type, root, location, extensions);
-  }
-  return scanCustomBundles(harness, root, location, type);
+
+  return out;
 }
 
-function withCustomSource(resources: LocalResource[], root: string): LocalResource[] {
+function customLocationFor(harness: Harness, dir: string): HarnessLocation {
+  if (harness === 'codex') {
+    return {
+      root: dir,
+      config: dir,
+      skills: join(dir, 'skills'),
+      agents: join(dir, 'agents'),
+      rules: join(dir, 'rules'),
+      guidance: dir,
+    };
+  }
+  return {
+    root: dir,
+    config: dir,
+    skills: join(dir, 'skills'),
+    agents: join(dir, 'agents'),
+    rules: join(dir, 'rules'),
+    guidance: dir,
+  };
+}
+
+// When a folder gives no harness signal, every harness can consume the
+// files, so the resource is reported once per harness and the user picks
+// the target at install time.
+function customCandidateHarnesses(_dir: string, _root: string): Harness[] {
+  return getHarnessDefinitions().map((definition) => definition.harness);
+}
+
+async function looksLikeCustomResource(dir: string, _parent: string): Promise<boolean> {
+  // Direct children only. A recursive check here would re-walk every
+  // subtree at every level and turn the whole scan quadratic.
+  let direct: string[];
+  try {
+    const raw = await readdir(dir, { withFileTypes: true });
+    direct = raw.filter((item) => item.isFile()).map((item) => item.name);
+  } catch {
+    return false;
+  }
+  if (direct.length === 0) return false;
+  return direct.includes('SKILL.md')
+    || direct.includes('TOOL.md')
+    || direct.some((file) => file.toLowerCase().endsWith('.md'));
+}
+
+function withSource(resources: LocalResource[], root: string): LocalResource[] {
   return resources.map((resource) => ({
     ...resource,
     source: 'custom' as const,
@@ -503,7 +660,10 @@ async function readDirectory(path: string) {
   try {
     return await readdir(path, { withFileTypes: true });
   } catch (error) {
-    if (isMissingPathError(error)) return [];
+    // A folder we cannot read (missing, or macOS privacy denying Desktop,
+    // Documents, Downloads) contributes nothing to the scan. Throwing here
+    // would fail the whole /api/local-resources request.
+    if (isMissingPathError(error) || isUnreadablePathError(error)) return [];
     throw error;
   }
 }
