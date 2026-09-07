@@ -13,7 +13,9 @@ export type ReviewFilter = 'all' | 'reviewed' | 'unreviewed';
 export type InstalledFilter = 'all' | 'installed' | 'not-installed';
 export type SortOption = 'updated' | 'name' | 'version';
 export type HarnessFilter = 'all' | Harness;
-export type SourceFilter = 'all' | 'registry' | 'local';
+export type SourceFilter = 'all' | 'registry' | 'local' | 'custom';
+export type InstalledTab = 'resources' | 'folders';
+export type InstalledGroup = 'all' | 'attention' | 'managed' | 'unmanaged';
 
 export const LOCAL_STATE_LABELS = {
   managed: 'Managed',
@@ -86,5 +88,9 @@ export function parseHarnessFilter(value: string): HarnessFilter {
 }
 
 export function parseSourceFilter(value: string): SourceFilter {
-  return value === 'registry' || value === 'local' ? value : 'all';
+  return value === 'registry' || value === 'local' || value === 'custom' ? value : 'all';
+}
+
+export function parseInstalledGroup(value: string): InstalledGroup {
+  return value === 'attention' || value === 'managed' || value === 'unmanaged' ? value : 'all';
 }

@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import { api } from '../../lib/api';
-import type { Harness, HarnessManagerStatus, InstallScope, LocalResource } from '../../lib/types';
+import type { Harness, HarnessManagerStatus, InstallScope, LocalResource, ResourceDirectory } from '../../lib/types';
 import type { SheetName } from './model';
 
 export type BatchEntry = {
@@ -14,6 +14,9 @@ export type DirectoryContextValue = {
   localError: string | undefined;
   localRegistryError: string | undefined;
   homeDirectory: string | undefined;
+  resourceDirectories: ResourceDirectory[];
+  resourceDirectoriesError: string | undefined;
+  resourceDirectoriesLoading: boolean;
   localLoading: boolean;
   harnessDetection: HarnessManagerStatus[] | undefined;
   harnesses: Harness[];

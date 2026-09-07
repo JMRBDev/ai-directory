@@ -4,10 +4,18 @@ import type {
   InstallScope,
   LocalResourcesResponse,
   RegistryResponse,
+  ResourceDirectoriesResponse,
   ResourceResponse,
   Installation,
   Harness,
 } from './types';
+
+export type ResourceDirectoryInput = {
+  path: string;
+  harness?: Harness;
+  type?: 'auto' | 'skills' | 'agents' | 'rules' | 'plugins' | 'tools';
+  scope?: InstallScope;
+};
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type JsonRequestBody = { [key: string]: JsonValue };
@@ -17,6 +25,7 @@ export const API_PATHS = {
   resource: '/api/registry/resource',
   installed: '/api/installed',
   localResources: '/api/local-resources',
+  resourceDirectories: '/api/resource-directories',
   harnesses: '/api/harnesses',
   config: '/api/config',
   refresh: '/api/refresh',
@@ -50,6 +59,12 @@ export type InstallRequest = {
 };
 
 export const api = {
+  resourceDirectories: () => request<ResourceDirectoriesResponse>(API_PATHS.resourceDirectories),
+  resourceDirectoryAdd: (body: ResourceDirectoryInput) => jsonRequest<ResourceDirectoriesResponse>(API_PATHS.resourceDirectories, body),
+  resourceDirectoryRemove: (path: string, scope?: string) => request<ResourceDirectoriesResponse>(
+    `${API_PATHS.resourceDirectories}?path=${encodeURIComponent(path)}${scope ? `&scope=${encodeURIComponent(scope)}` : ''}`,
+    { method: 'DELETE' },
+  ),
   registry: () => request<RegistryResponse>(API_PATHS.registry),
   resource: (owner: string, type: string, name: string) => request<ResourceResponse>(
     `${API_PATHS.resource}/${encodeURIComponent(owner)}/${encodeURIComponent(type)}/${encodeURIComponent(name)}`,

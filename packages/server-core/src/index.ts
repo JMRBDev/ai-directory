@@ -18,3 +18,4 @@ export { changeOptions } from './planning.js';
 export type { RegistryApiResponse } from './planning.js';
 export { parseResourceRequest, requestError } from './requests.js';
 export type { ResourceRequestData } from './requests.js';
+export { pruneMissingResourceDirectories } from './routes/library.js';

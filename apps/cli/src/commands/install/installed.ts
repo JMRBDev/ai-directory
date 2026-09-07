@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
-import { discoverLocalResources, enrichLocalResources } from '@ai-directory/installers';
+import { normalizeResourceDirectoryPath, readResourceDirectories } from '@ai-directory/config';
+import { discoverLocalResources, enrichLocalResources, type ExtraResourceDirectory } from '@ai-directory/installers';
 import { localResourceFromMcpRecord, readInstallationRecords } from '@ai-directory/server-core';
 import { readRegistrySourceIndex } from '@ai-directory/registry';
 import { getRegistrySource, reportError } from '../../helpers';
@@ -19,7 +20,15 @@ export const installed = defineCommand({
     try {
       const records = (await readInstallationRecords())
         .sort((left, right) => left.resource.localeCompare(right.resource));
-      let resources = await discoverLocalResources({ records });
+      const resourceDirectories: ExtraResourceDirectory[] = readResourceDirectories().map((entry) => {
+        const directory: ExtraResourceDirectory = {
+          path: normalizeResourceDirectoryPath(entry.path),
+        };
+        if (entry.harness) directory.harness = entry.harness;
+        if (entry.type) directory.type = entry.type;
+        return directory;
+      });
+      let resources = await discoverLocalResources({ records, resourceDirectories });
       const mcpResources = records
         .filter((record) => record.kind === 'mcp')
         .map(localResourceFromMcpRecord);
