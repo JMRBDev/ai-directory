@@ -73,7 +73,7 @@ export function LocalResourceRow({ itemKey, resource, busy, onInstall, onUninsta
 
   return (
     <AccordionItem value={itemKey} className="px-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <AccordionTrigger className="min-w-0 flex-1 px-0 py-3 hover:no-underline">
           <span className="flex min-w-0 flex-1 items-start gap-2 text-left">
             <span className={cn('mt-1.5 size-1.5 shrink-0 rounded-full', dotClass[status.tone])} aria-hidden />
@@ -89,13 +89,23 @@ export function LocalResourceRow({ itemKey, resource, busy, onInstall, onUninsta
                 {resource.version ? ` · v${resource.version}` : ''}
                 {outdated ? ` → v${resource.latestVersion}` : ''}
                 {resource.scope ? ` · ${resource.scope}` : ''}
-                {resource.source === 'custom' ? ' · Custom' : ''}
+                {resource.source === 'custom' ? ' · Custom folder' : ''}
               </span>
             </span>
           </span>
         </AccordionTrigger>
         {actionable && (
-          <Button size="sm" className="shrink-0" onClick={onInstall} disabled={busy}>
+          <Button
+            size="sm"
+            className="shrink-0"
+            onClick={(event) => {
+              // The row action is not part of the accordion toggle; keep
+              // the panel closed when installing or updating from the list.
+              event.stopPropagation();
+              onInstall();
+            }}
+            disabled={busy}
+          >
             {busy ? 'Working…' : installLabel}
           </Button>
         )}
@@ -117,7 +127,9 @@ export function LocalResourceRow({ itemKey, resource, busy, onInstall, onUninsta
           </div>
           <p className="text-[11px] text-muted-foreground">
             {resource.scope ? `Scope ${resource.scope} · ` : ''}
-            {resource.sourcePath ? `Folder ${shortenHomePath(resource.sourcePath, homeDirectory)}` : 'Harness folder'}
+            {resource.sourcePath
+              ? `Custom folder ${shortenHomePath(resource.sourcePath, homeDirectory)} · usable by any harness that understands this type`
+              : 'Harness folder'}
           </p>
           {fileCount > 0 && (
             <ul className="flex flex-col gap-1 border-t pt-2">

@@ -88,8 +88,6 @@ export type LocalResourcesResponse = {
 
 export type ResourceDirectory = {
   path: string;
-  harness?: Harness;
-  type?: 'auto' | 'skills' | 'agents' | 'rules' | 'plugins' | 'tools';
   scope: 'user' | 'project';
 };
 

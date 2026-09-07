@@ -19,14 +19,9 @@ export const installed = defineCommand({
     try {
       const records = (await readInstallationRecords())
         .sort((left, right) => left.resource.localeCompare(right.resource));
-      const resourceDirectories: ExtraResourceDirectory[] = readResourceDirectories().map((entry) => {
-        const directory: ExtraResourceDirectory = {
-          path: normalizeResourceDirectoryPath(entry.path),
-        };
-        if (entry.harness) directory.harness = entry.harness;
-        if (entry.type) directory.type = entry.type;
-        return directory;
-      });
+      const resourceDirectories: ExtraResourceDirectory[] = readResourceDirectories().map((entry) => ({
+        path: normalizeResourceDirectoryPath(entry.path),
+      }));
       let resources = await discoverLocalResources({ records, resourceDirectories });
       const mcpResources = records
         .filter((record) => record.kind === 'mcp')
@@ -56,8 +51,9 @@ export const installed = defineCommand({
       for (const resource of resources) {
         const id = resource.resource ?? `local/${resource.type}/${resource.name}`;
         const version = resource.version ? `v${resource.version}` : '-';
+        const origin = resource.source === 'custom' ? `custom:${resource.sourcePath ?? ''}` : 'harness';
         console.log(
-          `${id}\t${resource.state}\t${resource.registryState}\t${resource.harness}\t${version}\t${resource.path}`,
+          `${id}\t${resource.state}\t${resource.registryState}\t${resource.harness}\t${version}\t${resource.path}\t${origin}`,
         );
       }
     } catch (error) {

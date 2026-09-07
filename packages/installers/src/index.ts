@@ -19,7 +19,7 @@ export { detectHarnesses, getHarnessDefinition, resolveHarnessPaths } from './ha
 export type { Harness, HarnessDetection } from './harnesses.js';
 
 export { discoverLocalResources, enrichLocalResources } from './discovery.js';
-export type { ExtraResourceDirectory, ExtraResourceDirectoryType, LocalResource, LocalResourceSource, ResourceDiscoveryOptions } from './discovery.js';
+export type { ExtraResourceDirectory, LocalResource, LocalResourceSource, ResourceDiscoveryOptions } from './discovery.js';
 
 export type {
   PlannedResourceChange,

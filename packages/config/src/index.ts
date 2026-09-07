@@ -12,18 +12,18 @@ export const DEFAULT_API_PORT = 4317;
 export const harnessSchema = z.enum(['claude-code', 'opencode', 'codex']);
 export type ConfigHarness = z.infer<typeof harnessSchema>;
 
-export const resourceDirectoryTypeSchema = z.enum(['auto', 'skills', 'agents', 'rules', 'plugins', 'tools']);
-export type ResourceDirectoryType = z.infer<typeof resourceDirectoryTypeSchema>;
-
+// Custom directories are path-only. Older configs may still carry harness
+// and type keys; zod strips unknown keys on parse, so they load cleanly.
 const resourceDirectorySchema = z.object({
   path: z.string().trim().min(1),
-  harness: harnessSchema.optional(),
-  type: resourceDirectoryTypeSchema.optional(),
 });
 
 export type ResourceDirectoryEntry = z.infer<typeof resourceDirectorySchema>;
 export type ResourceDirectoryScope = ConfigScope;
-export type StoredResourceDirectory = ResourceDirectoryEntry & { scope: ConfigScope };
+export type StoredResourceDirectory = {
+  path: string;
+  scope: ConfigScope;
+};
 
 const registryEntrySchema = z.object({
   id: z.string().trim().min(1).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Registry id must be a lowercase slug.'),
@@ -164,6 +164,17 @@ export function isMissingPathError(cause: unknown): boolean {
   if (!(cause instanceof Object)) return false;
   if ('code' in cause && cause.code === 'ENOENT') return true;
   if ('cause' in cause) return isMissingPathError(cause.cause);
+
+  return false;
+}
+
+// Permission-gated folders (macOS Desktop, Documents, Downloads without
+// Full Disk Access) throw EPERM/EACCES on scandir. Callers that scan
+// opportunistically should treat these like a missing folder: skip it.
+export function isUnreadablePathError(cause: unknown): boolean {
+  if (!(cause instanceof Object)) return false;
+  if ('code' in cause && (cause.code === 'EPERM' || cause.code === 'EACCES')) return true;
+  if ('cause' in cause) return isUnreadablePathError(cause.cause);
 
   return false;
 }
@@ -342,6 +353,17 @@ export function normalizeResourceDirectoryPath(path: string, homeDirectory?: str
   return resolve(trimmed);
 }
 
+export function shortenHomePath(path: string, homeDir?: string): string {
+  if (!homeDir) return path;
+  const prefix = homeDir.replace(/\/+$/u, '') + '/';
+  if (path === homeDir.replace(/\/+$/u, '')) return '~';
+  return path.startsWith(prefix) ? `~/${path.slice(prefix.length)}` : path;
+}
+
+export function expandHomePath(path: string, homeDir?: string): string {
+  return normalizeResourceDirectoryPath(path, homeDir);
+}
+
 export function readResourceDirectories(cwd = process.cwd()): StoredResourceDirectory[] {
   const userDirectories = readConfigFile(getConfigPath('user', cwd)).resourceDirectories ?? [];
   const projectDirectories = readConfigFile(getConfigPath('project', cwd)).resourceDirectories ?? [];
@@ -349,13 +371,18 @@ export function readResourceDirectories(cwd = process.cwd()): StoredResourceDire
   const merged: StoredResourceDirectory[] = [];
 
   for (const entry of [
-    ...projectDirectories.map((item) => ({ ...item, scope: 'project' as const })),
-    ...userDirectories.map((item) => ({ ...item, scope: 'user' as const })),
+    ...projectDirectories.map((item) => ({ path: (item as { path: string }).path, scope: 'project' as const })),
+    ...userDirectories.map((item) => ({ path: (item as { path: string }).path, scope: 'user' as const })),
   ]) {
-    const key = `${normalizeResourceDirectoryPath(entry.path)}::${entry.harness ?? ''}::${entry.type ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(entry);
+    let normalized: string;
+    try {
+      normalized = normalizeResourceDirectoryPath(entry.path);
+    } catch {
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    merged.push({ path: normalized, scope: entry.scope });
   }
 
   return merged;
@@ -370,17 +397,11 @@ export async function addResourceDirectory(
   const current = readConfigFile(configPath);
   const normalized = normalizeResourceDirectoryPath(entry.path);
   const directories = [...(current.resourceDirectories ?? [])];
-  const exists = directories.some((candidate) =>
-    normalizeResourceDirectoryPath(candidate.path) === normalized
-    && (candidate.harness ?? '') === (entry.harness ?? '')
-    && (candidate.type ?? '') === (entry.type ?? ''),
-  );
-  if (exists) throw new Error(`Resource directory is already configured: ${normalized}.`);
+  if (directories.some((candidate) => candidate.path === normalized)) {
+    throw new Error(`Resource directory is already configured: ${normalized}.`);
+  }
 
-  const stored: ResourceDirectoryEntry = { path: normalized };
-  if (entry.harness !== undefined) stored.harness = entry.harness;
-  if (entry.type !== undefined) stored.type = entry.type;
-  directories.push(stored);
+  directories.push({ path: normalized });
   await writeConfigFile(configPath, { ...current, resourceDirectories: directories });
 
   return { path: configPath, directories };
@@ -413,6 +434,7 @@ export async function removeResourceDirectory(
   return { removed: removedScopes.length > 0, scopes: removedScopes };
 }
 
-export const resourceDirectoryRequestSchema = resourceDirectorySchema.extend({
+export const resourceDirectoryRequestSchema = z.object({
+  path: z.string().trim().min(1),
   scope: z.enum(['user', 'project']).optional(),
 });
