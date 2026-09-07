@@ -17,6 +17,7 @@ export interface ResourceOperation {
   resourceIds?: string[];
   pack?: ResourcePackOperation;
   warningResources?: ResourceVersion[];
+  registry?: string;
 }
 
 export type ResourcePackEntry = {

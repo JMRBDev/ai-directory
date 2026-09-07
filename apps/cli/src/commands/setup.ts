@@ -1,10 +1,9 @@
 import { cancel, intro, isCancel, outro, select, spinner, text, type TextOptions } from '@clack/prompts';
 import { defineCommand } from 'citty';
 import {
-  getConfigPath,
-  getRepositorySetting,
-  readConfigFile,
-  writeConfigFile,
+  addRegistryEntry,
+  normalizeRegistryId,
+  readRegistryEntries,
   type ConfigScope,
 } from '@ai-directory/config';
 import { readRemoteRegistryIndex } from '@ai-directory/registry';
@@ -19,6 +18,14 @@ export const setup = defineCommand({
     repository: {
       type: 'string',
       description: 'Registry Git URL; skips the repository prompt',
+    },
+    id: {
+      type: 'string',
+      description: 'Registry id, for example company; defaults to default',
+    },
+    branch: {
+      type: 'string',
+      description: 'Registry branch; defaults to main',
     },
     scope: {
       type: 'enum',
@@ -36,12 +43,13 @@ export const setup = defineCommand({
   },
   async run({ args }) {
     const nonInteractive = args['non-interactive'] ?? !isInteractiveTerminal();
-    const existing = getRepositorySetting();
+    const existing = readRegistryEntries()[0];
 
     try {
       if (!nonInteractive) intro('AI Directory setup');
 
-      let repository = args.repository?.trim() || existing.value;
+      let repository = args.repository?.trim() || existing?.url;
+      let registryId = args.id?.trim() || existing?.id || 'default';
 
       if (!args.repository && !nonInteractive) {
         const options: TextOptions = {
@@ -51,7 +59,7 @@ export const setup = defineCommand({
             if (!value?.trim()) return 'A registry Git URL is required.';
           },
         };
-        if (existing.value) options.initialValue = existing.value;
+        if (existing?.url) options.initialValue = existing.url;
 
         const answer = await text(options);
 
@@ -63,11 +71,33 @@ export const setup = defineCommand({
         repository = answer.trim();
       }
 
+      if (!args.id && !nonInteractive) {
+        const answer = await text({
+          message: 'What id should this registry use?',
+          placeholder: 'company',
+          initialValue: registryId,
+          validate(value) {
+            if (!value?.trim()) return 'A registry id is required.';
+            try {
+              normalizeRegistryId(value);
+            } catch {
+              return 'Use a lowercase slug, for example company.';
+            }
+          },
+        });
+        if (isCancel(answer)) {
+          cancel('Setup cancelled.');
+          return;
+        }
+        registryId = answer.trim();
+      }
+
       if (!repository) {
         throw new Error(
           'No registry repository configured. Pass --repository or run setup interactively.',
         );
       }
+      registryId = normalizeRegistryId(registryId);
 
       let scope: ConfigScope;
 
@@ -112,14 +142,14 @@ export const setup = defineCommand({
         }
       }
 
-      const path = getConfigPath(scope);
-      const current = readConfigFile(path);
-      await writeConfigFile(path, { ...current, repository });
+      const branch = args.branch?.trim() || undefined;
+      const entry = branch ? { id: registryId, url: repository, branch } : { id: registryId, url: repository };
+      const { path } = await addRegistryEntry(entry, scope);
 
       if (!nonInteractive) {
-        outro(`Saved the registry repository in the ${scope} config.`);
+        outro(`Saved registry ${registryId} in the ${scope} config.`);
       } else {
-        console.log(`Saved the registry repository in the ${scope} config: ${path}`);
+        console.log(`Saved registry ${registryId} in the ${scope} config: ${path}`);
       }
     } catch (error) {
       reportError(error);

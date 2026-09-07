@@ -32,7 +32,9 @@ export function BatchSheet({ open, onOpenChange }: { open: boolean; onOpenChange
   const installedIds = new Set(installations.map((item) => item.resource));
   const pending = selection.flatMap((entry) => {
     const resource = resources.find((candidate) => resourceKey(candidate) === entry.id);
-    return resource !== undefined && !installedIds.has(entry.id) ? [{ resource, harnesses: entry.harnesses }] : [];
+    return resource !== undefined && !installedIds.has(entry.id)
+      ? [{ resource, harnesses: entry.harnesses, registry: entry.registry }]
+      : [];
   });
   const [copied, setCopied] = useState(false);
   const undetected = harnessDetection?.filter((item) => !item.detected).map((item) => item.harness);
@@ -45,11 +47,11 @@ export function BatchSheet({ open, onOpenChange }: { open: boolean; onOpenChange
     // exactly which resource failed. Already-applied resources stay applied.
     mutationFn: async () => {
       const installed: string[] = [];
-      for (const { resource, harnesses } of pending) {
+      for (const { resource, harnesses, registry } of pending) {
         const id = resourceKey(resource);
         await api.install(resource.type === 'mcp-servers'
-          ? { resource: id, harnesses, scope }
-          : { resource: id, harnesses });
+          ? { resource: id, harnesses, scope, ...(registry ? { registry } : {}) }
+          : { resource: id, harnesses, ...(registry ? { registry } : {}) });
         installed.push(id);
       }
       return installed;
@@ -135,7 +137,7 @@ export function BatchSheet({ open, onOpenChange }: { open: boolean; onOpenChange
         ) : pending.length > 0 ? (
           <Card className="gap-0 py-0">
             <ul className="divide-y px-4">
-              {pending.map(({ resource, harnesses }) => {
+              {pending.map(({ resource, harnesses, registry }) => {
                 const id = resourceKey(resource);
                 return (
                   <li key={id} className="flex flex-col gap-2 py-3">
@@ -147,7 +149,7 @@ export function BatchSheet({ open, onOpenChange }: { open: boolean; onOpenChange
                       />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{resource.name}</p>
-                        <p className="truncate font-mono text-xs text-muted-foreground">{id}</p>
+                        <p className="truncate font-mono text-xs text-muted-foreground">{id}{registry ? ` · ${registry}` : ''}</p>
                       </div>
                       <p className="shrink-0 text-xs text-muted-foreground tabular-nums">v{resource.latestVersion}</p>
                     </div>
@@ -181,21 +183,21 @@ export function BatchSheet({ open, onOpenChange }: { open: boolean; onOpenChange
 // The web installs sequentially and fails fast, so the preview mirrors that:
 // `aid install <skill> --harness codex && aid install <rule> --harness opencode`.
 function batchCommand(
-  pending: Array<{ resource: Parameters<typeof resourceKey>[0]; harnesses: Harness[] }>,
+  pending: Array<{ resource: Parameters<typeof resourceKey>[0]; harnesses: Harness[]; registry?: string | undefined }>,
   scope: InstallScope | undefined,
 ): string {
-  const groups = new Map<string, { resources: string[]; harnesses: string[]; hasServer: boolean }>();
-  for (const { resource, harnesses } of pending) {
+  const groups = new Map<string, { resources: string[]; harnesses: string[]; hasServer: boolean; registry?: string | undefined }>();
+  for (const { resource, harnesses, registry } of pending) {
     const harnessList = [...harnesses].map(String).sort();
-    const key = harnessList.join(',');
-    const group = groups.get(key) ?? { resources: [], harnesses: harnessList, hasServer: false };
+    const key = `${harnessList.join(',')}\0${registry ?? ''}`;
+    const group = groups.get(key) ?? { resources: [], harnesses: harnessList, hasServer: false, ...(registry ? { registry } : {}) };
     group.resources.push(resourceKey(resource));
     if (resource.type === 'mcp-servers') group.hasServer = true;
     groups.set(key, group);
   }
   return [...groups.values()]
     .map((group) =>
-      `aid install ${group.resources.join(' ')}${group.harnesses.map((item) => ` --harness ${item}`).join('')}${group.hasServer && scope ? ` --scope ${scope}` : ''}`,
+      `aid install ${group.resources.join(' ')}${group.harnesses.map((item) => ` --harness ${item}`).join('')}${group.registry ? ` --registry ${group.registry}` : ''}${group.hasServer && scope ? ` --scope ${scope}` : ''}`,
     )
     .join(' && ');
 }

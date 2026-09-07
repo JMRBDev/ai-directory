@@ -1,9 +1,10 @@
 import { resolve } from 'node:path';
 import { Hono } from 'hono';
-import { registrySource } from './environment.js';
+import { registryEndpoints } from './environment.js';
 import { cachedRegistry } from './planning.js';
 import { registerChangeRoutes } from './routes/changes.js';
 import { registerLibraryRoutes } from './routes/library.js';
+import { registerRegistryManagementRoutes } from './routes/registries.js';
 import { registerRegistryRoutes } from './routes/registry.js';
 import { registerSystemRoutes } from './routes/system.js';
 import type { ServerOptions } from './types.js';
@@ -16,14 +17,15 @@ export function createApp(options: ServerOptions = {}) {
   const cwd = resolve(options.cwd ?? process.cwd());
 
   if (options.prewarm) {
-    let source;
     try {
-      source = registrySource(options, cwd);
+      const endpoints = registryEndpoints(options, cwd);
+      for (const endpoint of endpoints) {
+        void cachedRegistry.get(endpoint.source).catch(() => undefined);
+      }
     } catch {
       // No registry source is configured yet; the server still starts so the
       // website can guide setup. Registry reads resolve per request.
     }
-    if (source) void cachedRegistry.get(source).catch(() => undefined);
   }
 
   app.get('/health', (context) => context.json({ ok: true, version: options.version ?? null }));
@@ -31,6 +33,7 @@ export function createApp(options: ServerOptions = {}) {
   const context = { app, options, cwd };
   registerSystemRoutes(context);
   registerRegistryRoutes(context);
+  registerRegistryManagementRoutes(context);
   registerLibraryRoutes(context);
   registerChangeRoutes(context);
 

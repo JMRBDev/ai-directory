@@ -1,4 +1,8 @@
 export type {
+  AggregatedRegistryIdentity,
+  AggregatedRegistryResult,
+  AggregatedResourceEntry,
+  AggregatedResourceSummary,
   CachedRegistry,
   CommandResult,
   CommandRunner,
@@ -24,6 +28,7 @@ export {
   readRemoteResource,
 } from './snapshot.js';
 export {
+  aggregateRegistrySources,
   createCachedRegistry,
   isResourceVersionOutdated,
   readRegistrySourceIndex,

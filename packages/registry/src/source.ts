@@ -1,5 +1,5 @@
 import { gt as isGreaterVersion, valid as isValidVersion } from 'semver';
-import type { RegistryIndex } from '@ai-directory/contracts';
+import { resourceKey, type RegistryIndex } from '@ai-directory/contracts';
 import {
   createRegistrySnapshot,
   readRemoteRegistryIndex,
@@ -7,6 +7,9 @@ import {
 } from './snapshot.js';
 import { readRegistryIndex, readResourceVersion, readTemplateResources } from './index-file.js';
 import type {
+  AggregatedRegistryIdentity,
+  AggregatedRegistryResult,
+  AggregatedResourceEntry,
   CachedRegistry,
   RegistrySnapshot,
   RegistrySource,
@@ -129,4 +132,46 @@ export function validateRegistrySource(source: RegistrySource): Promise<Registry
         repositoryUrl: source.repositoryUrl,
         baseBranch: source.baseBranch,
       });
+}
+
+export async function aggregateRegistrySources(
+  sources: Array<{ source: RegistrySource; registry: AggregatedRegistryIdentity }>,
+): Promise<AggregatedRegistryResult> {
+  const registries = sources.map((entry) => entry.registry);
+  const entriesById = new Map<string, AggregatedResourceEntry>();
+  const errors: AggregatedRegistryResult['errors'] = [];
+
+  for (const entry of sources) {
+    try {
+      const index = await readRegistrySourceIndex(entry.source);
+      for (const summary of index.resources) {
+        const id = resourceKey(summary);
+        const candidate = { summary, registry: entry.registry };
+        const existing = entriesById.get(id);
+        if (!existing) {
+          entriesById.set(id, {
+            resource: id,
+            type: summary.type,
+            entries: [candidate],
+            primary: candidate,
+          });
+          continue;
+        }
+        existing.entries.push(candidate);
+      }
+    } catch (error) {
+      errors.push({
+        registry: entry.registry,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Priority wins: the first source that carries an id owns display and
+  // default install. Version never overrides priority.
+  const entries = [...entriesById.values()].sort((left, right) =>
+    left.resource.localeCompare(right.resource),
+  );
+
+  return { entries, registries, errors };
 }

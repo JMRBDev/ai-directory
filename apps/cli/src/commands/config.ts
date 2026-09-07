@@ -1,21 +1,25 @@
 import { defineCommand } from 'citty';
 import {
+  addRegistryEntry,
   addResourceDirectory,
   clearConfigFile,
   getConfigPath,
   getRepositorySetting,
+  normalizeRegistryId,
   normalizeResourceDirectoryPath,
   pathExists,
   readConfigFile,
+  readRegistryEntries,
   readResourceDirectories,
+  removeRegistryEntry,
   removeResourceDirectory,
   writeConfigFile,
   type ConfigScope,
 } from '@ai-directory/config';
 
 function assertRepositoryKey(key: string): void {
-  if (key !== 'repository' && key !== 'resource-directories') {
-    throw new Error('Unknown config key: repository and resource-directories are supported.');
+  if (key !== 'repository' && key !== 'resource-directories' && key !== 'registries' && key !== 'registry') {
+    throw new Error('Unknown config key: repository, registries, and resource-directories are supported.');
   }
 }
 
@@ -27,7 +31,9 @@ export const configList = defineCommand({
   run() {
     console.log('Available configuration options:');
     console.log('\nrepository');
-    console.log('  Git URL of the production resource registry.');
+    console.log('  Git URL of the first registry (legacy alias for registries).');
+    console.log('\nregistries');
+    console.log('  Ordered registry list: id, url, branch, scope.');
     console.log('\nresource-directories');
     console.log('  Extra folders scanned for skills, rules, agents, plugins, and tools.');
     console.log('\nUse `aid config get <key>` to inspect the effective value.');
@@ -43,7 +49,7 @@ export const configGet = defineCommand({
     key: {
       type: 'positional',
       required: true,
-      description: 'Configuration key: repository, resource-directories',
+      description: 'Configuration key: repository, registries, resource-directories',
     },
     scope: {
       type: 'enum',
@@ -53,6 +59,14 @@ export const configGet = defineCommand({
   },
   run({ args }) {
     assertRepositoryKey(args.key);
+
+    if (args.key === 'registries' || args.key === 'registry') {
+      const entries = readRegistryEntries().filter((entry) =>
+        !args.scope || entry.scope === (args.scope as ConfigScope),
+      );
+      console.log(entries.length > 0 ? JSON.stringify(entries, null, 2) : 'No registries configured.');
+      return;
+    }
 
     if (args.key === 'resource-directories') {
       const directories = readResourceDirectories();
@@ -89,12 +103,20 @@ export const configSet = defineCommand({
     key: {
       type: 'positional',
       required: true,
-      description: 'Configuration key: repository, resource-directories',
+      description: 'Configuration key: repository, registries, resource-directories',
     },
     value: {
       type: 'positional',
       required: true,
-      description: 'Repository Git URL or resource directory path',
+      description: 'Repository Git URL, registry URL, or resource directory path',
+    },
+    id: {
+      type: 'string',
+      description: 'Registry id for registries, for example company',
+    },
+    branch: {
+      type: 'string',
+      description: 'Registry branch for registries; defaults to main',
     },
     scope: {
       type: 'enum',
@@ -108,6 +130,16 @@ export const configSet = defineCommand({
 
     // SAFETY: citty validates enum args against the ['user', 'project'] options.
     const scope = args.scope as ConfigScope;
+    if (args.key === 'registries' || args.key === 'registry') {
+      const url = args.value.trim();
+      if (!url) throw new Error('Registry URL cannot be empty.');
+      const id = normalizeRegistryId(typeof args.id === 'string' && args.id.trim() ? args.id : 'default');
+      const branch = typeof args.branch === 'string' && args.branch.trim() ? args.branch.trim() : undefined;
+      const entry = branch ? { id, url, branch } : { id, url };
+      const { path } = await addRegistryEntry(entry, scope);
+      console.log(`Saved registry ${id} in the ${scope} config: ${path}`);
+      return;
+    }
     if (args.key === 'resource-directories') {
       const normalized = normalizeResourceDirectoryPath(args.value.trim());
       if (!(await pathExists(normalized))) {
@@ -138,12 +170,12 @@ export const configClear = defineCommand({
     key: {
       type: 'positional',
       required: true,
-      description: 'Configuration key: repository, resource-directories',
+      description: 'Configuration key: repository, registries, resource-directories',
     },
     value: {
       type: 'positional',
       required: false,
-      description: 'Resource directory path (required for resource-directories)',
+      description: 'Registry id, directory path, or empty for repository',
     },
     scope: {
       type: 'enum',
@@ -157,6 +189,14 @@ export const configClear = defineCommand({
 
     // SAFETY: citty validates enum args against the ['user', 'project'] options.
     const scope = args.scope as ConfigScope;
+    if (args.key === 'registries' || args.key === 'registry') {
+      const value = typeof args.value === 'string' ? args.value.trim() : '';
+      if (!value) throw new Error('Pass the registry id to remove.');
+      const result = await removeRegistryEntry(normalizeRegistryId(value), scope);
+      if (!result.removed) throw new Error(`Registry is not configured: ${value}.`);
+      console.log(`Removed registry ${value} from the ${scope} config.`);
+      return;
+    }
     if (args.key === 'resource-directories') {
       const value = typeof args.value === 'string' ? args.value.trim() : '';
       if (!value) throw new Error('Pass the directory path to remove.');

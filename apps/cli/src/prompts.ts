@@ -62,14 +62,20 @@ export async function promptResources(source: RegistrySource): Promise<string[] 
 
   if (resources.length === 0) throw new Error('The registry has no active resources.');
 
+  const { aggregatedRegistries } = await import('./helpers.js');
+  const aggregated = await aggregatedRegistries().catch(() => undefined);
   const answer = await autocompleteMultiselect({
     message: 'Which resources do you want to use?',
     placeholder: 'Type to search by name, owner, or description',
-    options: resources.map((resource) => ({
-      value: resourceKey(resource),
-      label: resourceKey(resource),
-      hint: `${resource.description} · ${resource.reviewStatus}`,
-    })),
+    options: resources.map((resource) => {
+      const id = resourceKey(resource);
+      const sources = aggregated?.entries.find((entry) => entry.resource === id)?.entries ?? [];
+      return {
+        value: id,
+        label: id,
+        hint: `${resource.description} · ${resource.reviewStatus}${sources.length > 1 ? ` · ${sources.length} registries` : ''}`,
+      };
+    }),
     required: true,
   });
 

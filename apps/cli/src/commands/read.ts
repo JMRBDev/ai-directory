@@ -5,7 +5,14 @@ import {
   readRegistrySourceResource,
   validateRegistrySource,
 } from '@ai-directory/registry';
-import { getRegistrySource, isInteractiveTerminal, reportError } from '../helpers';
+import {
+  aggregatedRegistries,
+  getRegistryEndpoint,
+  getRegistrySource,
+  isInteractiveTerminal,
+  reportError,
+  splitRegistrySuffix,
+} from '../helpers';
 import { promptResource } from '../prompts';
 
 export const list = defineCommand({
@@ -22,6 +29,10 @@ export const list = defineCommand({
     repository: {
       type: 'string',
       description: 'Git repository URL; uses a temporary sparse checkout',
+    },
+    registry: {
+      type: 'string',
+      description: 'Registry id; defaults to the merged catalog',
     },
     type: {
       type: 'enum',
@@ -40,27 +51,39 @@ export const list = defineCommand({
   },
   async run({ args }) {
     try {
-      const source = getRegistrySource(args.index, args.repository);
-      const index = await readRegistrySourceIndex(source);
-      const resources = index.resources
-        .filter((resource) => !args.type || resource.type === args.type)
-        .filter((resource) => args['include-retired'] || resource.lifecycleStatus === 'active')
-        .sort((left, right) => resourceKey(left).localeCompare(resourceKey(right)));
+      const aggregated = await aggregatedRegistries().catch(() => undefined);
+      const byId = new Map((aggregated?.entries ?? []).map((entry) => [entry.resource, entry]));
+      const resources = args.registry?.trim() || args.index?.trim() || args.repository?.trim()
+        ? (await readRegistrySourceIndex(getRegistrySource(args.index, args.repository, undefined, args.registry))).resources
+          .filter((resource) => !args.type || resource.type === args.type)
+          .filter((resource) => args['include-retired'] || resource.lifecycleStatus === 'active')
+          .sort((left, right) => resourceKey(left).localeCompare(resourceKey(right)))
+        : (aggregated?.entries ?? [])
+          .map((entry) => entry.primary.summary)
+          .filter((resource) => !args.type || resource.type === args.type)
+          .filter((resource) => args['include-retired'] || resource.lifecycleStatus === 'active')
+          .sort((left, right) => resourceKey(left).localeCompare(resourceKey(right)));
+      const withSources = resources.map((resource) => {
+        const id = resourceKey(resource);
+        const count = byId.get(id)?.entries.length ?? 1;
+        return { resource, sources: count };
+      });
 
       if (args.json) {
-        console.log(JSON.stringify(resources, null, 2));
+        console.log(JSON.stringify(withSources, null, 2));
         return;
       }
 
-      if (resources.length === 0) {
+      if (withSources.length === 0) {
         console.log('No resources found.');
         return;
       }
 
-      for (const resource of resources) {
+      for (const { resource, sources } of withSources) {
         const status = resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed';
+        const extra = sources > 1 ? `\t+${sources - 1} more` : '';
         console.log(
-          `${resourceKey(resource)}\t${resource.latestVersion}\t${status}\t${resource.description}`,
+          `${resourceKey(resource)}\t${resource.latestVersion}\t${status}\t${resource.description}${extra}`,
         );
       }
     } catch (error) {
@@ -94,10 +117,14 @@ export const show = defineCommand({
       type: 'string',
       description: 'Git repository URL; uses a temporary sparse checkout',
     },
+    registry: {
+      type: 'string',
+      description: 'Registry id; defaults to the highest-priority registry',
+    },
     base: {
       type: 'string',
       default: 'main',
-      description: 'Production branch to read from',
+      description: 'Production branch to show',
     },
     json: {
       type: 'boolean',
@@ -106,8 +133,13 @@ export const show = defineCommand({
   },
   async run({ args }) {
     try {
-      const source = getRegistrySource(args.index, args.repository, args.base);
-      const resource = args.resource.trim() || (
+      const { id: requestedId, registry: suffixRegistry } = splitRegistrySuffix(args.resource.trim());
+      const registryId = args.registry?.trim() || suffixRegistry;
+      const endpoint = registryId
+        ? getRegistryEndpoint(registryId)
+        : { id: 'merged', source: getRegistrySource(args.index, args.repository, args.base) };
+      const source = endpoint.source;
+      const resource = requestedId || (
         isInteractiveTerminal() ? await promptResource(source) : undefined
       );
       if (!resource) throw new Error('Resource ID is required. Run `aid show <resource>` in a script.');
@@ -122,8 +154,14 @@ export const show = defineCommand({
 
       const review = result.resource.reviewStatus === 'reviewed' ? 'Reviewed' : 'Unreviewed';
       const lifecycle = result.resource.lifecycleStatus === 'active' ? 'Active' : 'Retired';
+      const aggregated = await aggregatedRegistries().catch(() => undefined);
+      const sameId = aggregated?.entries.find((entry) => entry.resource === resourceKey(result.resource));
 
       console.log(`${resourceKey(result.resource)}@${result.version}`);
+      if (endpoint.id !== 'merged') console.log(`Registry: ${endpoint.id}`);
+      if (sameId && sameId.entries.length > 1) {
+        console.log(`Also in: ${sameId.entries.map((entry) => `${entry.registry.id} v${entry.summary.latestVersion}`).join(', ')}`);
+      }
       console.log(`Description: ${result.resource.description}`);
       console.log(`Status: ${review}, ${lifecycle}`);
 
@@ -164,7 +202,8 @@ export const check = defineCommand({
   },
   async run({ args }) {
     try {
-      const source = getRegistrySource(args.index, args.repository, args.base);
+      const registryArg = (args as { registry?: string }).registry;
+      const source = getRegistrySource(args.index, args.repository, args.base, registryArg);
       const result = await validateRegistrySource(source);
 
       if (result.issues.length > 0) {

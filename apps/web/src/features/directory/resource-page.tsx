@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useParams, useSearch } from '@tanstack/react-router';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { ArrowLeft01Icon } from '@hugeicons/core-free-icons';
 import { Badge } from '../../components/ui/badge';
@@ -15,8 +15,14 @@ import { updatedLabel } from './model';
 
 export function ResourcePage() {
   const params = useParams({ from: '/resources/$owner/$type/$name' });
-  const resourceQuery = useQuery({ queryKey: ['resource', params.owner, params.type, params.name], queryFn: () => api.resource(params.owner, params.type, params.name) });
+  const search = useSearch({ from: '/resources/$owner/$type/$name' });
+  const registryParam = typeof search.registry === 'string' ? search.registry : undefined;
+  const resourceQuery = useQuery({
+    queryKey: ['resource', params.owner, params.type, params.name, registryParam],
+    queryFn: () => api.resource(params.owner, params.type, params.name, registryParam),
+  });
   const resource = resourceQuery.data?.resource;
+  const activeRegistry = resourceQuery.data?.registry;
 
   if (resourceQuery.isPending) return <ResourceSkeleton />;
   if (resourceQuery.error || !resource) return <ErrorMessage message={resourceQuery.error instanceof Error ? resourceQuery.error.message : 'Resource not found.'} />;
@@ -33,6 +39,7 @@ export function ResourcePage() {
             <h1 className="text-2xl font-semibold tracking-tight">{resource.name}</h1>
             <Badge {...badgeTone('muted')}>{RESOURCE_TYPE_LABELS[resource.type]}</Badge>
             {resource.reviewStatus !== 'reviewed' && <Badge {...badgeTone('warning')}>Unreviewed</Badge>}
+            {activeRegistry && <Badge {...badgeTone('secondary')}>{activeRegistry}</Badge>}
           </div>
           <p className="mt-1.5 truncate font-mono text-xs text-muted-foreground">
             {resource.owner}/{resource.type} · v{resource.latestVersion} · Updated {updatedLabel(resource.updatedAt)}
@@ -40,11 +47,43 @@ export function ResourcePage() {
           <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">{resource.description}</p>
         </div>
       </div>
+      <RegistrySourceSwitcher
+        owner={params.owner}
+        type={params.type}
+        name={params.name}
+        active={activeRegistry}
+      />
       {resourceQuery.data.error && <ErrorMessage message={resourceQuery.data.error} />}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <FilesSection version={version} hasError={Boolean(resourceQuery.data.error)} />
-        <InstallPanel resource={resource} />
+        <InstallPanel resource={resource} registry={activeRegistry} />
       </div>
+    </div>
+  );
+}
+
+function RegistrySourceSwitcher({ owner, type, name, active }: {
+  owner: string;
+  type: string;
+  name: string;
+  active?: string | undefined;
+}) {
+  const registry = useQuery({ queryKey: ['registry'], queryFn: api.registry });
+  const sources = registry.data?.sources?.[`${owner}/${type}/${name}`] ?? [];
+  if (sources.length <= 1) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <span>Also in {sources.length - 1} other {sources.length === 2 ? 'registry' : 'registries'}:</span>
+      {sources.map((entry) => (
+        <Button
+          key={entry.registry.id}
+          size="xs"
+          variant={entry.registry.id === active ? 'secondary' : 'outline'}
+          render={<Link to="/resources/$owner/$type/$name" params={{ owner, type, name }} search={{ registry: entry.registry.id }} />}
+        >
+          {entry.registry.id} v{entry.summary.latestVersion}
+        </Button>
+      ))}
     </div>
   );
 }

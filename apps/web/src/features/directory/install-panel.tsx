@@ -13,7 +13,7 @@ import { badgeTone } from './shared';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Cancel01Icon, PlayListAddIcon } from '@hugeicons/core-free-icons';
 
-export function InstallPanel({ resource }: { resource: ResourceSummary }) {
+export function InstallPanel({ resource, registry }: { resource: ResourceSummary; registry?: string | undefined }) {
   const { installations, localResources, selection, toggleSelected, setEntryHarnesses, setSheet, harnessDetection } = useDirectory();
   const queryClient = useQueryClient();
   const id = resourceKey(resource);
@@ -21,6 +21,7 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
   // Partial coverage (installed for some harnesses only) shows as a hint.
   const records = installations.filter((item) => item.resource === id);
   const installed = records.length > 0;
+  const pinnedRegistry = records.find((item) => item.registry)?.registry;
   const entry = selection.find((item) => item.id === id);
   const selected = entry !== undefined;
   const undetected = harnessDetection?.filter((item) => !item.detected).map((item) => item.harness);
@@ -73,10 +74,15 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
                 </p>
               )}
             </div>
+            {pinnedRegistry && (
+              <p className="text-xs text-muted-foreground">
+                Installed from registry {pinnedRegistry}. Updates stay on that source.
+              </p>
+            )}
             <Button
               className="w-full"
               variant={selected ? 'secondary' : 'default'}
-              onClick={() => toggleSelected(id)}
+              onClick={() => toggleSelected(id, registry)}
               aria-pressed={selected}
               aria-label={selected ? `Remove ${id} from batch install` : `Add ${id} to batch install`}
             >
@@ -94,7 +100,7 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
           </TabsContent>
           <TabsContent value="installed" className="flex flex-col gap-3 pt-4">
             {installed ? (
-              <InstalledRows id={id} localRows={localRows} />
+              <InstalledRows id={id} localRows={localRows} records={records} />
             ) : (
               <p className="text-xs text-muted-foreground">Not installed on this machine yet.</p>
             )}
@@ -111,17 +117,19 @@ export function InstallPanel({ resource }: { resource: ResourceSummary }) {
   );
 }
 
-function InstalledRows({ id, localRows }: {
+function InstalledRows({ id, localRows, records = [] }: {
   id: string;
   localRows: ReturnType<typeof useDirectory>['localResources'];
+  records?: ReturnType<typeof useDirectory>['installations'];
 }) {
   const queryClient = useQueryClient();
+  const pinned = records.find((item) => item.registry)?.registry;
 
   const reinstallMutation = useMutation({
     mutationFn: (row: (typeof localRows)[number]) => api.install(
       row.type === 'mcp-servers'
-        ? { resource: id, harnesses: [row.harness], scope: row.scope ?? 'user' }
-        : { resource: id, harnesses: [row.harness] },
+        ? { resource: id, harnesses: [row.harness], scope: row.scope ?? 'user', ...(pinned ? { registry: pinned } : {}) }
+        : { resource: id, harnesses: [row.harness], ...(pinned ? { registry: pinned } : {}) },
     ),
     onSuccess: () => {
       toast.success(`Reinstalled ${id}.`);

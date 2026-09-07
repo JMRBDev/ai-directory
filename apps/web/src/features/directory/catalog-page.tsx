@@ -21,6 +21,14 @@ export function CatalogPage() {
     () => registry.data?.index?.resources.filter((resource) => resource.lifecycleStatus === 'active') ?? [],
     [registry.data],
   );
+  const sourceCount = useMemo(() => {
+    const sources = registry.data?.sources ?? {};
+    const result = new Map<string, Array<{ id: string; version: string }>>();
+    for (const [id, entries] of Object.entries(sources)) {
+      result.set(id, entries.map((entry) => ({ id: entry.registry.id, version: entry.summary.latestVersion })));
+    }
+    return result;
+  }, [registry.data]);
   const installedIds = useMemo(() => new Set(installations.map((item) => item.resource)), [installations]);
   const localIds = useMemo(() => new Set(localResources.filter((item) => !item.resource).map((item) => `${item.type}/${item.name}`)), [localResources]);
   const [selectedType, setSelectedType] = useState<ResourceType>();
@@ -57,9 +65,10 @@ export function CatalogPage() {
   if (registry.error) return <div className="flex flex-col gap-6"><PageIntro /><ErrorMessage message={registry.error instanceof Error ? registry.error.message : 'Could not load the registry.'} /></div>;
 
   const registryError = registry.data?.error;
+  const registryList = registry.data?.registries ?? [];
   return (
     <div className="flex flex-col gap-6">
-      <PageIntro />
+      <PageIntro registries={registryList.map((entry) => entry.id)} />
       {registryError && <ErrorMessage message={`${registryError} Run aid setup or pass --index <path>.`} />}
       {resources.length === 0 ? (
         <NoResourcesEmpty />
@@ -94,12 +103,15 @@ export function CatalogPage() {
                   <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {visible.map((resource) => {
                       const id = resourceKey(resource);
+                      const choices = sourceCount.get(id) ?? [];
                       return (
                         <CatalogCard
                           key={id}
                           resource={resource}
                           installed={installedIds.has(id)}
                           presentLocally={localIds.has(`${resource.type}/${resource.name}`)}
+                          registryCount={choices.length || 1}
+                          registryChoices={choices}
                         />
                       );
                     })}
@@ -131,12 +143,15 @@ export function CatalogPage() {
   );
 }
 
-function PageIntro() {
+function PageIntro({ registries }: { registries?: string[] }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 id="catalog-title" className="text-2xl font-semibold tracking-tight">Catalog</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Browse the registry, then install directly to this machine.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Browse the {registries && registries.length > 1 ? `${registries.length} registries` : 'registry'}, then install directly to this machine.
+          {registries && registries.length > 0 ? ` Priority: ${registries.join(' → ')}.` : ''}
+        </p>
       </div>
     </div>
   );

@@ -1,10 +1,28 @@
 import { cancel, confirm, isCancel } from '@clack/prompts';
 import { harnessSchema, HARNESS_ID_LIST, resourceTypeSchema, type ResourceType } from '@ai-directory/contracts';
-import { resolveRepository, type ConfigScope } from '@ai-directory/config';
-import { resolveRegistrySource, type RegistrySourceOptions } from '@ai-directory/registry';
+import {
+  normalizeRegistryId,
+  readRegistryEntries,
+  resolveRepository,
+  type ConfigScope,
+} from '@ai-directory/config';
+import {
+  aggregateRegistrySources,
+  resolveRegistrySource,
+  type AggregatedRegistryIdentity,
+  type AggregatedRegistryResult,
+  type RegistrySource,
+  type RegistrySourceOptions,
+} from '@ai-directory/registry';
 import type { Harness } from '@ai-directory/installers';
 
 export const localIndexPath = process.env.AI_DIRECTORY_REGISTRY_INDEX;
+
+export type RegistryEndpoint = {
+  id: string;
+  source: RegistrySource;
+  identity: AggregatedRegistryIdentity;
+};
 
 export function reportError(cause: unknown): void {
   console.error(cause instanceof Error ? cause.message : cause);
@@ -20,20 +38,81 @@ export function isInteractiveTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }
 
+export function registryEndpoints(): RegistryEndpoint[] {
+  const configuredIndex = localIndexPath?.trim();
+  if (configuredIndex) {
+    return [{
+      id: 'local-index',
+      source: resolveRegistrySource({ indexPath: configuredIndex }),
+      identity: { id: 'local-index' },
+    }];
+  }
+  return readRegistryEntries()
+    .filter((entry) => entry.enabled !== false)
+    .map((entry) => ({
+      id: entry.id,
+      source: resolveRegistrySource({ repositoryUrl: entry.url, baseBranch: entry.branch ?? 'main' }),
+      identity: { id: entry.id, url: entry.url, branch: entry.branch ?? 'main' },
+    }));
+}
+
+export function getRegistryEndpoint(id?: string): RegistryEndpoint {
+  const endpoints = registryEndpoints();
+  if (endpoints.length === 0) {
+    throw new Error('No registry source configured. Run `aid setup` or pass `--index <path>`.');
+  }
+  if (!id?.trim()) {
+    const first = endpoints[0];
+    if (!first) throw new Error('No registry source configured.');
+    return first;
+  }
+  const normalized = normalizeRegistryId(id);
+  const match = endpoints.find((entry) => entry.id === normalized);
+  if (!match) throw new Error(`Unknown registry: ${id}.`);
+  return match;
+}
+
 export function getRegistrySource(
   indexPath?: string,
   repository?: string,
   baseBranch?: string,
+  registryId?: string,
 ) {
-  const repositoryUrl = resolveRepository(repository);
+  if (registryId?.trim()) return getRegistryEndpoint(registryId).source;
+  if (repository?.trim()) {
+    return resolveRegistrySource({
+      repositoryUrl: repository.trim(),
+      baseBranch: baseBranch?.trim() || 'main',
+    });
+  }
+  const repositoryUrl = resolveRepository(undefined);
   const sourceOptions: RegistrySourceOptions = {};
-  const localPath = indexPath ?? (repository?.trim() ? undefined : localIndexPath);
+  const localPath = indexPath ?? (!repositoryUrl ? localIndexPath : undefined);
 
   if (localPath) sourceOptions.indexPath = localPath;
   if (repositoryUrl) sourceOptions.repositoryUrl = repositoryUrl;
   if (baseBranch) sourceOptions.baseBranch = baseBranch;
 
   return resolveRegistrySource(sourceOptions);
+}
+
+export async function aggregatedRegistries(): Promise<AggregatedRegistryResult> {
+  const endpoints = registryEndpoints();
+  if (endpoints.length === 0) {
+    return { entries: [], registries: [], errors: [] };
+  }
+  return aggregateRegistrySources(
+    endpoints.map((endpoint) => ({ source: endpoint.source, registry: endpoint.identity })),
+  );
+}
+
+export function splitRegistrySuffix(resource: string): { id: string; registry?: string } {
+  const at = resource.lastIndexOf('@');
+  if (at <= 0) return { id: resource };
+  const id = resource.slice(0, at).trim();
+  const registry = resource.slice(at + 1).trim().toLowerCase();
+  if (!id || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(registry)) return { id: resource };
+  return { id, registry };
 }
 
 export function parseHarnesses(value: string | undefined, rawArgs: string[]): Harness[] {

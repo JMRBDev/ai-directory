@@ -44,9 +44,21 @@ export const RESOURCE_TYPE_LABELS = {
   tools: 'Tool',
 } satisfies Record<ResourceType, string>;
 
+export type RegistryIdentity = {
+  id: string;
+  url?: string;
+  branch?: string;
+};
+
+export type RegistrySourceEntry = {
+  summary: ResourceSummary;
+  registry: RegistryIdentity;
+};
+
 export type ConfigResponse = {
   repository: string | null;
   source: string;
+  registries: Array<RegistryIdentity & { scope: string; enabled: boolean }>;
   savedScope?: string;
   clearedScope?: string;
 };
@@ -55,12 +67,16 @@ export type RegistryResponse = {
   index: RegistryIndex | null;
   source: 'local' | 'remote' | 'none';
   repository?: string;
+  registries: RegistryIdentity[];
+  sources: Record<string, RegistrySourceEntry[]>;
+  errors: Array<{ registry: RegistryIdentity; error: string }>;
   error?: string;
 };
 
 export type ResourceResponse = {
   resource: ResourceSummary;
   version: ResourceVersion | null;
+  registry?: string;
   error?: string;
 };
 

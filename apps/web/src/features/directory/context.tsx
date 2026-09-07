@@ -6,6 +6,7 @@ import type { SheetName } from './model';
 export type BatchEntry = {
   id: string;
   harnesses: Harness[];
+  registry?: string | undefined;
 };
 
 export type DirectoryContextValue = {
@@ -26,7 +27,7 @@ export type DirectoryContextValue = {
   setSheet: (sheet: SheetName) => void;
   setHarnesses: (harnesses: Harness[]) => void;
   setScope: (scope: InstallScope) => void;
-  toggleSelected: (id: string) => void;
+  toggleSelected: (id: string, registry?: string | undefined) => void;
   setEntryHarnesses: (id: string, harnesses: Harness[]) => void;
   clearSelection: () => void;
   refreshRegistry: () => Promise<void>;

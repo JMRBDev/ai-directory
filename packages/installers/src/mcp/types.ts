@@ -68,6 +68,7 @@ export type McpOperation = {
   resourceIds?: string[];
   scope?: ConfigScope;
   warningResources?: ResourceVersion[];
+  registry?: string;
 };
 
 export type McpChange = {
