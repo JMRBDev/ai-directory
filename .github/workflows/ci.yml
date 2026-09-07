@@ -30,3 +30,10 @@ jobs:
 
       - name: Smoke test
         run: node apps/cli/dist/main.cjs --help
+
+      - name: Tarball check
+        run: |
+          test -f apps/cli/dist/main.cjs
+          test -f apps/cli/dist/web/index.html
+          test -f apps/cli/README.md
+          test -f apps/cli/LICENSE

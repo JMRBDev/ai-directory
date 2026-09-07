@@ -13,3 +13,7 @@ coverage/
 .ai-directory/
 registry-cache/
 artifacts/
+
+# Generated publish copies (rebuilt by apps/cli build step)
+apps/cli/README.md
+apps/cli/LICENSE
