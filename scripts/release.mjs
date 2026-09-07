@@ -16,7 +16,14 @@ const cliPackagePath = join(repoRoot, 'apps', 'cli', 'package.json');
 const REQUIRED_TARBALL_FILES = ['dist/main.cjs', 'dist/web/index.html', 'README.md', 'LICENSE'];
 
 function run(command, args, options = {}) {
-  return execFileSync(command, args, { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe', ...options }).trim();
+  const { stdio, ...rest } = options;
+  // stdio:inherit streams to the terminal and yields no captured output.
+  // Callers that pass it do not use the return value.
+  if (stdio === 'inherit') {
+    execFileSync(command, args, { cwd: repoRoot, encoding: 'utf8', stdio: 'inherit', ...rest });
+    return '';
+  }
+  return execFileSync(command, args, { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe', ...rest }).trim();
 }
 
 function fail(message) {
