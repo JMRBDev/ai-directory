@@ -20,7 +20,7 @@
     "@ai-directory/contracts": "workspace:*",
     "@ai-directory/installers": "workspace:*",
     "@ai-directory/registry": "workspace:*",
-    "hono": "^4.13.1",
+    "hono": "^4.13.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
