@@ -3,3 +3,7 @@ packages:
   - packages/*
 allowBuilds:
   esbuild: true
+overrides:
+  js-yaml: 4.3.2
+  qs: 6.16.0
+  "tsup>esbuild": 0.28.1
